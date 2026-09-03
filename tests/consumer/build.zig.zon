@@ -1,0 +1,10 @@
+.{
+    .name = .zrecast_consumer,
+    .version = "0.0.0",
+    .fingerprint = 0x41f42917e6141606,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .zrecast = .{ .path = "../.." },
+    },
+    .paths = .{""},
+}

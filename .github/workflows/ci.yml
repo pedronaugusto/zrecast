@@ -1,0 +1,235 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: 0.16.0
+
+jobs:
+  # The full suite, executed on every supported host. `ci/run.sh` mirrors these
+  # steps locally; they are spelled out here so each one reports its own status.
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      # Only our own sources: libs/recastnavigation is vendored verbatim and
+      # reformatting it would make the next re-vendor an unreadable diff.
+      - name: Formatting
+        run: zig fmt --check src build.zig examples tests/consumer
+
+      # Every optimize mode with Zig's C undefined-behaviour sanitizer both on
+      # and off. On is what would catch UB in the vendored C++; off is how a
+      # consumer actually builds, and the sanitizer changes code generation
+      # enough that both are worth running.
+      - name: Test — Debug, sanitizer on
+        run: zig build test -Doptimize=Debug -Dsanitize_c=true
+
+      - name: Test — Debug, sanitizer off
+        run: zig build test -Doptimize=Debug -Dsanitize_c=false
+
+      - name: Test — ReleaseSafe, sanitizer on
+        run: zig build test -Doptimize=ReleaseSafe -Dsanitize_c=true
+
+      - name: Test — ReleaseSafe, sanitizer off
+        run: zig build test -Doptimize=ReleaseSafe -Dsanitize_c=false
+
+      - name: Test — ReleaseFast, sanitizer on
+        run: zig build test -Doptimize=ReleaseFast -Dsanitize_c=true
+
+      - name: Test — ReleaseFast, sanitizer off
+        run: zig build test -Doptimize=ReleaseFast -Dsanitize_c=false
+
+      - name: Test — ReleaseSmall, sanitizer on
+        run: zig build test -Doptimize=ReleaseSmall -Dsanitize_c=true
+
+      - name: Test — ReleaseSmall, sanitizer off
+        run: zig build test -Doptimize=ReleaseSmall -Dsanitize_c=false
+
+      # The C boundary on its own, with no Zig in the picture — the header is a
+      # real C contract, not a private detail of the wrapper.
+      - name: Test — C ABI standalone
+        run: zig build test-c
+
+      # A downstream package's view: the module through b.dependency and the
+      # installed artifact through linkLibrary + installHeader. Nothing in src/
+      # exercises either resolution path. The asserts-off arm is there because
+      # the consumer forwards that option, and an option nothing forwards is
+      # dead wiring.
+      - name: Consumer — Zig and C via b.dependency
+        run: zig build --build-file tests/consumer/build.zig run
+
+      - name: Consumer — asserts off
+        run: zig build --build-file tests/consumer/build.zig run -Denable_asserts=false
+
+      # Zig's default ABI on a Windows host is gnu, so everything above builds
+      # the gnu path. The MSVC path has its own branches in build.zig — no
+      # libc++, no -fno-exceptions/-fno-rtti — and would otherwise never be
+      # compiled by anything.
+      # A cross-compile that links is not evidence the suite passes; on the
+      # Windows runner the MSVC target is native, so it runs.
+      - name: Test — Windows MSVC ABI
+        if: runner.os == 'Windows'
+        run: zig build test -Dtarget=x86_64-windows-msvc
+
+      - name: Test — C ABI standalone, Windows MSVC
+        if: runner.os == 'Windows'
+        run: zig build test-c -Dtarget=x86_64-windows-msvc
+
+      - name: Build — Windows gnu ABI, explicitly
+        if: runner.os == 'Windows'
+        run: zig build -Dtarget=x86_64-windows-gnu
+
+  # Compile-only coverage of the targets the suite cannot execute on. These
+  # prove the sources and build graph are portable; the `test` job above is what
+  # proves behaviour.
+  cross-compile:
+    name: cross (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-linux-gnu
+          - aarch64-linux-gnu
+          - x86_64-linux-musl
+          - aarch64-linux-musl
+          - x86_64-windows-gnu
+          - aarch64-windows-gnu
+          - x86_64-macos
+          - aarch64-macos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build -Dtarget=${{ matrix.target }}
+
+  # Build options that change what the C++ compiles to, so a regression in one
+  # configuration cannot hide behind the defaults.
+  configurations:
+    name: build configurations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Shared library
+        run: zig build -Dshared=true
+      - name: Asserts disabled
+        run: zig build -Denable_asserts=false
+      - name: ReleaseFast with asserts enabled
+        run: zig build -Doptimize=ReleaseFast -Denable_asserts=true
+
+  # The checks that do not need a build. They are their own job because the
+  # coverage gate is the thing the parity claim rests on, and it must be able to
+  # fail a pull request on its own rather than only inside a matrix leg that
+  # something else already failed.
+  hygiene:
+    name: hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Installed headers cover every include
+        run: |
+          comm -23 \
+            <(grep -hoE '#include "zrecast_[a-z_]+\.h"' ffi/zrecast.h |
+              sed 's/#include "//; s/"//' | sort -u) \
+            <(grep -oE 'ffi/zrecast_[a-z_]+\.h' build.zig | sed 's|ffi/||' | sort -u) |
+          grep . && { echo "not in build.zig's installHeader list"; exit 1; }; exit 0
+
+      - name: Comment standard
+        run: ci/check-comments.sh
+
+      - name: Scripts are executable in the index
+        run: ci/check-executable.sh
+
+      - name: run.sh mirrors ci.yml
+        run: ci/check-mirror.sh
+
+      - name: Coverage — every public name has a verdict
+        run: ci/check-coverage.sh --list
+
+  # Every invariant, mutated, with the test that has to notice named alongside
+  # it. Its own job because it rebuilds the suite once per probe, which is far
+  # too slow for the inner loop and exactly the right cost for a pull request.
+  probes:
+    name: mutation probes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Probes
+        run: ci/probe.sh
+
+  # The cook digests, compared across targets. QEMU gives the runner both
+  # architectures of musl and glibc in containers; the gate is that targets
+  # sharing a C library agree, and a cross-library difference is reported.
+  determinism:
+    name: cook determinism
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: Determinism across targets
+        run: ci/determinism.sh --strict
+        env:
+          # The aarch64 containers run under emulation, which is slow enough
+          # that the native-speed timeout would cut a healthy run short.
+          ZRECAST_RUN_TIMEOUT: 1800
+
+  # Every number the documents publish, regenerated from the tree and compared.
+  # Needs a build (the test count comes from the suite), so it is not part of
+  # the hygiene job.
+  docs:
+    name: documentation numbers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Generated blocks and hand-written numbers
+        run: ci/check-docs.sh
+
+  # Proves libs/ is still a pristine copy of the pinned upstream commit, rather
+  # than a claim in a markdown file. Needs network, so it is its own job and is
+  # not part of the local inner loop.
+  vendor-integrity:
+    name: vendor integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ci/verify-vendor.sh
