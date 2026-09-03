@@ -1,0 +1,16 @@
+# expect: area authoring Recast could not read is refused before anything is baked
+--- a/ffi/zrecast_internal.h
++++ b/ffi/zrecast_internal.h
+@@ -429,12 +429,6 @@
+     }
+   }
+ 
+-  // An unwalkable polygon that some filter still admits is a polygon a path
+-  // can cross.
+-  if (authoring.area_flags != nullptr &&
+-      authoring.area_flags[ZRC_AREA_NULL] != 0) {
+-    return ZRC_ERR_INVALID_ARGUMENT;
+-  }
+   return ZRC_OK;
+ }
+ 

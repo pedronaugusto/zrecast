@@ -1,0 +1,12 @@
+# expect: FAIL zrcPolyMeshBuild(NULL, contours, ZRC_VERTS_PER_POLYGON, poly) ==
+--- a/ffi/zrecast_stages.cpp
++++ b/ffi/zrecast_stages.cpp
+@@ -436,7 +436,7 @@
+   if (verts_per_poly < 3 || verts_per_poly > ZRC_VERTS_PER_POLYGON) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+-  if (PolyHalfFilled(*mesh->poly)) return ZRC_ERR_ALREADY_BUILT;
++  if (false) return ZRC_ERR_ALREADY_BUILT;
+ 
+   zrc::HostContext ctx(context);
+   const bool ok = rcBuildPolyMesh(&ctx, *contours->impl, verts_per_poly,

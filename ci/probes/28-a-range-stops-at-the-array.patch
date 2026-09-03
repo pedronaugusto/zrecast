@@ -1,0 +1,11 @@
+# expect: a range outside an array is an error rather than a short read
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -79,7 +79,6 @@
+   if (first < 0 || count < 0) return ZRC_ERR_INVALID_ARGUMENT;
+   const int64_t end = static_cast<int64_t>(first) + static_cast<int64_t>(count);
+   if (end > static_cast<int64_t>(0x7fffffff)) return ZRC_ERR_INVALID_ARGUMENT;
+-  if (end > static_cast<int64_t>(array_count)) return ZRC_ERR_INVALID_ARGUMENT;
+   return ZRC_OK;
+ }
+ 

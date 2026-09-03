@@ -1,0 +1,13 @@
+# expect: a range outside an array is an error rather than a short read
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -1350,9 +1350,6 @@
+   }
+   const dtMeshTile* tile = ResidentTileByRef(*navmesh->impl, ref);
+   if (tile == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+-  if (index < 0 || index >= tile->header->polyCount) {
+-    return ZRC_ERR_INVALID_ARGUMENT;
+-  }
+   // getPolyRefBase encodes the tile's index and salt and leaves the polygon
+   // bits clear, so the index bounded above completes the reference. Composing
+   // it here rather than exposing the base keeps reference arithmetic on this

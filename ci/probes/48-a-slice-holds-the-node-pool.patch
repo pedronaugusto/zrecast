@@ -1,0 +1,15 @@
+# expect: FAIL zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, &filter,
+--- a/ffi/zrecast_query.cpp
++++ b/ffi/zrecast_query.cpp
+@@ -358,10 +358,8 @@
+   }
+   if (start_ref == 0 || end_ref == 0) return ZRC_ERR_INVALID_ARGUMENT;
+ 
+-  // findPath is one of the five entry points that clears the shared node
+-  // pool (DetourNavMeshQuery.cpp:1003); see CheckNotSlicing.
+   const ZrcResult slicing = CheckNotSlicing(query);
+-  if (slicing != ZRC_OK) return slicing;
++  if (slicing == ZRC_ERR_INVALID_ARGUMENT) return slicing;
+ 
+   dtQueryFilter dt_filter;
+   const ZrcResult ready =

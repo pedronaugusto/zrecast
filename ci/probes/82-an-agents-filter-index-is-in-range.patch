@@ -1,0 +1,16 @@
+# expect: an agent's parameters are checked where upstream indexes unchecked
+#
+# The worse of the two: a dtQueryFilter is 264 bytes and the table holds
+# sixteen, so the largest value this byte can carry reads roughly 63 kilobytes
+# past the end of the crowd, at fourteen call sites, every frame.
+--- a/ffi/zrecast_internal.h
++++ b/ffi/zrecast_internal.h
+@@ -871,7 +871,7 @@
+   if (params.obstacle_avoidance_type >= ZRC_CROWD_MAX_AVOIDANCE_PARAMS) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+-  if (params.query_filter_type >= ZRC_CROWD_MAX_FILTERS) {
++  if (false) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+   return ZRC_OK;

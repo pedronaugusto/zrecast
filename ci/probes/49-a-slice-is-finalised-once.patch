@@ -1,0 +1,18 @@
+# expect: FAIL zrcSlicedFindPathFinalize(query, sliced, 256, &again_len,
+--- a/ffi/zrecast_query.cpp
++++ b/ffi/zrecast_query.cpp
+@@ -635,14 +635,6 @@
+   // gets the buffer wrong should get an error, not an error and a search
+   // silently thrown away.
+   if (out_path == nullptr || max_path < 1) return ZRC_ERR_INVALID_ARGUMENT;
+-
+-  // Cleared before upstream is called, on every path from here on. This is
+-  // what closes the double-finalise hazard: with the flag already clear, a
+-  // second call is ZRC_ERR_NO_SEARCH above and never reaches upstream's own
+-  // zeroed-state branch, which would otherwise misread as "start and end are
+-  // the same polygon" and return a bogus one-element path
+-  // (DetourNavMeshQuery.cpp:1516-1520, 1579).
+-  query->slicing = false;
+ 
+   int count = 0;
+   const dtStatus status =

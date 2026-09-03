@@ -1,0 +1,15 @@
+# expect: a tile count and polygon count that leave Detour no salt are refused
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -35,9 +35,8 @@
+       dtIlog2(dtNextPow2(static_cast<unsigned int>(max_tiles)));
+   const unsigned int poly_bits =
+       dtIlog2(dtNextPow2(static_cast<unsigned int>(max_polys)));
+-  if (tile_bits + poly_bits > 32u) return false;
+-  const unsigned int salt_bits = 32u - tile_bits - poly_bits;
+-  return salt_bits >= 10u;
++  (void)tile_bits; (void)poly_bits;
++  return true;
+ }
+ 
+ /// Tiles currently resident, counted by inspection.

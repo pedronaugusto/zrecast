@@ -1,0 +1,12 @@
+# expect: the polygons around a circle form a tree the corridor walks back up
+--- a/src/query.zig
++++ b/src/query.zig
+@@ -320,7 +320,7 @@
+     for (lens) |l| {
+         if (l == 0) continue;
+         if (shared) |s| {
+-            if (l != s) return err.Error.InvalidArgument;
++            if (l < s) shared = l;
+         } else shared = l;
+     }
+     return std.math.cast(i32, shared orelse 0) orelse err.Error.InvalidArgument;

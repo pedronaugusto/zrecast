@@ -1,0 +1,16 @@
+# expect: the Zig vector math is bit-identical to the C
+--- a/src/vec.zig
++++ b/src/vec.zig
+@@ -37,7 +37,11 @@
+ /// `a + b * s`. Two operations, not `@mulAdd`: the fused form rounds once
+ /// where upstream's separate multiply-then-add rounds twice.
+ pub inline fn mad(a: Vec3, b: Vec3, s: f32) Vec3 {
+-    return .{ a[0] + b[0] * s, a[1] + b[1] * s, a[2] + b[2] * s };
++    return .{
++        @mulAdd(f32, b[0], s, a[0]),
++        @mulAdd(f32, b[1], s, a[1]),
++        @mulAdd(f32, b[2], s, a[2]),
++    };
+ }
+ 
+ pub inline fn lerp(a: Vec3, b: Vec3, t: f32) Vec3 {

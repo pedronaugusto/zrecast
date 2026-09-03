@@ -1,0 +1,11 @@
+# expect: the polygon accessors refuse a reference they cannot resolve
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -870,7 +870,6 @@
+   if (navmesh == nullptr || navmesh->impl == nullptr || ref == 0) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+-  if (area < 0 || area >= ZRC_MAX_AREAS) return ZRC_ERR_INVALID_ARGUMENT;
+   const dtStatus status = navmesh->impl->setPolyArea(
+       static_cast<dtPolyRef>(ref), static_cast<unsigned char>(area));
+   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);

@@ -1,0 +1,12 @@
+# expect: FAIL zrcQueryNodeAt(query, (unsigned int)pool.node_count + 1u, &node)
+--- a/ffi/zrecast_query.cpp
++++ b/ffi/zrecast_query.cpp
+@@ -1309,7 +1309,7 @@
+   // last search actually populated reads live but uninitialised memory rather
+   // than faulting. Bounding against the node count the pool itself reports
+   // keeps this to what a search has actually written.
+-  if (index > static_cast<uint32_t>(pool->getNodeCount())) {
++  if (index > static_cast<uint32_t>(pool->getMaxNodes())) {
+     return ZRC_ERR_NOT_FOUND;
+   }
+   dtNode* node = pool->getNodeAtIdx(index);

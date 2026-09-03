@@ -1,0 +1,12 @@
+# expect: an image whose off-mesh header fields disagree is rejected
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -572,7 +572,7 @@
+   // Bounded against polyCount before the addition, not merely against zero: an
+   // offMeshBase of INT_MAX would make the sum itself signed overflow, which is
+   // undefined behaviour in the check meant to catch it.
+-  if (header.offMeshBase < 0 || header.offMeshBase > header.polyCount ||
++  if (header.offMeshBase < 0 ||
+       header.offMeshBase + header.offMeshConCount != header.polyCount) {
+     return ZRC_ERR_BAD_FORMAT;
+   }

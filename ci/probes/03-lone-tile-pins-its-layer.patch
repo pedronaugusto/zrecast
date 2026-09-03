@@ -1,0 +1,12 @@
+# expect: a navmesh image with a doctored header is rejected
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -378,7 +378,7 @@
+   TileAdmission admission;
+   admission.max_tile_x = 0;
+   admission.max_tile_z = 0;
+-  admission.max_tile_layer = 0;
++  admission.max_tile_layer = ZRC_MAX_TILE_LAYER;
+   admission.allow_portals = false;
+   return admission;
+ }

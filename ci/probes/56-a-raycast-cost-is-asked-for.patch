@@ -1,0 +1,12 @@
+# expect: an option a query takes changes what it answers
+--- a/src/query.zig
++++ b/src/query.zig
+@@ -530,7 +530,7 @@
+             &start_pos,
+             &end_pos,
+             filter,
+-            options.toC(),
++            options.toC() & 0,
+             prev_ref orelse 0,
+             &raw_hit,
+             if (out_path) |path| path.ptr else null,

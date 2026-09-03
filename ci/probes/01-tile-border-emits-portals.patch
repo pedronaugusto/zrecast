@@ -1,0 +1,13 @@
+# expect: a path crosses a tile boundary
+--- a/ffi/zrecast_bake.cpp
++++ b/ffi/zrecast_bake.cpp
+@@ -765,8 +765,7 @@
+   // Negative derives the border from the walkable radius, matching Recast's
+   // own tiled build; an explicit width passes through unchanged.
+   cfg.tileSize = config->tile_size;
+-  cfg.borderSize =
+-      config->border_size < 0 ? cfg.walkableRadius + 3 : config->border_size;
++  cfg.borderSize = 0;
+   cfg.width = cfg.tileSize + cfg.borderSize * 2;
+   cfg.height = cfg.tileSize + cfg.borderSize * 2;
+ 

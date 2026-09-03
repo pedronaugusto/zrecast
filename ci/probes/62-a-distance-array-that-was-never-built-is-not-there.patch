@@ -1,0 +1,11 @@
+# expect: FAIL zrcCompactHeightfieldDistances(chf, 0, 0, NULL) == ZRC_ERR_NOT_FOUND
+--- a/ffi/zrecast_pipeline.cpp
++++ b/ffi/zrecast_pipeline.cpp
+@@ -383,7 +383,6 @@
+   const rcCompactHeightfield& chf = *field->impl;
+   // Checked before CheckRange: with no distance array there is no range to
+   // bound against.
+-  if (chf.dist == nullptr) return ZRC_ERR_NOT_FOUND;
+   const ZrcResult range_ok = zrc::CheckRange(first, count, chf.spanCount);
+   if (range_ok != ZRC_OK) return range_ok;
+   if (count == 0) return ZRC_OK;

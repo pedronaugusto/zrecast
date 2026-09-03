@@ -1,0 +1,12 @@
+# expect: the tile layout is the one Detour derives from the same bytes
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -1735,7 +1735,7 @@
+   out->verts_size = static_cast<int64_t>(sizeof(float)) * 3 * header.vertCount;
+   out->polys_offset = layout.polys;
+   out->polys_size = static_cast<int64_t>(sizeof(dtPoly)) * header.polyCount;
+-  out->links_offset = layout.links;
++  out->links_offset = layout.detail_meshes;
+   out->links_size = static_cast<int64_t>(sizeof(dtLink)) * header.maxLinkCount;
+   out->detail_meshes_offset = layout.detail_meshes;
+   out->detail_meshes_size =

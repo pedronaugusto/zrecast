@@ -1,0 +1,19 @@
+# expect: a debug view that outlived its agent does not stop the crowd
+#
+# Refusing the frame instead of the recording is how a debug view that outlived
+# its agent stops every other agent advancing. The reference in a host's debug
+# struct goes stale the moment that agent is removed, which is ordinary.
+--- a/ffi/zrecast_crowd.cpp
++++ b/ffi/zrecast_crowd.cpp
+@@ -743,8 +743,9 @@
+     // a host holding a reference across frames and removing that agent is the
+     // ordinary case, not a misuse.
+     int32_t slot = -1;
+-    if (debug->agent != 0 &&
+-        ResolveAgent(crowd, debug->agent, &slot) == ZRC_OK) {
++    if (debug->agent != 0) {
++      const ZrcResult r = ResolveAgent(crowd, debug->agent, &slot);
++      if (r != ZRC_OK) return r;
+       // Upstream's own idx names a position in the active-agent snapshot
+       // update() builds this frame (DetourCrowd.cpp:1066, 1136, 1302), not a
+       // pool slot: counted here as how many lower slots are currently active,

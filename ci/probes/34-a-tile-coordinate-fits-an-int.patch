@@ -1,0 +1,14 @@
+# expect: a position no tile coordinate could name is refused
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -1264,10 +1264,6 @@
+   // exact range an int can hold. Written as a negation so a NaN quotient,
+   // which compares false against everything, is refused rather than let
+   // through.
+-  if (!(tile_x >= -2147483648.0 && tile_x < 2147483648.0) ||
+-      !(tile_z >= -2147483648.0 && tile_z < 2147483648.0)) {
+-    return ZRC_ERR_INVALID_ARGUMENT;
+-  }
+ 
+   navmesh->impl->calcTileLoc(pos, out_tile_x, out_tile_z);
+   return ZRC_OK;

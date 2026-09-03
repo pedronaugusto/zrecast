@@ -1,0 +1,11 @@
+# expect: a reference naming a free slot is refused rather than dereferenced
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -65,7 +65,6 @@
+ const dtMeshTile* ResidentTileByRef(const dtNavMesh& mesh, ZrcTileRef ref) {
+   if (ref == 0) return nullptr;
+   const dtMeshTile* tile = mesh.getTileByRef(static_cast<dtTileRef>(ref));
+-  if (tile == nullptr || tile->header == nullptr) return nullptr;
+   return tile;
+ }
+ 

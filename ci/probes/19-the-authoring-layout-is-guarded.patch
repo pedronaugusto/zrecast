@@ -1,0 +1,13 @@
+# expect: the C library agrees with the extern declarations in c.zig
+--- a/src/c.zig
++++ b/src/c.zig
+@@ -136,8 +136,8 @@
+ pub const AreaVolume = extern struct {
+     shape: VolumeShape,
+     area: i32,
+-    y_min: f32,
+     y_max: f32,
++    y_min: f32,
+     verts: ?[*]const f32,
+     vert_count: i32,
+     xz_min: [2]f32,

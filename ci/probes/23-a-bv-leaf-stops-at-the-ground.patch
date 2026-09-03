@@ -1,0 +1,12 @@
+# expect: an image whose off-mesh connection lies about itself is rejected
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -439,7 +439,7 @@
+   for (int i = 0; i < header.bvNodeCount; ++i) {
+     const dtBVNode node = ReadAt<dtBVNode>(data, layout.bvtree, i);
+     if (node.i >= 0) {
+-      if (node.i >= header.offMeshBase) return ZRC_ERR_BAD_FORMAT;
++      if (node.i >= poly_count) return ZRC_ERR_BAD_FORMAT;
+     } else {
+       // An escape jump of zero would not terminate; one past the end is fine,
+       // because the traversal simply runs off and stops.

@@ -1,0 +1,12 @@
+# expect: a hand-built mesh carries the agent it was built for, or is refused
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -713,7 +713,7 @@
+   // stage by stage receives them from zrcPolyMeshSetAgentDims, and one that
+   // never did would describe an agent of size zero — a tile whose polygons
+   // every agent fits through.
+-  if (!mesh.has_agent_dims) return ZRC_ERR_INVALID_ARGUMENT;
++  if (false) return ZRC_ERR_INVALID_ARGUMENT;
+   if (authoring != nullptr) {
+     const ZrcResult authoring_valid = ValidateTileAuthoring(*authoring);
+     if (authoring_valid != ZRC_OK) return authoring_valid;

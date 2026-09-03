@@ -1,0 +1,16 @@
+# expect: FAIL zrcAvoidanceDebugSampleAt(debug, recorded, &sample) ==
+#
+# All seven of upstream's sample accessors index their arrays with no check of
+# any kind, not even an assert (DetourObstacleAvoidance.h:51-58), and on a
+# recorder that was never initialised the first is arithmetic on a null.
+--- a/ffi/zrecast_steering.cpp
++++ b/ffi/zrecast_steering.cpp
+@@ -516,7 +516,7 @@
+   memset(out, 0, sizeof(*out));
+   if (debug == nullptr || debug->impl == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+   const dtObstacleAvoidanceDebugData& impl = *debug->impl;
+-  if (index < 0 || index >= impl.getSampleCount()) return ZRC_ERR_INVALID_ARGUMENT;
++  if (false) return ZRC_ERR_INVALID_ARGUMENT;
+ 
+   const float* velocity = impl.getSampleVelocity(index);
+   out->velocity[0] = velocity[0];

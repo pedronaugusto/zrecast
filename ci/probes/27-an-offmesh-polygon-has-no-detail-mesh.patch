@@ -1,0 +1,12 @@
+# expect: a connection reads back as it was authored
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -1331,7 +1331,7 @@
+   // that array.
+   const unsigned int poly_index =
+       navmesh->impl->decodePolyIdPoly(static_cast<dtPolyRef>(ref));
+-  if (static_cast<int>(poly_index) < tile->header->offMeshBase) {
++  {
+     const dtPolyDetail& detail = tile->detailMeshes[poly_index];
+     out->detail_vert_base = detail.vertBase;
+     out->detail_tri_base = detail.triBase;

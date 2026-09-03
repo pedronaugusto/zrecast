@@ -1,0 +1,12 @@
+# expect: a mesh with no detail half is a navmesh Detour derives the height for
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -747,7 +747,7 @@
+   // arrays instead would describe a detail mesh covering no polygon while the
+   // tile claims many, which dtCreateNavMeshData lays out and every later
+   // height query reads past.
+-  const bool has_detail = detail.meshes != nullptr && detail.nmeshes > 0;
++  const bool has_detail = true;
+   if (has_detail && detail.nmeshes != poly.npolys) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }

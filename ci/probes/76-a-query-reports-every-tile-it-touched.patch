@@ -1,0 +1,12 @@
+# expect: an obstacle touching more tiles than the cache can track is refused
+--- a/ffi/zrecast_tilecache.cpp
++++ b/ffi/zrecast_tilecache.cpp
+@@ -880,7 +880,7 @@
+   for (int32_t i = 0; i < to_copy; ++i) {
+     out[i] = static_cast<ZrcCompressedTileRef>(all[i]);
+   }
+-  *out_count = total;
++  *out_count = to_copy;
+   if (total > max_tiles) return ZRC_ERR_BUFFER_TOO_SMALL;
+   return ZRC_OK;
+ }

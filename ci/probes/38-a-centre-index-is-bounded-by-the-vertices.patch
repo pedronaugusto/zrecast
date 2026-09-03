@@ -1,0 +1,12 @@
+# expect: an array length the C cannot check is checked here
+--- a/ffi/zrecast_geom.cpp
++++ b/ffi/zrecast_geom.cpp
+@@ -254,7 +254,7 @@
+   }
+   if (indices == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+   for (int32_t j = 0; j < index_count; ++j) {
+-    if (indices[j] >= vert_count) return ZRC_ERR_INVALID_ARGUMENT;
++    if (indices[j] >= 0xffff) return ZRC_ERR_INVALID_ARGUMENT;
+   }
+ 
+   dtCalcPolyCenter(out_center, indices, index_count, verts);

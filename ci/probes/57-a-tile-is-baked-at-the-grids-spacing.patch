@@ -1,0 +1,12 @@
+# expect: a tile baked from one config into another config's grid is refused
+--- a/ffi/zrecast_bake.cpp
++++ b/ffi/zrecast_bake.cpp
+@@ -806,7 +806,7 @@
+   // succeeds. Both sides evaluate the same product of the same two config
+   // fields, so they agree bit for bit when they agree at all and a tolerance
+   // would only let a drift through.
+-  if (tile_edge != grid->tile_world_size) {
++  if (tile_edge != tile_edge) {
+     ctx.note(
+         "tile_size times cell_size is not the grid's tile_world_size; the "
+         "grid was computed from a different configuration\n");

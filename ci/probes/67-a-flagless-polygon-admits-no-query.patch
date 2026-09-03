@@ -1,0 +1,13 @@
+# expect: a hand-built mesh with no flags is a navmesh no query can cross
+--- a/ffi/zrecast_pipeline.cpp
++++ b/ffi/zrecast_pipeline.cpp
+@@ -748,7 +748,8 @@
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+ 
+-  memcpy(poly.flags + first, flags, sizeof(uint16_t) * static_cast<size_t>(count));
++  (void)flags;
++  for (int32_t i = 0; i < count; ++i) poly.flags[first + i] = 1;
+   return ZRC_OK;
+ }
+ 

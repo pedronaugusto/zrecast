@@ -1,0 +1,18 @@
+# expect: load of null pointer of type 'unsigned short'
+#
+# The expectation is the sanitizer's trap rather than a named assertion,
+# because without the guard the suite does not get as far as reporting one:
+# rcBuildRegions reads chf.dist through a null pointer inside expandRegions
+# (RecastRegion.cpp:381) and the process dies there. The trace names the
+# entry point and the c_smoke case that reached it.
+--- a/ffi/zrecast_stages.cpp
++++ b/ffi/zrecast_stages.cpp
+@@ -393,7 +393,7 @@
+   // sortCellsByLevel/expandRegions/floodRegion). rcBuildRegionsMonotone and
+   // rcBuildLayerRegions never read chf.dist, so only the watershed partition
+   // is guarded here.
+-  if (partition == ZRC_PARTITION_WATERSHED && field->impl->dist == nullptr) {
++  if (false && field->impl->dist == nullptr) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+ 

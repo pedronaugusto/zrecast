@@ -1,0 +1,12 @@
+# expect: a span field that does not fit its packed width is refused
+--- a/ffi/zrecast_pipeline.cpp
++++ b/ffi/zrecast_pipeline.cpp
+@@ -360,7 +360,7 @@
+   // back as a different span. The whole batch is checked before any of it is
+   // written.
+   for (int32_t i = 0; i < count; ++i) {
+-    if (spans[i].con >= (1u << 24) || spans[i].h >= 256u) {
++    if (spans[i].con >= (1u << 25) || spans[i].h >= 512u) {
+       return ZRC_ERR_INVALID_ARGUMENT;
+     }
+   }

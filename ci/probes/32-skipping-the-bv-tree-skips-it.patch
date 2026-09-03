@@ -1,0 +1,13 @@
+# expect: a tile built without a bounding-volume tree answers the same questions
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -789,8 +789,7 @@
+   params.tileLayer = tile_layer;
+   // Without the BV tree every query degrades to a linear scan of the tile.
+   // NULL authoring, and a zeroed one, both build it.
+-  params.buildBvTree =
+-      authoring != nullptr ? authoring->skip_bv_tree == ZRC_FALSE : true;
++  params.buildBvTree = true;
+ 
+   unsigned char* data = nullptr;
+   int data_size = 0;

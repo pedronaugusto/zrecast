@@ -1,0 +1,13 @@
+# expect: FAIL zrcHeightfieldAddSpan(NULL, hf, 4, 0, 0, 2, ZRC_AREA_WALKABLE, 1) ==
+--- a/ffi/zrecast_stages.cpp
++++ b/ffi/zrecast_stages.cpp
+@@ -67,8 +67,7 @@
+   // rcAddSpan indexes spans[x + z * width] with no bound of its own
+   // (RecastRasterization.cpp:122); x and z are checked against the
+   // heightfield's own extent here.
+-  if (x < 0 || x >= heightfield->impl->width || z < 0 ||
+-      z >= heightfield->impl->height) {
++  if (x < 0 || z < 0) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+   // smin/smax are 13-bit fields and area is 6 bits (ZRC_SPAN_HEIGHT_BITS,

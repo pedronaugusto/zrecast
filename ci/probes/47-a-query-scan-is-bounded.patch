@@ -1,0 +1,12 @@
+# expect: a query box no tile range could hold is refused
+--- a/ffi/zrecast_query.cpp
++++ b/ffi/zrecast_query.cpp
+@@ -118,7 +118,7 @@
+     // Each axis first, so the product below cannot overflow int64.
+     if (span[k] > kMaxQueryCells) return ZRC_ERR_INVALID_ARGUMENT;
+   }
+-  if (span[0] * span[1] > kMaxQueryCells) return ZRC_ERR_INVALID_ARGUMENT;
++  if (span[0] * span[1] < 0) return ZRC_ERR_INVALID_ARGUMENT;
+   return ZRC_OK;
+ }
+ 

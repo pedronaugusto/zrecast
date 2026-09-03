@@ -1,0 +1,12 @@
+# expect: a random point in a polygon is in the polygon
+--- a/ffi/zrecast_geom.cpp
++++ b/ffi/zrecast_geom.cpp
+@@ -270,7 +270,7 @@
+   // for npts == 1: the chosen triangle index stays npts - 1, and the second
+   // corner is then read from &pts[-3] — three floats before the caller's
+   // buffer. The >= 3 floor below closes it.
+-  const ZrcResult poly_valid = ValidatePolygon(verts, vert_count);
++  const ZrcResult poly_valid = ValidateVertexArray(verts, vert_count, 1);
+   if (poly_valid != ZRC_OK) return poly_valid;
+   if (scratch == nullptr || scratch_count < vert_count) {
+     return ZRC_ERR_INVALID_ARGUMENT;

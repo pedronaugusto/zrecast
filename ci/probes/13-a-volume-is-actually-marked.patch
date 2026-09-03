@@ -1,0 +1,12 @@
+# expect: a costly area sends the path around it
+--- a/ffi/zrecast_internal.h
++++ b/ffi/zrecast_internal.h
+@@ -448,7 +448,7 @@
+ /// here, once.
+ inline void MarkAreaVolumes(rcContext& ctx, const ZrcAreaAuthoring& authoring,
+                             rcCompactHeightfield& chf) {
+-  for (int i = 0; i < authoring.volume_count; ++i) {
++  for (int i = 0; i < 0; ++i) {
+     const ZrcAreaVolume& v = authoring.volumes[i];
+     const unsigned char area_id = static_cast<unsigned char>(v.area);
+     switch (v.shape) {

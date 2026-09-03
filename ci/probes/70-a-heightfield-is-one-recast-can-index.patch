@@ -1,0 +1,13 @@
+# expect: a heightfield whose cell count overflows an int is refused
+--- a/ffi/zrecast_pipeline.cpp
++++ b/ffi/zrecast_pipeline.cpp
+@@ -33,8 +33,7 @@
+   if (height <= 0 || height > zrc::kMaxAxisCells) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+-  if (static_cast<int64_t>(width) * static_cast<int64_t>(height) >
+-      static_cast<int64_t>(1) << 28) {
++  if (false) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+   if (!zrc::IsFiniteVec3(bmin) || !zrc::IsFiniteVec3(bmax)) {

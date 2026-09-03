@@ -1,0 +1,39 @@
+# expect: the polygon accessors refuse a reference they cannot resolve
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -854,7 +854,7 @@
+                                 int32_t* out_area) {
+   if (out_area == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+   *out_area = 0;
+-  if (navmesh == nullptr || navmesh->impl == nullptr || ref == 0) {
++  if (navmesh == nullptr || navmesh->impl == nullptr) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+   unsigned char area = 0;
+@@ -867,7 +867,7 @@
+ 
+ ZrcResult zrcNavMeshSetPolyArea(ZrcNavMesh* navmesh, ZrcPolyRef ref,
+                                 int32_t area) {
+-  if (navmesh == nullptr || navmesh->impl == nullptr || ref == 0) {
++  if (navmesh == nullptr || navmesh->impl == nullptr) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+   if (area < 0 || area >= ZRC_MAX_AREAS) return ZRC_ERR_INVALID_ARGUMENT;
+@@ -881,7 +881,7 @@
+                                  uint16_t* out_flags) {
+   if (out_flags == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+   *out_flags = 0;
+-  if (navmesh == nullptr || navmesh->impl == nullptr || ref == 0) {
++  if (navmesh == nullptr || navmesh->impl == nullptr) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+   unsigned short flags = 0;
+@@ -894,7 +894,7 @@
+ 
+ ZrcResult zrcNavMeshSetPolyFlags(ZrcNavMesh* navmesh, ZrcPolyRef ref,
+                                  uint16_t flags) {
+-  if (navmesh == nullptr || navmesh->impl == nullptr || ref == 0) {
++  if (navmesh == nullptr || navmesh->impl == nullptr) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+   const dtStatus status =

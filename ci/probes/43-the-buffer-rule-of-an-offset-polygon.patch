@@ -1,0 +1,12 @@
+# expect: a shrunk polygon lies inside the one it came from
+--- a/ffi/zrecast_geom.cpp
++++ b/ffi/zrecast_geom.cpp
+@@ -301,7 +301,7 @@
+   // here rather than being distinguished from "nothing written".
+   const int written =
+       rcOffsetPoly(verts, vert_count, offset, out_verts, max_out_verts);
+-  if (written == 0) return ZRC_ERR_BUFFER_TOO_SMALL;
++  if (written < 0) return ZRC_ERR_BUFFER_TOO_SMALL;
+   *out_vert_count = written;
+   return ZRC_OK;
+ }
