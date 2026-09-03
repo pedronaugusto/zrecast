@@ -552,7 +552,7 @@ file is the authority on whether those runs have actually happened and passed.**
 | **18165** | C boundary lines (`ffi/`) |
 | **17653** | Zig source lines (`src/`) |
 | **93** | invariants `ci/probe.sh` mutates, each with the test that must notice |
-| **31** | steps `ci/run.sh` runs |
+| **32** | steps `ci/run.sh` runs |
 | **8** | further targets `ci/run.sh` cross-compiles |
 <!-- END GENERATED -->
 
