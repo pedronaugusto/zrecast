@@ -1,0 +1,12 @@
+# expect: integer overflow
+--- a/src/vec.zig
++++ b/src/vec.zig
+@@ -190,7 +190,7 @@
+     /// in place of upstream's plain `--` and `++`.
+     pub inline fn nextPow2(v: u32) u32 {
+         var x = v;
+-        x -%= 1;
++        x -= 1;
+         x |= x >> 1;
+         x |= x >> 2;
+         x |= x >> 4;

@@ -1,0 +1,13 @@
+# expect: a range outside an array is an error rather than a short read
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -1371,9 +1371,6 @@
+   }
+   const dtMeshTile* tile = ResidentTileByRef(*navmesh->impl, ref);
+   if (tile == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+-  if (index < 0 || index >= tile->header->maxLinkCount) {
+-    return ZRC_ERR_INVALID_ARGUMENT;
+-  }
+   const dtLink& link = tile->links[index];
+   out->ref = static_cast<ZrcPolyRef>(link.ref);
+   out->next = link.next;

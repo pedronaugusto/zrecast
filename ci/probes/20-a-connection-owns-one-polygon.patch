@@ -1,0 +1,13 @@
+# expect: an image whose off-mesh connection lies about itself is rejected
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -467,9 +467,6 @@
+     // (DetourNavMeshBuilder.cpp:660-662), so connection i owns polygon
+     // offMeshBase + i exactly. Checking that covers the bound, the ordering,
+     // and two connections claiming one polygon, in one comparison.
+-    if (static_cast<int>(con.poly) != header.offMeshBase + i) {
+-      return ZRC_ERR_BAD_FORMAT;
+-    }
+ 
+     for (int k = 0; k < 6; ++k) {
+       if (!IsFinite(con.pos[k]) || con.pos[k] < -kMaxCoordinate ||

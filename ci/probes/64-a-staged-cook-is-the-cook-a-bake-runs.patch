@@ -1,0 +1,12 @@
+# expect: the staged pipeline cooks the same bytes a bake does
+--- a/ffi/zrecast_bake.cpp
++++ b/ffi/zrecast_bake.cpp
+@@ -586,7 +586,7 @@
+   if (agent_valid != ZRC_OK) return agent_valid;
+ 
+   out->walkable_height = cfg.walkableHeight;
+-  out->walkable_climb = cfg.walkableClimb;
++  out->walkable_climb = cfg.walkableClimb - 1;
+   out->walkable_radius = cfg.walkableRadius;
+   out->max_edge_len = cfg.maxEdgeLen;
+   out->min_region_area = cfg.minRegionArea;

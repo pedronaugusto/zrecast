@@ -1,0 +1,13 @@
+# expect: the C library agrees with the extern declarations in c.zig
+--- a/src/c.zig
++++ b/src/c.zig
+@@ -159,8 +159,8 @@
+ 
+ /// One point-to-point link between two places the surface does not join.
+ pub const OffMeshConnection = extern struct {
+-    start: [3]f32,
+     end: [3]f32,
++    start: [3]f32,
+     radius: f32,
+     area: i32,
+     flags: u16,

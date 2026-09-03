@@ -1,0 +1,12 @@
+# expect: area authoring Recast could not read is refused before anything is baked
+--- a/ffi/zrecast_internal.h
++++ b/ffi/zrecast_internal.h
+@@ -395,7 +395,7 @@
+       return ZRC_ERR_INVALID_ARGUMENT;
+     }
+     if (v.area < 0 || v.area >= ZRC_MAX_AREAS) return ZRC_ERR_INVALID_ARGUMENT;
+-    if (!IsFinite(v.y_min) || !IsFinite(v.y_max) || v.y_min > v.y_max) {
++    if (false) {
+       return ZRC_ERR_INVALID_ARGUMENT;
+     }
+ 

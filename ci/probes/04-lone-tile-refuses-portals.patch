@@ -1,0 +1,12 @@
+# expect: an image whose polygons lie about their own shape is rejected
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -379,7 +379,7 @@
+   admission.max_tile_x = 0;
+   admission.max_tile_z = 0;
+   admission.max_tile_layer = 0;
+-  admission.allow_portals = false;
++  admission.allow_portals = true;
+   return admission;
+ }
+ 

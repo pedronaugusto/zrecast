@@ -1,0 +1,12 @@
+# expect: a build context's hooks reach the host, and the flags gate them
+--- a/ffi/zrecast_context.cpp
++++ b/ffi/zrecast_context.cpp
+@@ -87,7 +87,7 @@
+   zrc::HostContext ctx(context);
+   // "%s" rather than passing message as the format itself: a caller's text
+   // becomes data, not a format string upstream's varargs log() would parse.
+-  ctx.log(static_cast<rcLogCategory>(category), "%s", message);
++  ctx.log(static_cast<rcLogCategory>(category), message);
+   return ZRC_OK;
+ }
+ 

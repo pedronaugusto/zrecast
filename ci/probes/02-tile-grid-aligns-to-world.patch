@@ -1,0 +1,12 @@
+# expect: a tiled bake fills some tiles and leaves the rest empty, without failing
+--- a/ffi/zrecast_bake.cpp
++++ b/ffi/zrecast_bake.cpp
+@@ -813,7 +813,7 @@
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+ 
+-  cfg.bmin[0] = grid->origin[0] + static_cast<float>(tile_x) * tile_edge;
++  cfg.bmin[0] = grid->origin[0] + static_cast<float>(tile_x) * tile_edge + cfg.cs;
+   cfg.bmin[1] = grid->origin[1];
+   cfg.bmin[2] = grid->origin[2] + static_cast<float>(tile_z) * tile_edge;
+   cfg.bmax[0] = grid->origin[0] + static_cast<float>(tile_x + 1) * tile_edge;

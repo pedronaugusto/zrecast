@@ -1,0 +1,12 @@
+# expect: FAIL over_alone == ZRC_TRUE
+--- a/ffi/zrecast_query.cpp
++++ b/ffi/zrecast_query.cpp
+@@ -333,7 +333,7 @@
+ 
+   bool over_poly = false;
+   const dtStatus status = query->impl->findNearestPoly(
+-      center, half_extents, &dt_filter, out_ref, nearest, &over_poly);
++      center, half_extents, &dt_filter, out_ref, out_point, &over_poly);
+   if (dtStatusFailed(status)) {
+     *out_ref = 0;
+     return zrc::ResultFromStatus(status);

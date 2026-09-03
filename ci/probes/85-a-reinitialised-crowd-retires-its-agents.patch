@@ -1,0 +1,16 @@
+# expect: an agent reference outlives its slot only until the slot is reused
+#
+# The serial counter is what carries identity across a purge: it is set once,
+# at creation, and deliberately never reset. Resetting it in zrcCrowdInit makes
+# a reference minted before the re-initialisation resolve against whichever
+# agent takes that slot afterwards.
+--- a/ffi/zrecast_crowd.cpp
++++ b/ffi/zrecast_crowd.cpp
+@@ -299,6 +299,7 @@
+   crowd->capacity = 0;
+   DestroyCrowdSubHandles(crowd);
+ 
++  crowd->next_serial = 1;
+   return InitCrowdImpl(crowd, navmesh, max_agents, max_agent_radius);
+ }
+ 

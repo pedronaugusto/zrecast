@@ -1,0 +1,12 @@
+# expect: bytes that are not a compressed layer never reach the tile cache
+--- a/ffi/zrecast_tilecache.cpp
++++ b/ffi/zrecast_tilecache.cpp
+@@ -672,7 +672,7 @@
+   *out_ref = 0;
+   if (cache == nullptr || cache->impl == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+   const dtTileCache& tc = *cache->impl;
+-  if (index < 0 || index >= tc.getTileCount()) return ZRC_ERR_INVALID_ARGUMENT;
++  if (index < 0 || index > tc.getTileCount()) return ZRC_ERR_INVALID_ARGUMENT;
+   const dtCompressedTile* tile = tc.getTile(index);
+   if (tile == nullptr || tile->header == nullptr) return ZRC_OK;  // free slot
+   *out_ref = static_cast<ZrcCompressedTileRef>(tc.getTileRef(tile));

@@ -1,0 +1,14 @@
+# expect: merging two meshes that pack their polygons differently is refused
+--- a/ffi/zrecast_stages.cpp
++++ b/ffi/zrecast_stages.cpp
+@@ -515,9 +515,7 @@
+   // polys array (RecastMesh.cpp:1317,1424), which reads past the end of any
+   // input packing its polygons at a different stride.
+   const int first_nvp = meshes[0]->poly->nvp;
+-  for (int32_t i = 1; i < count; ++i) {
+-    if (meshes[i]->poly->nvp != first_nvp) return ZRC_ERR_INVALID_ARGUMENT;
+-  }
++  (void)first_nvp;
+ 
+   // Both halves are merged together: every input must have a built detail
+   // half, or none may, or the merged mesh's detail arrays would describe only

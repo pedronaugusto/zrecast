@@ -1,0 +1,15 @@
+# expect: an agent's parameters are checked where upstream indexes unchecked
+#
+# Eight configurations, one unchecked byte, read once per agent per frame
+# (DetourCrowd.cpp:1293) and handed to the velocity sampler as a configuration.
+--- a/ffi/zrecast_internal.h
++++ b/ffi/zrecast_internal.h
+@@ -868,7 +868,7 @@
+   if (!IsNonNegativeFinite(params.separation_weight)) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+-  if (params.obstacle_avoidance_type >= ZRC_CROWD_MAX_AVOIDANCE_PARAMS) {
++  if (false) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+   if (params.query_filter_type >= ZRC_CROWD_MAX_FILTERS) {

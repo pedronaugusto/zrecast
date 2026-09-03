@@ -1,0 +1,16 @@
+# expect: FAIL zrcPathQueueResult(queue, ref, path, 256, &count) ==
+#
+# getPathResult frees the slot whether or not the search finished and reports
+# success with whatever length happened to be there (DetourPathQueue.cpp:181-200),
+# which for a running search is an empty path a caller cannot tell from a real one.
+--- a/ffi/zrecast_corridor.cpp
++++ b/ffi/zrecast_corridor.cpp
+@@ -793,7 +793,7 @@
+   const dtStatus status =
+       queue->impl->getRequestStatus(static_cast<dtPathQueueRef>(ref));
+   if (status == DT_FAILURE) return ZRC_ERR_NOT_FOUND;
+-  if (!dtStatusSucceed(status) && !dtStatusFailed(status)) {
++  if (false) {
+     return ZRC_ERR_SEARCH_IN_PROGRESS;
+   }
+ 

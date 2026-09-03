@@ -1,0 +1,14 @@
+# expect: a navmesh survives a round trip through bytes
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -899,10 +899,6 @@
+     zrc::Free(copy);
+     return ZRC_ERR_OUT_OF_MEMORY;
+   }
+-  // A lone tile is a 1x1 grid, not a separate mode, so the tile entry points
+-  // find it at (0, 0) the same way they find a tile of a larger grid.
+-  handle->tile_count_x = 1;
+-  handle->tile_count_z = 1;
+   handle->impl = dtAllocNavMesh();
+   if (handle->impl == nullptr) {
+     zrc::Free(copy);

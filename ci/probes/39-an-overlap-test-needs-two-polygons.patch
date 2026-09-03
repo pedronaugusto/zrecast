@@ -1,0 +1,12 @@
+# expect: an array length the C cannot check is checked here
+--- a/ffi/zrecast_geom.cpp
++++ b/ffi/zrecast_geom.cpp
+@@ -188,7 +188,7 @@
+   *out_overlap = ZRC_FALSE;
+   const ZrcResult a_valid = ValidatePolygon(poly_a, count_a);
+   if (a_valid != ZRC_OK) return a_valid;
+-  const ZrcResult b_valid = ValidatePolygon(poly_b, count_b);
++  const ZrcResult b_valid = ValidateVertexArray(poly_b, count_b, 1);
+   if (b_valid != ZRC_OK) return b_valid;
+   // Upstream's projectPoly reads poly[0..2] before its loop starts, unguarded
+   // by a count of its own; the >= 3 floor on both polygons above is what

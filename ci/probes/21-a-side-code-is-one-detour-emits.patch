@@ -1,0 +1,14 @@
+# expect: an image whose off-mesh connection lies about itself is rejected
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -492,9 +492,8 @@
+       case 6:
+       case 7:
+       case 255:
+-        break;
+       default:
+-        return ZRC_ERR_BAD_FORMAT;
++        break;
+     }
+ 
+     if ((con.flags & ~static_cast<unsigned char>(DT_OFFMESH_CON_BIDIR)) != 0) {

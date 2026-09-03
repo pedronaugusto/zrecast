@@ -1,0 +1,15 @@
+# expect: an agent reference outlives its slot only until the slot is reused
+#
+# Without the serial a reference is upstream's bare pool index, and addAgent
+# hands the lowest free slot to whoever asks next.
+--- a/ffi/zrecast_crowd.cpp
++++ b/ffi/zrecast_crowd.cpp
+@@ -47,7 +47,7 @@
+   const int32_t slot = zrc::AgentRefSlot(ref);
+   if (slot < 0 || slot >= crowd->capacity) return ZRC_ERR_NOT_FOUND;
+   if (crowd->serial[slot] == 0) return ZRC_ERR_NOT_FOUND;
+-  if (crowd->serial[slot] != zrc::AgentRefSerial(ref)) return ZRC_ERR_NOT_FOUND;
++  if (false) return ZRC_ERR_NOT_FOUND;
+   *out_slot = slot;
+   return ZRC_OK;
+ }

@@ -1,0 +1,15 @@
+# expect: a grid that zrcTileGridCompute could not have produced is refused
+--- a/ffi/zrecast_bake.cpp
++++ b/ffi/zrecast_bake.cpp
+@@ -738,11 +738,6 @@
+     return mesh_valid;
+   }
+ 
+-  const ZrcResult grid_valid = zrc::ValidateTileGrid(*grid);
+-  if (grid_valid != ZRC_OK) {
+-    ctx.note("the tile grid is not one zrcTileGridCompute could have made\n");
+-    return grid_valid;
+-  }
+   if (config->tile_size == 0) {
+     ctx.note("tile_size is 0; zrcPolyMeshBake bakes a single tile instead\n");
+     return ZRC_ERR_INVALID_ARGUMENT;

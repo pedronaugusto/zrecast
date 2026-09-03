@@ -1,0 +1,12 @@
+# expect: FAIL zrcBuildContextStartTimer(NULL, ZRC_MAX_TIMERS) ==
+--- a/ffi/zrecast_internal.h
++++ b/ffi/zrecast_internal.h
+@@ -589,7 +589,7 @@
+ /// RC_MAX_TIMERS is the length of the table upstream indexes with a label, not
+ /// a label, so it is refused here rather than passed through as one.
+ inline bool IsTimerLabel(ZrcTimerLabel label) {
+-  return label >= 0 && label < ZRC_MAX_TIMERS;
++  return label >= 0 && label <= ZRC_MAX_TIMERS;
+ }
+ 
+ inline bool IsLogCategory(ZrcLogCategory category) {

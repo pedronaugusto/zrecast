@@ -1,0 +1,15 @@
+# expect: an agent's parameters are checked where upstream indexes unchecked
+#
+# Upstream multiplies acceleration by dt and asserts nothing. A NaN frame
+# skips the acceleration clamp entirely, because every comparison against NaN
+# is false, and the position it produces is carried by every later frame.
+--- a/ffi/zrecast_crowd.cpp
++++ b/ffi/zrecast_crowd.cpp
+@@ -715,7 +715,7 @@
+   if (crowd == nullptr || crowd->impl == nullptr || crowd->serial == nullptr) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+-  if (!zrc::IsPositiveFinite(dt)) return ZRC_ERR_INVALID_ARGUMENT;
++  if (false) return ZRC_ERR_INVALID_ARGUMENT;
+ 
+   dtCrowdAgentDebugInfo native_debug;

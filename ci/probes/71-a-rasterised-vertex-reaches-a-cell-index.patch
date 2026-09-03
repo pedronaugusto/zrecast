@@ -1,0 +1,12 @@
+# expect: a vertex no cell index could name is refused before Recast sees it
+--- a/ffi/zrecast_internal.h
++++ b/ffi/zrecast_internal.h
+@@ -556,7 +556,7 @@
+     const double cells = (static_cast<double>(v[axis]) -
+                           static_cast<double>(hf.bmin[axis])) /
+                          static_cast<double>(hf.cs);
+-    if (!(cells >= -2147483648.0 && cells < 2147483648.0)) return false;
++    if (!(cells == cells)) return false;
+   }
+   return true;
+ }

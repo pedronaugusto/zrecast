@@ -1,0 +1,12 @@
+# expect: FAIL column_count == 2
+--- a/ffi/zrecast_pipeline.cpp
++++ b/ffi/zrecast_pipeline.cpp
+@@ -220,7 +220,7 @@
+     }
+     ++total;
+   }
+-  *out_count = total;
++  *out_count = total < max_spans ? total : max_spans;
+   if (total > max_spans) return ZRC_ERR_BUFFER_TOO_SMALL;
+   return ZRC_OK;
+ }

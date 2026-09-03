@@ -1,0 +1,15 @@
+# expect: FAIL zrcAvoidanceSampleAdaptive(query, position, 0.5f, 2.f, velocity,
+#
+# Upstream takes 1/horizTime with no guard, and every candidate then scores
+# NaN. Every comparison against NaN is false, so the sampler keeps its
+# zero-initialised answer and reports success: an agent that stops steering.
+--- a/ffi/zrecast_internal.h
++++ b/ffi/zrecast_internal.h
+@@ -889,7 +889,7 @@
+       !IsNonNegativeFinite(params.weight_toi)) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+-  if (!IsPositiveFinite(params.horiz_time)) return ZRC_ERR_INVALID_ARGUMENT;
++  if (false) return ZRC_ERR_INVALID_ARGUMENT;
+   if (params.grid_size < 2) return ZRC_ERR_INVALID_ARGUMENT;
+   if (params.adaptive_divs < 1 ||

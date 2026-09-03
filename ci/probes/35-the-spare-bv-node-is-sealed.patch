@@ -1,0 +1,12 @@
+# expect: a query that reaches no polygon reports none
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -301,7 +301,7 @@
+   const int last = header.bvNodeCount - 1;
+   dtBVNode node = ReadAt<dtBVNode>(data, layout.bvtree, last);
+   if (node.i < 0) return;
+-  node.i = -1;
++  node.i = 0;
+   memcpy(data + layout.bvtree + static_cast<int64_t>(sizeof(dtBVNode)) * last,
+          &node, sizeof(node));
+ }

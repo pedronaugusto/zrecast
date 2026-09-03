@@ -1,0 +1,22 @@
+# expect: an agent removed mid-jump does not carry the next agent with it
+#
+# Handing the slot straight back is what lets the next agent added resume the
+# dead one's off-mesh crossing: dtCrowd::update walks its animation array by
+# raw pool slot and consults only that array's own active flag, never the
+# agent's state (DetourCrowd.cpp:1411-1447).
+--- a/ffi/zrecast_crowd.cpp
++++ b/ffi/zrecast_crowd.cpp
+@@ -364,13 +364,6 @@
+   // it across, and zrcCrowdUpdate hands the slot back below. The cost is a
+   // slot that stays busy for the rest of the crossing, which zrcCrowdAddAgent
+   // documents.
+-  const dtCrowdAgent* agent = crowd->impl->getAgent(slot);
+-  if (agent != nullptr && agent->active &&
+-      agent->state == DT_CROWDAGENT_STATE_OFFMESH) {
+-    crowd->impl->resetMoveTarget(slot);
+-    return ZRC_OK;
+-  }
+-
+   crowd->impl->removeAgent(slot);
+   return ZRC_OK;
+ }

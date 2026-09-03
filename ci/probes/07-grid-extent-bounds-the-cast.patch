@@ -1,0 +1,14 @@
+# expect: a configuration whose voxel arithmetic overflows an int is refused
+--- a/ffi/zrecast_bake.cpp
++++ b/ffi/zrecast_bake.cpp
+@@ -629,10 +629,6 @@
+   // No log to write into here, but the same bound: the grid this reports is
+   // the grid a bake will walk, so it has to be a grid rcCalcGridSize can
+   // compute at all.
+-  BakeContext ctx(nullptr, 0);
+-  const ZrcResult extent_valid =
+-      CheckGridExtent(bmin, bmax, config->cell_size, ctx);
+-  if (extent_valid != ZRC_OK) return extent_valid;
+ 
+   int grid_width = 0;
+   int grid_height = 0;

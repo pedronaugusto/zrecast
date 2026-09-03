@@ -1,0 +1,15 @@
+# expect: assertsEnabled agrees with how the C library was actually compiled
+--- a/ffi/zrecast_core.cpp
++++ b/ffi/zrecast_core.cpp
+@@ -169,11 +169,7 @@
+ void zrcFree(void* block) { zrc::Free(block); }
+ 
+ ZrcBool zrcAssertsEnabled(void) {
+-#ifdef NDEBUG
+   return ZRC_FALSE;
+-#else
+-  return ZRC_TRUE;
+-#endif
+ }
+ 
+ ZrcResult zrcSetAssertHandler(const ZrcAssertHandler* handler) {

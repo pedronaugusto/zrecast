@@ -1,0 +1,13 @@
+# expect: the C library agrees with the extern declarations in c.zig
+--- a/src/c.zig
++++ b/src/c.zig
+@@ -194,8 +194,8 @@
+ 
+ /// Everything a tile's header says about it, copied out.
+ pub const TileInfo = extern struct {
+-    tile_x: i32,
+     tile_z: i32,
++    tile_x: i32,
+     tile_layer: i32,
+     user_id: u32,
+     poly_count: i32,

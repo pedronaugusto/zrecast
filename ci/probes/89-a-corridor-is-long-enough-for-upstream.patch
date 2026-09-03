@@ -1,0 +1,17 @@
+# expect: FAIL zrcPathCorridorCreate(1, &corridor) == ZRC_ERR_INVALID_ARGUMENT
+#
+# fixPathStart writes m_path[2] and sets the length to 3 with no bound and not
+# even an assert (DetourPathCorridor.cpp:529-532), and two of the three merge
+# helpers subtract a merge width from the capacity in a signed int and hand the
+# difference to memmove as a length (:60-63, :146-149).
+--- a/ffi/zrecast_corridor.cpp
++++ b/ffi/zrecast_corridor.cpp
+@@ -88,7 +88,7 @@
+ ZrcResult zrcPathCorridorCreate(int32_t max_path, ZrcPathCorridor** out) {
+   if (out == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+   *out = nullptr;
+-  if (max_path < ZRC_PATH_CORRIDOR_MIN_PATH || max_path > 65535) {
++  if (max_path < 1 || max_path > 65535) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+ 

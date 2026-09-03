@@ -1,0 +1,10 @@
+# expect: not what tools/record.sh generates
+# run: ci/check-coverage.sh
+--- a/tools/unbound_detourcrowd.txt
++++ b/tools/unbound_detourcrowd.txt
+@@ -1,4 +1,4 @@
+-DetourCrowd	const:-::DT_CROWDAGENT_MAX_CORNERS	BOUND	ZRC_CROWD_MAX_CORNERS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
++DetourCrowd	const:-::DT_CROWDAGENT_MAX_CORNERS	BOUND	zrcNavMeshAddTile admits a tile carrying one
+ DetourCrowd	const:-::DT_CROWDAGENT_MAX_NEIGHBOURS	BOUND	ZRC_CROWD_MAX_NEIGHBOURS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+ DetourCrowd	const:-::DT_CROWD_MAX_OBSTAVOIDANCE_PARAMS	BOUND	ZRC_CROWD_MAX_AVOIDANCE_PARAMS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+ DetourCrowd	const:-::DT_CROWD_MAX_QUERY_FILTER_TYPE	BOUND	ZRC_CROWD_MAX_FILTERS, pinned to it by a static_assert in ffi/zrecast_abi.cpp

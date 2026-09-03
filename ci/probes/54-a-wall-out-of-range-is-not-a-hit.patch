@@ -1,0 +1,12 @@
+# expect: the distance to a wall is the distance to the segments the wall is made of
+--- a/ffi/zrecast_query.cpp
++++ b/ffi/zrecast_query.cpp
+@@ -1106,7 +1106,7 @@
+       hit_normal);
+   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
+ 
+-  if (hit_dist >= max_radius) {
++  if (hit_dist > max_radius) {
+     *out_dist = max_radius;
+     return ZRC_OK;
+   }

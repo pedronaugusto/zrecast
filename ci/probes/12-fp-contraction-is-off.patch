@@ -1,0 +1,17 @@
+# expect: the Zig vector math is bit-identical to the C
+--- a/build.zig
++++ b/build.zig
+@@ -185,13 +185,12 @@
+     // warnings is the fastest way to stop reading warnings altogether.
+     const ffi_flags: []const []const u8 = if (msvc)
+         &.{ "-std=c++17", "-ffp-contract=off", "-Wall", "-Wextra" }
+     else
+         &.{
+             "-std=c++17",
+-            "-ffp-contract=off",
+             "-fno-exceptions",
+             "-fno-rtti",
+             "-fvisibility=hidden",
+             "-fvisibility-inlines-hidden",
+             "-Wall",
+             "-Wextra",

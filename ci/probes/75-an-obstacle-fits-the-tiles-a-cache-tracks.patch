@@ -1,0 +1,12 @@
+# expect: an obstacle touching more tiles than the cache can track is refused
+--- a/ffi/zrecast_tilecache.cpp
++++ b/ffi/zrecast_tilecache.cpp
+@@ -214,7 +214,7 @@
+   const dtStatus status =
+       cache.queryTiles(bmin, bmax, touched, &touched_count, ZRC_MAX_TOUCHED_TILES + 1);
+   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
+-  if (touched_count > ZRC_MAX_TOUCHED_TILES) return ZRC_ERR_BUFFER_TOO_SMALL;
++  if (touched_count > ZRC_MAX_TOUCHED_TILES + 1) return ZRC_ERR_BUFFER_TOO_SMALL;
+   return ZRC_OK;
+ }
+ 

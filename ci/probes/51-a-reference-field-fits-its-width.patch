@@ -1,0 +1,12 @@
+# expect: FAIL zrcEncodePolyRef(reloaded, salt, tile_index, 0xffffu, &rebuilt)
+--- a/ffi/zrecast_query.cpp
++++ b/ffi/zrecast_query.cpp
+@@ -1221,7 +1221,7 @@
+   if (tile_bits < 32 && tile >= (1u << tile_bits)) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+-  if (poly_bits < 32 && poly >= (1u << poly_bits)) {
++  if (poly_bits < 32 && poly >= (1u << 30)) {
+     return ZRC_ERR_INVALID_ARGUMENT;
+   }
+   if (salt_bits < 32 && salt >= (1u << salt_bits)) {

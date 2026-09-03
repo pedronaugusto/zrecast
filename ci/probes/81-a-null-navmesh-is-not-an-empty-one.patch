@@ -1,0 +1,16 @@
+# expect: FAIL zrcNavMeshPolyCount(NULL) == -1
+#
+# 0 is what an empty navmesh answers, so a probe that puts 0 back is a probe
+# that makes the two indistinguishable. The c_smoke case reads the sentinel
+# next to the two siblings that already report it.
+--- a/ffi/zrecast_navmesh.cpp
++++ b/ffi/zrecast_navmesh.cpp
+@@ -1849,7 +1849,7 @@
+   // -1, not 0: a navmesh with no tile resident has no polygons and answers 0
+   // legitimately, so the failure has to be a value no mesh can produce. Same
+   // sentinel zrcNavMeshTileCount and zrcNavMeshMaxTiles report.
+-  if (navmesh == nullptr || navmesh->impl == nullptr) return -1;
++  if (navmesh == nullptr || navmesh->impl == nullptr) return 0;
+   // Through a const dtNavMesh, so the public const getTile overload is the one
+   // selected — the non-const overload is private.
+   const dtNavMesh& mesh = *navmesh->impl;

@@ -1,0 +1,16 @@
+# expect: a query box no tile range could hold is refused
+--- a/ffi/zrecast_query.cpp
++++ b/ffi/zrecast_query.cpp
+@@ -106,10 +106,10 @@
+     const double origin = params->orig[axis];
+     const double lo = (static_cast<double>(lo_f) - origin) / size;
+     const double hi = (static_cast<double>(hi_f) - origin) / size;
+-    if (!(lo >= -2147483648.0 && lo < 2147483648.0)) {
++    if (lo != lo) {
+       return ZRC_ERR_INVALID_ARGUMENT;
+     }
+-    if (!(hi >= -2147483648.0 && hi < 2147483648.0)) {
++    if (hi != hi) {
+       return ZRC_ERR_INVALID_ARGUMENT;
+     }
+     const int64_t first = static_cast<int64_t>(floor(lo));

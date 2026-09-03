@@ -1,0 +1,13 @@
+# expect: is not in ffi/*.h
+# run: tools/record.sh && ci/check-coverage.sh
+--- a/tools/bindings.tsv
++++ b/tools/bindings.tsv
+@@ -28,7 +28,7 @@
+ const:-::DT_FAILURE	BOUND	ZRC_ERR_QUERY_FAILED is the generic-failure fallback zrc::ResultFromStatus returns once dtStatusFailed(status) is true and no detail bit matches
+ const:-::DT_INVALID_PARAM	BOUND	ZRC_ERR_INVALID_ARGUMENT is returned by zrc::ResultFromStatus when this detail bit is set
+ const:-::DT_IN_PROGRESS	BOUND	zrcSlicedFindPathUpdate's out_in_progress is this bit, tested rather than surfaced raw
+-const:-::DT_MAX_AREAS	BOUND	ZRC_MAX_AREAS mirrors this exactly (static_assert in zrecast_abi.cpp)
++const:-::DT_MAX_AREAS	BOUND	ZRC_MAX_AREAS_INVENTED mirrors this exactly
+ const:-::DT_MAX_PATTERN_DIVS	BOUND	ZRC_AVOIDANCE_MAX_PATTERN_DIVS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+ const:-::DT_MAX_PATTERN_RINGS	BOUND	ZRC_AVOIDANCE_MAX_PATTERN_RINGS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+ const:-::DT_MAX_STATES_PER_NODE	BOUND	ZRC_MAX_NODE_STATES mirrors it exactly, and bounds zrcQueryFindNodes

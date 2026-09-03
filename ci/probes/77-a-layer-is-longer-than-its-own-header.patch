@@ -1,0 +1,12 @@
+# expect: bytes that are not a compressed layer never reach the tile cache
+--- a/ffi/zrecast_tilecache.cpp
++++ b/ffi/zrecast_tilecache.cpp
+@@ -529,8 +529,6 @@
+   if (size > static_cast<size_t>(0x7fffffff)) return ZRC_ERR_BAD_FORMAT;
+   const size_t header_size =
+       static_cast<size_t>(dtAlign4(static_cast<int>(sizeof(dtTileCacheLayerHeader))));
+-  if (size < header_size) return ZRC_ERR_BAD_FORMAT;
+-
+   dtTileCacheLayerHeader header;
+   memcpy(&header, data, sizeof(header));
+   if (header.magic != DT_TILECACHE_MAGIC) return ZRC_ERR_BAD_FORMAT;

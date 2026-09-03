@@ -1,0 +1,21 @@
+# expect: is outside the range of representable values of type 'int'
+#
+# The expectation is the sanitizer's trap rather than a named assertion,
+# because the mutation removes the check that stops the conversion from being
+# undefined at all: addItem floors each of the four bounds into an int and
+# loops between them (DetourProximityGrid.cpp:104-112), so a non-finite bound
+# traps there before any assertion is reached. The trace names the entry point
+# and the c_smoke case that got to it.
+--- a/ffi/zrecast_steering.cpp
++++ b/ffi/zrecast_steering.cpp
+@@ -142,9 +142,7 @@
+                                   float max_y) {
+   if (grid == nullptr || grid->impl == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+   const float inv_cell_size = 1.0f / grid->impl->getCellSize();
+-  const ZrcResult box_ok =
+-      zrc::CheckProximityBox(min_x, min_y, max_x, max_y, inv_cell_size);
+-  if (box_ok != ZRC_OK) return box_ok;
++  (void)inv_cell_size;
+ 
+   grid->impl->addItem(id, min_x, min_y, max_x, max_y);
+   return ZRC_OK;
