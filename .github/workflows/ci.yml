@@ -169,6 +169,9 @@ jobs:
       - name: Scripts are executable in the index
         run: ci/check-executable.sh
 
+      - name: Nothing this repository ignores is tracked
+        run: ci/check-ignored.sh
+
       - name: run.sh mirrors ci.yml
         run: ci/check-mirror.sh
 

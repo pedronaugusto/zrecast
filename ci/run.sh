@@ -109,6 +109,11 @@ run 'comment standard' ci/check-comments.sh
 # index, which is what this checks.
 run 'scripts are executable in the index' ci/check-executable.sh
 
+# .gitignore says what does not belong in the history. Being tracked overrides
+# every rule in it, so a blanket `git add -A` can put a fetched package or a
+# build directory into a public clone forever with nothing to say so.
+run 'nothing this repository ignores is tracked' ci/check-ignored.sh
+
 # This script and ci.yml must exercise the same -D option sets, or "green
 # locally" and "green hosted" quietly become different claims.
 run 'run.sh mirrors ci.yml' ci/check-mirror.sh
