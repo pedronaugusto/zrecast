@@ -1,0 +1,318 @@
+Detour	const:-::DT_ALREADY_OCCUPIED	BOUND	ZRC_ERR_TILE_OCCUPIED - zrcNavMeshAddTile checks the slot itself so the condition has its own result rather than a generic failure
+Detour	const:-::DT_BUFFER_TOO_SMALL	BOUND	ZRC_ERR_BUFFER_TOO_SMALL maps this detail bit in zrc::ResultFromStatus, and it also drives the out_partial/out_truncated flags on success
+Detour	const:-::DT_EXT_LINK	BOUND	ZRC_EXT_LINK mirrors the bit exactly; it is how a ZrcPolyInfo.neis entry says the edge crosses into another tile
+Detour	const:-::DT_FAILURE	BOUND	ZRC_ERR_QUERY_FAILED is the generic-failure fallback zrc::ResultFromStatus returns once dtStatusFailed(status) is true and no detail bit matches
+Detour	const:-::DT_INVALID_PARAM	BOUND	ZRC_ERR_INVALID_ARGUMENT is returned by zrc::ResultFromStatus when this detail bit is set
+Detour	const:-::DT_IN_PROGRESS	BOUND	zrcSlicedFindPathUpdate's out_in_progress is this bit, tested rather than surfaced raw
+Detour	const:-::DT_MAX_AREAS	BOUND	ZRC_MAX_AREAS mirrors this exactly (static_assert in zrecast_abi.cpp)
+Detour	const:-::DT_MAX_STATES_PER_NODE	BOUND	ZRC_MAX_NODE_STATES mirrors it exactly, and bounds zrcQueryFindNodes
+Detour	const:-::DT_NAVMESH_MAGIC	BOUND	zrcNavMeshValidate is how a host asks whether a buffer is a navmesh image at all, which is what a C++ host uses this constant for; a mismatch is ZRC_ERR_BAD_FORMAT
+Detour	const:-::DT_NAVMESH_STATE_MAGIC	BOUND	zrcNavMeshRestoreTileState surfaces upstream's magic check on the blob as ZRC_ERR_BAD_FORMAT
+Detour	const:-::DT_NAVMESH_STATE_VERSION	BOUND	zrcNavMeshRestoreTileState surfaces upstream's version check on the blob as ZRC_ERR_UNSUPPORTED_VERSION
+Detour	const:-::DT_NAVMESH_VERSION	BOUND	zrcNavMeshDataVersion returns this value directly (ffi/zrecast_core.cpp)
+Detour	const:-::DT_NODE_PARENT_BITS	BOUND	the width ZrcNode.parent_index is packed into upstream and reported whole here
+Detour	const:-::DT_NODE_STATE_BITS	BOUND	the width ZrcNode.state is packed into upstream and reported whole here
+Detour	const:-::DT_NULL_IDX	BOUND	ZrcNode.parent_index of 0, which is how zrcQueryNodeAt spells no node
+Detour	const:-::DT_NULL_LINK	BOUND	ZRC_NULL_LINK mirrors it exactly; it ends the chain walked from ZrcPolyInfo.first_link through ZrcLink.next
+Detour	const:-::DT_OFFMESH_CON_BIDIR	BOUND	ZrcOffMeshConnection.bidirectional, which decides whether B's ground polygon lists the connection as a neighbour
+Detour	const:-::DT_OUT_OF_MEMORY	BOUND	ZRC_ERR_OUT_OF_MEMORY is returned by zrc::ResultFromStatus when this detail bit is set
+Detour	const:-::DT_OUT_OF_NODES	BOUND	ZRC_ERR_OUT_OF_NODES is returned by zrc::ResultFromStatus when this detail bit is set
+Detour	const:-::DT_PARTIAL_RESULT	BOUND	zrc::StatusIsPartial tests this bit and it surfaces through zrcFindPath's out_partial and zrcMoveAlongSurface/zrcRaycast's out_truncated parameters
+Detour	const:-::DT_POLY_BITS	BOUND	zrcDecodePolyRef and zrcEncodePolyRef, which split and rebuild a reference along it
+Detour	const:-::DT_RAY_CAST_LIMIT_PROPORTIONS	BOUND	ZRC_RAYCAST_LIMIT_PROPORTIONS mirrors it exactly
+Detour	const:-::DT_SALT_BITS	BOUND	zrcDecodePolyRef and zrcEncodePolyRef, which split and rebuild a reference along it
+Detour	const:-::DT_STATUS_DETAIL_MASK	BOUND	the detail bits it masks are what zrc::ResultFromStatus turns into a ZrcResult, and what the out_partial and out_truncated flags report
+Detour	const:-::DT_SUCCESS	BOUND	ZRC_OK is returned by zrc::ResultFromStatus (via dtStatusSucceed) whenever this bit is set
+Detour	const:-::DT_TILE_BITS	BOUND	zrcDecodePolyRef and zrcEncodePolyRef, which split and rebuild a reference along it
+Detour	const:-::DT_VERTS_PER_POLYGON	BOUND	ZRC_VERTS_PER_POLYGON mirrors this exactly (static_assert in zrecast_abi.cpp)
+Detour	const:-::DT_WRONG_MAGIC	BOUND	ZRC_ERR_BAD_FORMAT is returned by zrc::ResultFromStatus when this detail bit is set
+Detour	const:-::DT_WRONG_VERSION	BOUND	ZRC_ERR_UNSUPPORTED_VERSION is returned by zrc::ResultFromStatus when this detail bit is set
+Detour	enum:dtAllocHint::DT_ALLOC_PERM	BOUND	ZRC_ALLOC_PERM (ZrcAllocHint mirrors dtAllocHint exactly, static_assert in zrecast_abi.cpp)
+Detour	enum:dtAllocHint::DT_ALLOC_TEMP	BOUND	ZRC_ALLOC_TEMP (ZrcAllocHint mirrors dtAllocHint exactly, static_assert in zrecast_abi.cpp)
+Detour	enum:dtDetailTriEdgeFlags::DT_DETAIL_EDGE_BOUNDARY	BOUND	ZRC_DETAIL_EDGE_BOUNDARY mirrors the bit exactly
+Detour	enum:dtFindPathOptions::DT_FINDPATH_ANY_ANGLE	BOUND	ZRC_FINDPATH_ANY_ANGLE mirrors the bit exactly
+Detour	enum:dtNodeFlags::DT_NODE_CLOSED	BOUND	ZRC_NODE_CLOSED mirrors the bit exactly
+Detour	enum:dtNodeFlags::DT_NODE_OPEN	BOUND	ZRC_NODE_OPEN mirrors the bit exactly
+Detour	enum:dtNodeFlags::DT_NODE_PARENT_DETACHED	BOUND	ZRC_NODE_PARENT_DETACHED mirrors the bit exactly
+Detour	enum:dtPolyTypes::DT_POLYTYPE_GROUND	BOUND	ZRC_POLY_GROUND, reported by zrcNavMeshGetPolyType with the identical value
+Detour	enum:dtPolyTypes::DT_POLYTYPE_OFFMESH_CONNECTION	BOUND	ZRC_POLY_OFFMESH_CONNECTION, reported by zrcNavMeshGetPolyType with the identical value
+Detour	enum:dtRaycastOptions::DT_RAYCAST_USE_COSTS	BOUND	ZRC_RAYCAST_USE_COSTS mirrors the bit exactly
+Detour	enum:dtStraightPathFlags::DT_STRAIGHTPATH_END	BOUND	ZRC_STRAIGHTPATH_END, written into zrcFindStraightPath's out_flags array with the identical bit value
+Detour	enum:dtStraightPathFlags::DT_STRAIGHTPATH_OFFMESH_CONNECTION	BOUND	ZRC_STRAIGHTPATH_OFFMESH_CONNECTION mirrors this bit exactly in zrcFindStraightPath's out_flags
+Detour	enum:dtStraightPathFlags::DT_STRAIGHTPATH_START	BOUND	ZRC_STRAIGHTPATH_START, written into zrcFindStraightPath's out_flags array with the identical bit value
+Detour	enum:dtStraightPathOptions::DT_STRAIGHTPATH_ALL_CROSSINGS	BOUND	ZRC_STRAIGHTPATH_ALL_CROSSINGS mirrors the bit exactly
+Detour	enum:dtStraightPathOptions::DT_STRAIGHTPATH_AREA_CROSSINGS	BOUND	ZRC_STRAIGHTPATH_AREA_CROSSINGS mirrors the bit exactly
+Detour	enum:dtTileFlags::DT_TILE_FREE_DATA	BOUND	ZRC_TILE_FREE_DATA mirrors it exactly, reported in ZrcTileInfo.flags
+Detour	field:dtBVNode::bmax	BOUND	ZrcBvNode.bmax
+Detour	field:dtBVNode::bmin	BOUND	ZrcBvNode.bmin
+Detour	field:dtBVNode::i	BOUND	ZrcBvNode.i
+Detour	field:dtLink::bmax	BOUND	ZrcLink.bmax
+Detour	field:dtLink::bmin	BOUND	ZrcLink.bmin
+Detour	field:dtLink::edge	BOUND	ZrcLink.edge
+Detour	field:dtLink::next	BOUND	ZrcLink.next
+Detour	field:dtLink::ref	BOUND	ZrcLink.ref
+Detour	field:dtLink::side	BOUND	ZrcLink.side
+Detour	field:dtMeshHeader::bmax	BOUND	zrcNavMeshBounds reads tile->header->bmax directly
+Detour	field:dtMeshHeader::bmin	BOUND	zrcNavMeshBounds reads tile->header->bmin directly
+Detour	field:dtMeshHeader::bvNodeCount	BOUND	ZrcTileInfo.bv_node_count, and the bound zrcNavMeshTileBvNode checks an index against
+Detour	field:dtMeshHeader::bvQuantFactor	BOUND	ZrcTileInfo.bv_quant_factor, which is what turns a ZrcBvNode's quantised bounds back into world units
+Detour	field:dtMeshHeader::detailMeshCount	BOUND	ZrcTileInfo.detail_mesh_count
+Detour	field:dtMeshHeader::detailTriCount	BOUND	ZrcTileInfo.detail_tri_count, and the bound zrcNavMeshTileDetailTris checks a range against
+Detour	field:dtMeshHeader::detailVertCount	BOUND	ZrcTileInfo.detail_vert_count, and the bound zrcNavMeshTileDetailVerts checks a range against
+Detour	field:dtMeshHeader::layer	BOUND	zrcTileDataBuild writes it and zrcNavMeshTileRefAt looks a tile up by it
+Detour	field:dtMeshHeader::magic	BOUND	ZrcTileInfo.magic
+Detour	field:dtMeshHeader::maxLinkCount	BOUND	ZrcTileInfo.max_link_count, and the bound zrcNavMeshTileLink checks an index against
+Detour	field:dtMeshHeader::offMeshBase	BOUND	ZrcTileInfo.ground_poly_count - the index the off-mesh polygons begin at
+Detour	field:dtMeshHeader::offMeshConCount	BOUND	ZrcTileInfo.off_mesh_con_count
+Detour	field:dtMeshHeader::polyCount	BOUND	zrcNavMeshPolyCount sums tile->header->polyCount across tiles
+Detour	field:dtMeshHeader::userId	BOUND	ZrcTileInfo.user_id, written by ZrcTileAuthoring.user_id
+Detour	field:dtMeshHeader::version	BOUND	a mismatch here is the one header field that earns its own distinct outcome, ZRC_ERR_UNSUPPORTED_VERSION, in zrc::ValidateNavMeshImage
+Detour	field:dtMeshHeader::vertCount	BOUND	ZrcTileInfo.vert_count, and the bound zrcNavMeshTileVerts checks a range against
+Detour	field:dtMeshHeader::walkableClimb	BOUND	ZrcTileInfo.walkable_climb
+Detour	field:dtMeshHeader::walkableHeight	BOUND	ZrcTileInfo.walkable_height
+Detour	field:dtMeshHeader::walkableRadius	BOUND	ZrcTileInfo.walkable_radius
+Detour	field:dtMeshHeader::x	BOUND	zrcTileDataBuild writes it and zrcNavMeshTileRefAt looks a tile up by it
+Detour	field:dtMeshHeader::y	BOUND	zrcTileDataBuild writes it and zrcNavMeshTileRefAt looks a tile up by it
+Detour	field:dtMeshTile::bvTree	BOUND	zrcNavMeshTileBvNode copies one node out by index
+Detour	field:dtMeshTile::data	BOUND	zrcNavMeshSerialize copies tile->data out to the caller
+Detour	field:dtMeshTile::dataSize	BOUND	zrcNavMeshSerialize sizes its copy from tile->dataSize
+Detour	field:dtMeshTile::detailMeshes	BOUND	the detail_* fields of ZrcPolyInfo carry the entry belonging to a polygon
+Detour	field:dtMeshTile::detailTris	BOUND	zrcNavMeshTileDetailTris copies a range of it out by value
+Detour	field:dtMeshTile::detailVerts	BOUND	zrcNavMeshTileDetailVerts copies a range of it out by value
+Detour	field:dtMeshTile::flags	BOUND	ZrcTileInfo.flags
+Detour	field:dtMeshTile::header	BOUND	zrcNavMeshBounds and zrcNavMeshPolyCount both read through tile->header
+Detour	field:dtMeshTile::links	BOUND	zrcNavMeshTileLink copies one out by index
+Detour	field:dtMeshTile::linksFreeList	BOUND	ZrcTileInfo.links_free_list
+Detour	field:dtMeshTile::next	BOUND	ZrcTileInfo.next_tile, converted from the pointer to a ZrcTileRef
+Detour	field:dtMeshTile::offMeshCons	BOUND	the array zrcNavMeshOffMeshConnection reads a connection record out of
+Detour	field:dtMeshTile::polys	BOUND	zrcNavMeshTilePolyRef names each entry and zrcNavMeshPolyInfo copies it out
+Detour	field:dtMeshTile::salt	BOUND	ZrcTileInfo.salt
+Detour	field:dtMeshTile::verts	BOUND	zrcNavMeshTileVerts copies a range of it out by value
+Detour	field:dtNavMeshCreateParams::bmax	BOUND	round-trips through zrcNavMeshCreate into the tile header and back out through zrcNavMeshBounds
+Detour	field:dtNavMeshCreateParams::bmin	BOUND	round-trips through zrcNavMeshCreate into the tile header and back out through zrcNavMeshBounds
+Detour	field:dtNavMeshCreateParams::buildBvTree	BOUND	ZrcTileAuthoring.skip_bv_tree, stated as a negative so a zeroed struct builds the tree
+Detour	field:dtNavMeshCreateParams::ch	BOUND	ZrcBakeConfig.cell_height reaches it via zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::cs	BOUND	ZrcBakeConfig.cell_size reaches it via zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::detailMeshes	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::detailTriCount	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::detailTris	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::detailVerts	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::detailVertsCount	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::nvp	BOUND	zrcNavMeshCreate validates poly.nvp against ZRC_VERTS_PER_POLYGON and carries it through
+Detour	field:dtNavMeshCreateParams::offMeshConAreas	BOUND	ZrcOffMeshConnection.area, unpacked into the parallel array by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::offMeshConCount	BOUND	ZrcTileAuthoring.connection_count
+Detour	field:dtNavMeshCreateParams::offMeshConDir	BOUND	ZrcOffMeshConnection.bidirectional, unpacked into the parallel array by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::offMeshConFlags	BOUND	ZrcOffMeshConnection.flags, unpacked into the parallel array by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::offMeshConRad	BOUND	ZrcOffMeshConnection.radius, unpacked into the parallel array by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::offMeshConUserID	BOUND	ZrcOffMeshConnection.user_id, unpacked into the parallel array by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::offMeshConVerts	BOUND	ZrcOffMeshConnection.start and .end, unpacked into the parallel array by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::polyAreas	BOUND	ZrcAreaAuthoring.volumes decide each polygon's area, which zrcNavMeshCreate carries into the navmesh
+Detour	field:dtNavMeshCreateParams::polyCount	BOUND	zrcNavMeshPolyCount reports it back after zrcNavMeshCreate builds the tile from it
+Detour	field:dtNavMeshCreateParams::polyFlags	BOUND	ZrcAreaAuthoring.area_flags decides each polygon's flags, which zrcNavMeshCreate carries into the navmesh
+Detour	field:dtNavMeshCreateParams::polys	BOUND	carried from the baked ZrcPolyMesh polygon topology into the navmesh by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::tileLayer	BOUND	zrcTileDataBuild's tile_layer parameter
+Detour	field:dtNavMeshCreateParams::tileX	BOUND	zrcTileDataBuild's tile_x parameter
+Detour	field:dtNavMeshCreateParams::tileY	BOUND	zrcTileDataBuild's tile_z parameter
+Detour	field:dtNavMeshCreateParams::userId	BOUND	ZrcTileAuthoring.user_id, read back by zrcNavMeshTileUserId
+Detour	field:dtNavMeshCreateParams::vertCount	BOUND	carried from the baked ZrcPolyMesh vertex count into the navmesh by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::verts	BOUND	carried from the baked ZrcPolyMesh vertex data into the navmesh by zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::walkableClimb	BOUND	ZrcBakeConfig.agent_max_climb reaches it via zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::walkableHeight	BOUND	ZrcBakeConfig.agent_height reaches it via zrcNavMeshCreate
+Detour	field:dtNavMeshCreateParams::walkableRadius	BOUND	ZrcBakeConfig.agent_radius reaches it via zrcNavMeshCreate
+Detour	field:dtNavMeshParams::maxPolys	BOUND	zrcNavMeshCreateTiled's max_polys_per_tile parameter
+Detour	field:dtNavMeshParams::maxTiles	BOUND	zrcNavMeshCreateTiled's max_tiles parameter, reported back by zrcNavMeshMaxTiles
+Detour	field:dtNavMeshParams::orig	BOUND	ZrcTileGrid.origin
+Detour	field:dtNavMeshParams::tileHeight	BOUND	ZrcTileGrid.tile_world_size - a square tile, so one field feeds both
+Detour	field:dtNavMeshParams::tileWidth	BOUND	ZrcTileGrid.tile_world_size
+Detour	field:dtNode::cost	BOUND	ZrcNode.cost
+Detour	field:dtNode::flags	BOUND	ZrcNode.flags
+Detour	field:dtNode::id	BOUND	ZrcNode.ref
+Detour	field:dtNode::pidx	BOUND	ZrcNode.parent_index
+Detour	field:dtNode::pos	BOUND	ZrcNode.pos
+Detour	field:dtNode::state	BOUND	ZrcNode.state
+Detour	field:dtNode::total	BOUND	ZrcNode.total
+Detour	field:dtOffMeshConnection::flags	BOUND	ZrcOffMeshConnection.bidirectional, round-tripped through zrcNavMeshOffMeshConnection
+Detour	field:dtOffMeshConnection::poly	BOUND	the polygon this names is the ZrcPolyRef zrcNavMeshOffMeshConnection is asked about, and zrcNavMeshTilePolyRef is what enumerates the off-mesh range it lies in
+Detour	field:dtOffMeshConnection::pos	BOUND	ZrcOffMeshConnection.start and .end, written by zrcNavMeshCreate and read by zrcNavMeshOffMeshConnection
+Detour	field:dtOffMeshConnection::rad	BOUND	ZrcOffMeshConnection.radius, round-tripped through zrcNavMeshOffMeshConnection
+Detour	field:dtOffMeshConnection::side	BOUND	ZrcOffMeshConnection.end_side, which is what says whether a single-tile navmesh wires the connection at both ends
+Detour	field:dtOffMeshConnection::userId	BOUND	ZrcOffMeshConnection.user_id, round-tripped through zrcNavMeshOffMeshConnection
+Detour	field:dtPoly::areaAndtype	BOUND	both halves are reachable - the area through zrcNavMeshGetPolyArea and zrcNavMeshSetPolyArea, the type through zrcNavMeshGetPolyType
+Detour	field:dtPoly::firstLink	BOUND	ZrcPolyInfo.first_link, the index zrcNavMeshTileLink is walked from
+Detour	field:dtPoly::flags	BOUND	zrcNavMeshGetPolyFlags and zrcNavMeshSetPolyFlags read and write this field
+Detour	field:dtPoly::neis	BOUND	ZrcPolyInfo.neis, readable because ZRC_EXT_LINK mirrors the flag its entries carry
+Detour	field:dtPoly::vertCount	BOUND	ZrcPolyInfo.vert_count
+Detour	field:dtPoly::verts	BOUND	ZrcPolyInfo.verts
+Detour	field:dtPolyDetail::triBase	BOUND	ZrcPolyInfo.detail_tri_base
+Detour	field:dtPolyDetail::triCount	BOUND	ZrcPolyInfo.detail_tri_count
+Detour	field:dtPolyDetail::vertBase	BOUND	ZrcPolyInfo.detail_vert_base
+Detour	field:dtPolyDetail::vertCount	BOUND	ZrcPolyInfo.detail_vert_count
+Detour	func:-::dtAbs/1	ZIG	src/vec.zig:scalar.abs - written as upstream's comparison rather than the builtin, which differs at negative zero: upstream returns it unchanged
+Detour	func:-::dtAlign4/1	ZIG	src/vec.zig:scalar.align4, with the wrapping add upstream's signed overflow would otherwise be
+Detour	func:-::dtAlloc/2	BOUND	zrcAlloc, which allocates on the same seam zrcSetAllocator installs and pairs with zrcFree
+Detour	func:-::dtAllocNavMesh/0	BOUND	zrcNavMeshCreate and zrcNavMeshDeserialize both call it to construct the handle a host keeps
+Detour	func:-::dtAllocSetCustom/2	BOUND	zrcSetAllocator installs it
+Detour	func:-::dtAssertFailGetCustom/0	BOUND	zrcAssertHandler
+Detour	func:-::dtAssertFailSetCustom/1	BOUND	zrcSetAssertHandler installs it, and zrcAssertsEnabled says whether this build kept the assertions that would call it
+Detour	func:-::dtCalcPolyCenter/4	BOUND	zrcPolyCenter - upstream takes no vertex count and divides by the index count without testing it, so both are real parameters here
+Detour	func:-::dtClamp/3	ZIG	src/vec.zig:scalar.clamp - written as upstream's nested comparisons, which pass a NaN through where a min-of-max spelling would replace it with a bound
+Detour	func:-::dtClosestHeightPointTriangle/5	BOUND	zrcClosestHeightPointTriangle
+Detour	func:-::dtClosestPtPointTriangle/5	BOUND	zrcClosestPointOnTriangle
+Detour	func:-::dtCreateNavMeshData/3	BOUND	zrcNavMeshCreate runs it and the host gets and keeps the result
+Detour	func:-::dtDistancePtPolyEdgesSqr/5	BOUND	zrcDistancePointToPolyEdges - upstream takes three arrays and one count that nothing checks they agree with, so the vertex count is checked against all three here
+Detour	func:-::dtDistancePtSegSqr2D/4	BOUND	zrcDistancePointToSegment2D, which returns the squared distance through an out parameter and the position along the segment through another
+Detour	func:-::dtFree/1	BOUND	zrcFree calls it directly
+Detour	func:-::dtFreeNavMesh/1	BOUND	zrcNavMeshDestroy calls it directly
+Detour	func:-::dtGetDetailTriEdgeFlags/2	ZIG	src/navmesh.zig:detailTriEdgeFlags
+Detour	func:-::dtGetThenAdvanceBufferPointer/2(const unsigned char*&,const size_t)	BOUND	zrcTileLayout reports the offsets this primitive derives, which is what a host walking a tile image itself needs
+Detour	func:-::dtGetThenAdvanceBufferPointer/2(unsigned char*&,const size_t)	BOUND	zrcTileLayout reports the offsets this primitive derives, which is what a host walking a tile image itself needs
+Detour	func:-::dtIgnoreUnused/1	LANGUAGE	the discard, `_ = value;` - upstream's body is empty
+Detour	func:-::dtIlog2/1	ZIG	src/vec.zig:scalar.ilog2 - upstream answers 0 for 0, which the obvious count-leading-zeros spelling gets wrong by returning -1
+Detour	func:-::dtIntersectSegSeg2D/6	BOUND	zrcIntersectSegSeg2D
+Detour	func:-::dtIntersectSegmentPoly2D/8	BOUND	zrcIntersectSegmentPoly2D
+Detour	func:-::dtMathAtan2f/2	LANGUAGE	std.math.atan2
+Detour	func:-::dtMathCeilf/1	LANGUAGE	@ceil, which is ceilf
+Detour	func:-::dtMathCosf/1	LANGUAGE	@cos, which lowers to the platform's own cosf, the same function upstream calls
+Detour	func:-::dtMathFabsf/1	LANGUAGE	@abs, which is fabsf
+Detour	func:-::dtMathFloorf/1	LANGUAGE	@floor, which is floorf
+Detour	func:-::dtMathIsfinite/1	LANGUAGE	std.math.isFinite
+Detour	func:-::dtMathSinf/1	LANGUAGE	@sin, which lowers to the platform's own sinf, the same function upstream calls
+Detour	func:-::dtMathSqrtf/1	LANGUAGE	@sqrt - a plain sqrtf, which IEEE-754 requires to be correctly rounded, so the two agree bit for bit
+Detour	func:-::dtMax/2	ZIG	src/vec.zig:scalar.max - written as upstream's comparison rather than the builtin, because a NaN operand makes that comparison false and the result is asymmetric in a way the builtin does not promise
+Detour	func:-::dtMin/2	ZIG	src/vec.zig:scalar.min - written as upstream's comparison rather than the builtin, because a NaN operand makes that comparison false and the result is asymmetric in a way the builtin does not promise
+Detour	func:-::dtNavMeshDataSwapEndian/2	BOUND	zrcNavMeshImageSwapEndian runs it as the body half of the conversion, after the header on the way in and before it on the way out
+Detour	func:-::dtNavMeshHeaderSwapEndian/2	BOUND	zrcNavMeshImageSwapEndian runs it as the header half of the conversion, first on the way in and last on the way out
+Detour	func:-::dtNextPow2/1	ZIG	src/vec.zig:scalar.nextPow2 - upstream answers 0 for 0, reached by an unsigned decrement wrapping to 0xFFFFFFFF and an increment wrapping back, so the port uses the wrapping operators rather than the obvious spelling
+Detour	func:-::dtOppositeTile/1	BOUND	zrcOppositeTileSide
+Detour	func:-::dtOverlapBounds/4	BOUND	zrcOverlapBounds
+Detour	func:-::dtOverlapPolyPoly2D/4	BOUND	zrcOverlapPolyPoly2D - its projectPoly helper reads the first vertex before any loop, so an empty polygon is an out-of-bounds read and both counts are checked at the door
+Detour	func:-::dtOverlapQuantBounds/4	BOUND	zrcOverlapQuantBounds, the test a BV-tree walk runs over the nodes zrcNavMeshTileBvNode reports
+Detour	func:-::dtPointInPolygon/3	BOUND	zrcPointInPolygon
+Detour	func:-::dtRandomPointInConvexPoly/6	BOUND	zrcRandomPointInConvexPoly - a single-vertex polygon makes upstream read three floats before the start of the array, so three vertices is the minimum here
+Detour	func:-::dtSqr/1	ZIG	src/vec.zig:scalar.sqr
+Detour	func:-::dtStatusDetail/2	BOUND	zrc::ResultFromStatus calls it repeatedly to pick the distinct ZrcResult a host observes
+Detour	func:-::dtStatusFailed/1	BOUND	ZrcResult: every query entry point calls it to decide between success and one of the ZrcResult error codes
+Detour	func:-::dtStatusInProgress/1	BOUND	zrcSlicedFindPathUpdate reports it through out_in_progress
+Detour	func:-::dtStatusSucceed/1	BOUND	zrc::ResultFromStatus calls it to decide ZRC_OK
+Detour	func:-::dtSwap/2	LANGUAGE	std.mem.swap
+Detour	func:-::dtSwapByte/2	LANGUAGE	@byteSwap on the integer, rather than swapping two bytes through pointers
+Detour	func:-::dtSwapEndian/1(float*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+Detour	func:-::dtSwapEndian/1(int*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+Detour	func:-::dtSwapEndian/1(short*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+Detour	func:-::dtSwapEndian/1(unsigned int*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+Detour	func:-::dtSwapEndian/1(unsigned short*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+Detour	func:-::dtTriArea2D/3	BOUND	zrcTriArea2D
+Detour	func:-::dtVadd/3	ZIG	src/vec.zig:add - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVcopy/2	ZIG	src/vec.zig:Vec3 is [3]f32 and every operation takes and returns one by value, so a set is the array literal and a copy is assignment
+Detour	func:-::dtVcross/3	ZIG	src/vec.zig:cross - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVdist/2	ZIG	src/vec.zig:dist - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVdist2D/2	ZIG	src/vec.zig:dist2D - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVdist2DSqr/2	ZIG	src/vec.zig:dist2DSqr - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVdistSqr/2	ZIG	src/vec.zig:distSqr - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVdot/2	ZIG	src/vec.zig:dot - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVdot2D/2	ZIG	src/vec.zig:dot2D - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVequal/2	ZIG	src/vec.zig:equal - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVisfinite/1	ZIG	src/vec.zig:isFinite - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVisfinite2D/1	ZIG	src/vec.zig:isFinite2D - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVlen/1	ZIG	src/vec.zig:len - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVlenSqr/1	ZIG	src/vec.zig:lenSqr - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVlerp/4	ZIG	src/vec.zig:lerp - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVmad/4	ZIG	src/vec.zig:mad - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVmax/2	ZIG	src/vec.zig:max - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVmin/2	ZIG	src/vec.zig:min - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVnormalize/1	ZIG	src/vec.zig:normalize - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVperp2D/2	ZIG	src/vec.zig:perp2D - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVscale/3	ZIG	src/vec.zig:scale - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:-::dtVset/4	ZIG	src/vec.zig:Vec3 is [3]f32 and every operation takes and returns one by value, so a set is the array literal and a copy is assignment
+Detour	func:-::dtVsub/3	ZIG	src/vec.zig:sub - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Detour	func:dtNavMesh::addTile/5	BOUND	zrcNavMeshAddTile
+Detour	func:dtNavMesh::calcTileLoc/3	BOUND	zrcNavMeshCalcTileLoc
+Detour	func:dtNavMesh::decodePolyId/4	BOUND	zrcDecodePolyRef
+Detour	func:dtNavMesh::decodePolyIdPoly/1	BOUND	zrcDecodePolyRef's out_poly
+Detour	func:dtNavMesh::decodePolyIdSalt/1	BOUND	zrcDecodePolyRef's out_salt
+Detour	func:dtNavMesh::decodePolyIdTile/1	BOUND	zrcDecodePolyRef's out_tile
+Detour	func:dtNavMesh::dtNavMesh/0	BOUND	zrcNavMeshCreate and zrcNavMeshDeserialize both construct one via dtAllocNavMesh
+Detour	func:dtNavMesh::encodePolyId/3	BOUND	zrcEncodePolyRef, which refuses a field too wide for the navmesh's own bit layout where upstream truncates it
+Detour	func:dtNavMesh::getMaxTiles/0	BOUND	zrcNavMeshMaxTiles
+Detour	func:dtNavMesh::getOffMeshConnectionByRef/1	BOUND	zrcNavMeshOffMeshConnection
+Detour	func:dtNavMesh::getOffMeshConnectionPolyEndPoints/4	BOUND	zrcNavMeshOffMeshConnectionEndPoints
+Detour	func:dtNavMesh::getParams/0	BOUND	zrcNavMeshParams copies every field of dtNavMeshParams into ZrcNavMeshParams
+Detour	func:dtNavMesh::getPolyArea/2	BOUND	zrcNavMeshGetPolyArea
+Detour	func:dtNavMesh::getPolyFlags/2	BOUND	zrcNavMeshGetPolyFlags
+Detour	func:dtNavMesh::getPolyRefBase/1	BOUND	zrcNavMeshTilePolyRef composes it with a bounded index, which keeps reference arithmetic on the checked side of the boundary
+Detour	func:dtNavMesh::getTile/1	BOUND	zrcNavMeshTileRefAtIndex walks the same slots, handing back a reference rather than the tile struct
+Detour	func:dtNavMesh::getTileAndPolyByRef/3	BOUND	zrcNavMeshPolyInfo copies the polygon out and zrcDecodePolyRef names its tile, which is both halves of what it resolves
+Detour	func:dtNavMesh::getTileAndPolyByRefUnsafe/3	BOUND	zrcNavMeshPolyInfo, which always checks. The unchecked form skips the salt and index tests only, and across an ABI that saves two comparisons in exchange for a reference from another navmesh reading arbitrary memory
+Detour	func:dtNavMesh::getTileAt/3	BOUND	zrcNavMeshTileRefAt
+Detour	func:dtNavMesh::getTileByRef/1	BOUND	zrcNavMeshTileBounds resolves a reference to a resident tile
+Detour	func:dtNavMesh::getTileRef/1	BOUND	zrcNavMeshTileRefAt returns the reference of the tile it finds
+Detour	func:dtNavMesh::getTileRefAt/3	BOUND	zrcNavMeshTileRefAt
+Detour	func:dtNavMesh::getTileStateSize/1	BOUND	zrcNavMeshTileStateSize
+Detour	func:dtNavMesh::getTilesAt/4	BOUND	zrcNavMeshTileRefsAt, which reports how many tiles are stacked at a grid position whether or not they fit, where upstream returns only what it wrote
+Detour	func:dtNavMesh::init/1	BOUND	zrcNavMeshCreate and zrcNavMeshDeserialize call it (via InitSingleTile) to bring up the single-tile mesh
+Detour	func:dtNavMesh::init/3	BOUND	zrcNavMeshDeserialize - the same capability, split into init and addTile so each failure is attributed instead of inferred from a shared status bit
+Detour	func:dtNavMesh::isValidPolyRef/1	BOUND	zrcIsValidPolyRef with a NULL filter, which is the liveness question alone
+Detour	func:dtNavMesh::removeTile/3	BOUND	zrcNavMeshRemoveTile
+Detour	func:dtNavMesh::restoreTileState/3	BOUND	zrcNavMeshRestoreTileState
+Detour	func:dtNavMesh::setPolyArea/2	BOUND	zrcNavMeshSetPolyArea
+Detour	func:dtNavMesh::setPolyFlags/2	BOUND	zrcNavMeshSetPolyFlags
+Detour	func:dtNavMesh::storeTileState/3	BOUND	zrcNavMeshStoreTileState
+Detour	func:dtNavMesh::~dtNavMesh/0	BOUND	zrcNavMeshDestroy runs it via dtFreeNavMesh
+Detour	func:dtNodePool::clear/0	BOUND	every search clears it at its start, which is why zrcSlicedFindPathInit refuses to let another one run underneath a slice
+Detour	func:dtNodePool::dtNodePool/2	BOUND	zrcNavMeshQueryCreate's max_nodes sizes the pool the query owns
+Detour	func:dtNodePool::findNode/2	BOUND	zrcQueryFindNode
+Detour	func:dtNodePool::findNodes/3	BOUND	zrcQueryFindNodes
+Detour	func:dtNodePool::getFirst/1	BOUND	zrcQueryFindNodes walks the bucket chain these two step through, and returns every node a polygon has rather than the chain's shape
+Detour	func:dtNodePool::getHashSize/0	BOUND	ZrcNodePoolInfo.hash_size
+Detour	func:dtNodePool::getMaxNodes/0	BOUND	ZrcNodePoolInfo.max_nodes
+Detour	func:dtNodePool::getMemUsed/0	BOUND	ZrcNodePoolInfo.bytes_used
+Detour	func:dtNodePool::getNext/1	BOUND	zrcQueryFindNodes walks the bucket chain these two step through, and returns every node a polygon has rather than the chain's shape
+Detour	func:dtNodePool::getNode/2	BOUND	the searches allocate through it; zrcQueryFindNode is how a host sees what they allocated
+Detour	func:dtNodePool::getNodeAtIdx/1(unsigned int)	BOUND	zrcQueryNodeAt
+Detour	func:dtNodePool::getNodeAtIdx/1(unsigned int)const	BOUND	zrcQueryNodeAt
+Detour	func:dtNodePool::getNodeCount/0	BOUND	ZrcNodePoolInfo.node_count
+Detour	func:dtNodePool::getNodeIdx/1	BOUND	ZrcNode.parent_index is that one-based index
+Detour	func:dtNodePool::~dtNodePool/0	BOUND	zrcNavMeshQueryDestroy releases the query that owns the pool
+Detour	func:dtNodeQueue::clear/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtNodeQueue::dtNodeQueue/1	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtNodeQueue::empty/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtNodeQueue::getCapacity/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtNodeQueue::getMemUsed/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtNodeQueue::modify/1	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtNodeQueue::pop/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtNodeQueue::push/1	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtNodeQueue::top/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtNodeQueue::~dtNodeQueue/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	func:dtPoly::getArea/0	BOUND	zrcNavMeshGetPolyArea returns exactly what this returns
+Detour	func:dtPoly::getType/0	BOUND	zrcNavMeshGetPolyType returns exactly what this returns
+Detour	func:dtPoly::setArea/1	BOUND	zrcNavMeshSetPolyArea calls it, after refusing the ids it would silently truncate
+Detour	func:dtPoly::setType/1	BOUND	called for each ZrcTileAuthoring.connections entry as the tile is built, which is how a host decides a polygon's type; zrcNavMeshGetPolyType reads the result back
+Detour	type:-::dtAllocFunc	BOUND	ZrcAllocator.allocate - the function a host installs, called with a size and a hint
+Detour	type:-::dtAllocHint	BOUND	ZrcAllocHint mirrors it exactly, enumerators and all
+Detour	type:-::dtAssertFailFunc	BOUND	ZrcAssertFailFunc, which carries a host pointer upstream's own signature has nowhere to put
+Detour	type:-::dtBVNode	BOUND	ZrcBvNode, filled by zrcNavMeshTileBvNode
+Detour	type:-::dtDetailTriEdgeFlags	BOUND	ZRC_DETAIL_EDGE_BOUNDARY is its only member
+Detour	type:-::dtFindPathOptions	BOUND	ZRC_FINDPATH_ANY_ANGLE is the only member, and zrcSlicedFindPathInit takes it
+Detour	type:-::dtFreeFunc	BOUND	ZrcAllocator.deallocate - the matching free a host installs
+Detour	type:-::dtLink	BOUND	ZrcLink, filled by zrcNavMeshTileLink
+Detour	type:-::dtMeshHeader	BOUND	ZrcTileInfo carries every field of it, filled by zrcNavMeshTileInfo
+Detour	type:-::dtMeshTile	BOUND	ZrcTileInfo for its scalars, and zrcNavMeshTileVerts, zrcNavMeshTileLink, zrcNavMeshTileBvNode and their siblings for its arrays
+Detour	type:-::dtNavMesh	BOUND	ZrcNavMesh
+Detour	type:-::dtNavMeshCreateParams	BOUND	ZrcBakeConfig, ZrcTileAuthoring and ZrcAreaAuthoring together fill every field of it that a host chooses
+Detour	type:-::dtNavMeshParams	BOUND	ZrcTileGrid together with zrcNavMeshCreateTiled's two count parameters
+Detour	type:-::dtNode	BOUND	ZrcNode, with upstream's three bitfields copied out as whole fields
+Detour	type:-::dtNodeFlags	BOUND	ZRC_NODE_OPEN, ZRC_NODE_CLOSED and ZRC_NODE_PARENT_DETACHED, reported in ZrcNode.flags
+Detour	type:-::dtNodeIndex	BOUND	ZrcNode.parent_index, widened to 32 bits so the ABI carries no packed type
+Detour	type:-::dtNodePool	BOUND	ZrcNodePoolInfo describes it and ZrcNode is what it holds
+Detour	type:-::dtNodeQueue	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+Detour	type:-::dtOffMeshConnection	BOUND	ZrcOffMeshConnection mirrors it as an authoring input and as what zrcNavMeshOffMeshConnection reports
+Detour	type:-::dtPoly	BOUND	ZrcPolyInfo, filled by zrcNavMeshPolyInfo
+Detour	type:-::dtPolyDetail	BOUND	the detail_vert_base, detail_tri_base, detail_vert_count and detail_tri_count fields of ZrcPolyInfo
+Detour	type:-::dtPolyRef	BOUND	ZrcPolyRef is exactly dtPolyRef (static_assert SameType in zrecast_abi.cpp)
+Detour	type:-::dtPolyTypes	BOUND	ZrcPolyType mirrors both enumerators
+Detour	type:-::dtRaycastOptions	BOUND	ZRC_RAYCAST_USE_COSTS, taken by zrcRaycast
+Detour	type:-::dtStatus	BOUND	ZrcResult, which every entry point returns in its place
+Detour	type:-::dtStraightPathFlags	BOUND	ZRC_STRAIGHTPATH_START, ZRC_STRAIGHTPATH_END and ZRC_STRAIGHTPATH_OFFMESH_CONNECTION, written into zrcFindStraightPath's out_flags
+Detour	type:-::dtStraightPathOptions	BOUND	ZRC_STRAIGHTPATH_AREA_CROSSINGS and ZRC_STRAIGHTPATH_ALL_CROSSINGS, taken by zrcFindStraightPath
+Detour	type:-::dtTileFlags	BOUND	ZRC_TILE_FREE_DATA is its only enumerator, and ZrcTileInfo.flags is where it is read
+Detour	type:-::dtTileRef	BOUND	ZrcTileRef is exactly dtTileRef (static_assert SameType in zrecast_abi.cpp)

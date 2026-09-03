@@ -1,0 +1,56 @@
+DetourNavMeshQuery	field:dtRaycastHit::hitEdgeIndex	BOUND	ZrcRaycastHit.hit_edge_index, seeded to -1 because upstream can return without ever writing it
+DetourNavMeshQuery	field:dtRaycastHit::hitNormal	BOUND	ZrcRaycastHit.normal — zrcRaycast copies hit.hitNormal into out_hit->normal when the ray struck a wall
+DetourNavMeshQuery	field:dtRaycastHit::maxPath	BOUND	zrcRaycast's max_path parameter sets dtRaycastHit::maxPath (hit.maxPath) to bound the out_path buffer
+DetourNavMeshQuery	field:dtRaycastHit::path	BOUND	zrcRaycast's out_path parameter is assigned directly to dtRaycastHit::path (hit.path = out_path)
+DetourNavMeshQuery	field:dtRaycastHit::pathCost	BOUND	ZrcRaycastHit.path_cost
+DetourNavMeshQuery	field:dtRaycastHit::pathCount	BOUND	zrcRaycast's out_path_count parameter reports dtRaycastHit::pathCount (hit.pathCount) after the call
+DetourNavMeshQuery	field:dtRaycastHit::t	BOUND	ZrcRaycastHit.t — zrcRaycast normalises hit.t (FLT_MAX clamped to 1.0) into out_hit->t
+DetourNavMeshQuery	func:-::dtAllocNavMeshQuery/0	BOUND	zrcNavMeshQueryCreate calls dtAllocNavMeshQuery to obtain the dtNavMeshQuery instance
+DetourNavMeshQuery	func:-::dtFreeNavMeshQuery/1	BOUND	zrcNavMeshQueryDestroy calls dtFreeNavMeshQuery to release the dtNavMeshQuery instance
+DetourNavMeshQuery	func:dtNavMeshQuery::closestPointOnPoly/4	BOUND	zrcClosestPointOnPoly
+DetourNavMeshQuery	func:dtNavMeshQuery::closestPointOnPolyBoundary/3	BOUND	zrcClosestPointOnPolyBoundary
+DetourNavMeshQuery	func:dtNavMeshQuery::dtNavMeshQuery/0	BOUND	zrcNavMeshQueryCreate triggers it via dtAllocNavMeshQuery's placement-new
+DetourNavMeshQuery	func:dtNavMeshQuery::finalizeSlicedFindPath/3	BOUND	zrcSlicedFindPathFinalize - a second call is ZRC_ERR_NO_SEARCH rather than upstream's success with a one-element null path
+DetourNavMeshQuery	func:dtNavMeshQuery::finalizeSlicedFindPathPartial/5	BOUND	zrcSlicedFindPathFinalizePartial
+DetourNavMeshQuery	func:dtNavMeshQuery::findDistanceToWall/7	BOUND	zrcFindDistanceToWall, which reports nothing-in-range through out_found instead of upstream's success over an untouched hit position
+DetourNavMeshQuery	func:dtNavMeshQuery::findLocalNeighbourhood/8	BOUND	zrcFindLocalNeighbourhood, whose out_refs is required because upstream writes through it without the null check both its siblings make
+DetourNavMeshQuery	func:dtNavMeshQuery::findNearestPoly/5	BOUND	zrcFindNearestPoly calls the five-argument overload when out_over_poly is NULL
+DetourNavMeshQuery	func:dtNavMeshQuery::findNearestPoly/6	BOUND	zrcFindNearestPoly's out_over_poly, which is the only thing the six-argument overload adds over the five
+DetourNavMeshQuery	func:dtNavMeshQuery::findPath/8	BOUND	zrcFindPath calls query->impl->findPath with all 8 parameters
+DetourNavMeshQuery	func:dtNavMeshQuery::findPolysAroundCircle/9	BOUND	zrcFindPolysAroundCircle
+DetourNavMeshQuery	func:dtNavMeshQuery::findPolysAroundShape/9	BOUND	zrcFindPolysAroundShape
+DetourNavMeshQuery	func:dtNavMeshQuery::findRandomPoint/4	BOUND	zrcFindRandomPoint, with the randomness supplied through ZrcRandomSource so a placement is reproducible from a seed
+DetourNavMeshQuery	func:dtNavMeshQuery::findRandomPointAroundCircle/7	BOUND	zrcFindRandomPointAroundCircle, same seam
+DetourNavMeshQuery	func:dtNavMeshQuery::findStraightPath/10	BOUND	zrcFindStraightPath calls query->impl->findStraightPath with all 10 parameters
+DetourNavMeshQuery	func:dtNavMeshQuery::getAttachedNavMesh/0	BOUND	zrcQueryNavMesh
+DetourNavMeshQuery	func:dtNavMeshQuery::getNodePool/0	BOUND	zrcQueryNodePoolInfo, zrcQueryFindNode, zrcQueryFindNodes and zrcQueryNodeAt read the pool it returns; nothing writes to it, because a host allocating or reordering nodes is corrupting the search that owns them
+DetourNavMeshQuery	func:dtNavMeshQuery::getPathFromDijkstraSearch/4	BOUND	zrcPathFromDijkstraSearch
+DetourNavMeshQuery	func:dtNavMeshQuery::getPolyHeight/3	BOUND	zrcPolyHeight
+DetourNavMeshQuery	func:dtNavMeshQuery::getPolyWallSegments/6	BOUND	zrcPolyWallSegments
+DetourNavMeshQuery	func:dtNavMeshQuery::init/2	BOUND	zrcNavMeshQueryCreate calls handle->impl->init(navmesh->impl, max_nodes)
+DetourNavMeshQuery	func:dtNavMeshQuery::initSlicedFindPath/6	BOUND	zrcSlicedFindPathInit, which copies the filter into the query handle because upstream keeps only a pointer to it
+DetourNavMeshQuery	func:dtNavMeshQuery::isInClosedList/1	BOUND	zrcIsInClosedList
+DetourNavMeshQuery	func:dtNavMeshQuery::isValidPolyRef/2	BOUND	zrcIsValidPolyRef with a filter
+DetourNavMeshQuery	func:dtNavMeshQuery::moveAlongSurface/8	BOUND	zrcMoveAlongSurface calls query->impl->moveAlongSurface with all 8 parameters
+DetourNavMeshQuery	func:dtNavMeshQuery::queryPolygons/4	BOUND	zrcQueryPolygonsBatched
+DetourNavMeshQuery	func:dtNavMeshQuery::queryPolygons/6	BOUND	zrcQueryPolygons
+DetourNavMeshQuery	func:dtNavMeshQuery::raycast/7	BOUND	zrcRaycast calls it with the caller's options and prev_ref, filling a ZrcRaycastHit
+DetourNavMeshQuery	func:dtNavMeshQuery::raycast/9	BOUND	zrcRaycast reports the same hit fraction, normal and visited path through ZrcRaycastHit; the two upstream overloads differ only in shape and the one bound here is a superset, adding the edge index, the accumulated cost and the options
+DetourNavMeshQuery	func:dtNavMeshQuery::updateSlicedFindPath/2	BOUND	zrcSlicedFindPathUpdate
+DetourNavMeshQuery	func:dtNavMeshQuery::~dtNavMeshQuery/0	BOUND	zrcNavMeshQueryDestroy triggers it via dtFreeNavMeshQuery, which destroys the instance before freeing it
+DetourNavMeshQuery	func:dtPolyQuery::process/4	BOUND	ZrcPolyQuery.process - the references cross the boundary and the live tile and polygon pointers do not, because everything about a polygon is readable from its reference
+DetourNavMeshQuery	func:dtPolyQuery::~dtPolyQuery/0	BOUND	ZrcPolyQuery is the caller's own storage, so its lifetime is the caller's and there is no virtual destructor to call
+DetourNavMeshQuery	func:dtQueryFilter::dtQueryFilter/0	BOUND	zrcQueryFilterDefault fills a ZrcQueryFilter with the same defaults its constructor sets
+DetourNavMeshQuery	func:dtQueryFilter::getAreaCost/1	BOUND	ZrcQueryFilter.area_cost — a host reads any of the per-area costs directly from the array
+DetourNavMeshQuery	func:dtQueryFilter::getCost/11	BOUND	ZrcQueryFilter is the whole of it: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields mirrored here
+DetourNavMeshQuery	func:dtQueryFilter::getExcludeFlags/0	BOUND	ZrcQueryFilter.exclude_flags — a host reads the field directly
+DetourNavMeshQuery	func:dtQueryFilter::getIncludeFlags/0	BOUND	ZrcQueryFilter.include_flags — a host reads the field directly
+DetourNavMeshQuery	func:dtQueryFilter::passFilter/3	BOUND	ZrcQueryFilter is the whole of it: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields mirrored here
+DetourNavMeshQuery	func:dtQueryFilter::setAreaCost/2	BOUND	ZrcQueryFilter.area_cost — a host writes any of the per-area costs, applied via BuildFilter's setAreaCost call
+DetourNavMeshQuery	func:dtQueryFilter::setExcludeFlags/1	BOUND	ZrcQueryFilter.exclude_flags — a host sets the field, applied via BuildFilter's setExcludeFlags call
+DetourNavMeshQuery	func:dtQueryFilter::setIncludeFlags/1	BOUND	ZrcQueryFilter.include_flags — a host sets the field, applied via BuildFilter's setIncludeFlags call
+DetourNavMeshQuery	func:dtQueryFilter::~dtQueryFilter/0	BOUND	ZrcQueryFilter is plain data the caller owns, so there is nothing to destroy
+DetourNavMeshQuery	type:-::dtNavMeshQuery	BOUND	ZrcNavMeshQuery is the opaque handle wrapping a dtNavMeshQuery instance
+DetourNavMeshQuery	type:-::dtPolyQuery	BOUND	ZrcPolyQuery, a struct of function pointers rather than a class to subclass
+DetourNavMeshQuery	type:-::dtQueryFilter	BOUND	ZrcQueryFilter mirrors area_cost/include_flags/exclude_flags, the data a host can set per query
+DetourNavMeshQuery	type:-::dtRaycastHit	BOUND	ZrcRaycastHit mirrors t/position/normal/hit, the raycast result a host can read

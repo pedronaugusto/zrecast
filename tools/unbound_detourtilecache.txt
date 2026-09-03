@@ -1,0 +1,166 @@
+DetourTileCache	const:-::DT_MAX_TOUCHED_TILES	BOUND	ZRC_MAX_TOUCHED_TILES mirrors it exactly (static_assert in zrecast_abi.cpp), and it is the ceiling zrcTileCacheAddBoxObstacle refuses an obstacle for rather than letting upstream carve into eight and stop
+DetourTileCache	const:-::DT_TILECACHE_MAGIC	BOUND	ZRC_TILECACHE_MAGIC mirrors it exactly (static_assert in zrecast_abi.cpp), and zrcTileCacheAddTile is how a host asks whether a buffer is a compressed layer
+DetourTileCache	const:-::DT_TILECACHE_NULL_AREA	BOUND	ZRC_TILECACHE_AREA_NULL mirrors it exactly (static_assert in zrecast_abi.cpp)
+DetourTileCache	const:-::DT_TILECACHE_NULL_IDX	BOUND	ZRC_TILECACHE_NULL_IDX mirrors it exactly (static_assert in zrecast_abi.cpp); it is what zrcTileCachePolyMeshPolys writes past a polygon's last corner
+DetourTileCache	const:-::DT_TILECACHE_VERSION	BOUND	ZRC_TILECACHE_VERSION mirrors it exactly (static_assert in zrecast_abi.cpp); a mismatch is ZRC_ERR_UNSUPPORTED_VERSION
+DetourTileCache	const:-::DT_TILECACHE_WALKABLE_AREA	BOUND	ZRC_TILECACHE_AREA_WALKABLE mirrors it exactly (static_assert in zrecast_abi.cpp)
+DetourTileCache	enum:ObstacleState::DT_OBSTACLE_EMPTY	BOUND	ZRC_OBSTACLE_EMPTY, which zrcTileCacheObstacleRefAt reports as a 0 reference; zrcTileCacheObstacleInfo can never report it, because upstream turns the slot's salt over in the same statement that sets it
+DetourTileCache	enum:ObstacleState::DT_OBSTACLE_PROCESSED	BOUND	ZRC_OBSTACLE_PROCESSED, which ZrcObstacleInfo.state reports once every tile it touches has been rebuilt
+DetourTileCache	enum:ObstacleState::DT_OBSTACLE_PROCESSING	BOUND	ZRC_OBSTACLE_PROCESSING, which ZrcObstacleInfo.state reports between an add and the update that carves it
+DetourTileCache	enum:ObstacleState::DT_OBSTACLE_REMOVING	BOUND	ZRC_OBSTACLE_REMOVING, which ZrcObstacleInfo.state reports between a removal request and the update that completes it
+DetourTileCache	enum:ObstacleType::DT_OBSTACLE_BOX	BOUND	ZRC_OBSTACLE_BOX, which ZrcObstacleInfo.shape reports
+DetourTileCache	enum:ObstacleType::DT_OBSTACLE_CYLINDER	BOUND	ZRC_OBSTACLE_CYLINDER, which ZrcObstacleInfo.shape reports
+DetourTileCache	enum:ObstacleType::DT_OBSTACLE_ORIENTED_BOX	BOUND	ZRC_OBSTACLE_ORIENTED_BOX, which ZrcObstacleInfo.shape reports
+DetourTileCache	enum:dtCompressedTileFlags::DT_COMPRESSEDTILE_FREE_DATA	BOUND	zrcTileCacheAddTile always sets it: the bytes it adds are its own copy, which is why the caller keeps ownership of the buffer it passed
+DetourTileCache	field:dtCompressedTile::compressed	BOUND	the payload after the header, which zrcTileCacheAddTile bounds by requiring the buffer to be at least a header long before upstream computes this pointer
+DetourTileCache	field:dtCompressedTile::compressedSize	BOUND	the length upstream derives by subtracting the header size, which zrcTileCacheAddTile keeps non-negative by checking the buffer first
+DetourTileCache	field:dtCompressedTile::data	BOUND	zrcTileCacheRemoveTile hands the bytes back, and zrcTileCacheAddTile is what put them there
+DetourTileCache	field:dtCompressedTile::dataSize	BOUND	ZrcCompressedTileInfo.data_size, and the length zrcTileCacheRemoveTile reports with the bytes
+DetourTileCache	field:dtCompressedTile::flags	BOUND	zrcTileCacheAddTile sets DT_COMPRESSEDTILE_FREE_DATA, the only flag this field has
+DetourTileCache	field:dtCompressedTile::header	BOUND	ZrcCompressedTileInfo carries every field of it, and a slot whose header is null is reported as a free slot by zrcTileCacheTileRefAt
+DetourTileCache	field:dtCompressedTile::next	BOUND	the free-list and hash chain a slot sits on; zrcTileCacheTilesAt walks the same stack of layers at one grid position
+DetourTileCache	field:dtCompressedTile::salt	BOUND	the salt half of a ZrcCompressedTileRef, turned over by zrcTileCacheRemoveTile so the reference stops resolving
+DetourTileCache	field:dtObstacleBox::bmax	BOUND	ZrcObstacleInfo.bmax
+DetourTileCache	field:dtObstacleBox::bmin	BOUND	ZrcObstacleInfo.bmin
+DetourTileCache	field:dtObstacleCylinder::height	BOUND	ZrcObstacleInfo.height
+DetourTileCache	field:dtObstacleCylinder::pos	BOUND	ZrcObstacleInfo.position
+DetourTileCache	field:dtObstacleCylinder::radius	BOUND	ZrcObstacleInfo.radius
+DetourTileCache	field:dtObstacleOrientedBox::center	BOUND	ZrcObstacleInfo.center
+DetourTileCache	field:dtObstacleOrientedBox::halfExtents	BOUND	ZrcObstacleInfo.half_extents
+DetourTileCache	field:dtObstacleOrientedBox::rotAux	BOUND	ZrcObstacleInfo.y_radians is this pair's own angle: upstream stores cos and sin half-angle terms rather than the angle, and the accessor inverts them
+DetourTileCache	field:dtTileCacheContour::area	BOUND	ZrcTileCacheContourInfo.area
+DetourTileCache	field:dtTileCacheContour::nverts	BOUND	ZrcTileCacheContourInfo.vert_count, which bounds zrcTileCacheContourVerts
+DetourTileCache	field:dtTileCacheContour::reg	BOUND	ZrcTileCacheContourInfo.region
+DetourTileCache	field:dtTileCacheContour::verts	BOUND	zrcTileCacheContourVerts copies it, four bytes per vertex
+DetourTileCache	field:dtTileCacheContourSet::conts	BOUND	zrcTileCacheContourAt indexes it, bounded by the count zrcTileCacheContourSetCount reports
+DetourTileCache	field:dtTileCacheContourSet::nconts	BOUND	zrcTileCacheContourSetCount
+DetourTileCache	field:dtTileCacheLayer::areas	BOUND	zrcTileCacheLayerAreas copies it and zrcTileCacheLayerSetAreas writes it back, which is how an obstacle is carved by hand
+DetourTileCache	field:dtTileCacheLayer::cons	BOUND	zrcTileCacheLayerCons copies it; src/tilecache.zig:layerCon and layerPortal split the two nibbles it packs
+DetourTileCache	field:dtTileCacheLayer::header	BOUND	zrcTileCacheLayerHeaderOf copies it out as a ZrcTileCacheLayerHeader
+DetourTileCache	field:dtTileCacheLayer::heights	BOUND	zrcTileCacheLayerHeights copies it, one byte per cell
+DetourTileCache	field:dtTileCacheLayer::regCount	BOUND	zrcTileCacheLayerRegionCount
+DetourTileCache	field:dtTileCacheLayer::regs	BOUND	zrcTileCacheLayerRegions copies it, and reports ZRC_ERR_NOT_FOUND before zrcTileCacheLayerBuildRegions has filled it
+DetourTileCache	field:dtTileCacheLayerHeader::bmax	BOUND	ZrcTileCacheLayerHeader.bmax, and ZrcCompressedTileInfo.bmax
+DetourTileCache	field:dtTileCacheLayerHeader::bmin	BOUND	ZrcTileCacheLayerHeader.bmin, and ZrcCompressedTileInfo.bmin
+DetourTileCache	field:dtTileCacheLayerHeader::height	BOUND	ZrcTileCacheLayerHeader.height, and ZrcCompressedTileInfo.height
+DetourTileCache	field:dtTileCacheLayerHeader::hmax	BOUND	ZrcTileCacheLayerHeader.height_max, and ZrcCompressedTileInfo.height_max
+DetourTileCache	field:dtTileCacheLayerHeader::hmin	BOUND	ZrcTileCacheLayerHeader.height_min, and ZrcCompressedTileInfo.height_min
+DetourTileCache	field:dtTileCacheLayerHeader::magic	BOUND	zrcTileCacheAddTile is how a host asks whether a buffer is a compressed layer at all, which is what a C++ host uses this constant for; a mismatch is ZRC_ERR_BAD_FORMAT
+DetourTileCache	field:dtTileCacheLayerHeader::maxx	BOUND	ZrcTileCacheLayerHeader.max_x, and ZrcCompressedTileInfo.max_x
+DetourTileCache	field:dtTileCacheLayerHeader::maxy	BOUND	ZrcTileCacheLayerHeader.max_z, and ZrcCompressedTileInfo.max_z, which is upstream's maxy
+DetourTileCache	field:dtTileCacheLayerHeader::minx	BOUND	ZrcTileCacheLayerHeader.min_x, and ZrcCompressedTileInfo.min_x
+DetourTileCache	field:dtTileCacheLayerHeader::miny	BOUND	ZrcTileCacheLayerHeader.min_z, and ZrcCompressedTileInfo.min_z - upstream spells the z axis with a y here
+DetourTileCache	field:dtTileCacheLayerHeader::tlayer	BOUND	ZrcTileCacheLayerHeader.tile_layer, and ZrcCompressedTileInfo.tile_layer
+DetourTileCache	field:dtTileCacheLayerHeader::tx	BOUND	ZrcTileCacheLayerHeader.tile_x, and ZrcCompressedTileInfo.tile_x for a layer already added
+DetourTileCache	field:dtTileCacheLayerHeader::ty	BOUND	ZrcTileCacheLayerHeader.tile_y, and ZrcCompressedTileInfo.tile_y
+DetourTileCache	field:dtTileCacheLayerHeader::version	BOUND	zrcTileCacheAddTile surfaces upstream's version check as ZRC_ERR_UNSUPPORTED_VERSION
+DetourTileCache	field:dtTileCacheLayerHeader::width	BOUND	ZrcTileCacheLayerHeader.width, and ZrcCompressedTileInfo.width; bounded to 255 because upstream stores it in one byte
+DetourTileCache	field:dtTileCacheObstacle::box	BOUND	ZrcObstacleInfo.bmin and .bmax, reported when .shape is ZRC_OBSTACLE_BOX
+DetourTileCache	field:dtTileCacheObstacle::cylinder	BOUND	ZrcObstacleInfo.position, .radius and .height, reported when .shape is ZRC_OBSTACLE_CYLINDER
+DetourTileCache	field:dtTileCacheObstacle::next	BOUND	the free-list chain a slot rejoins on removal; zrcTileCacheObstacleRefAt reports 0 for a slot on it
+DetourTileCache	field:dtTileCacheObstacle::npending	BOUND	ZrcObstacleInfo.pending_count
+DetourTileCache	field:dtTileCacheObstacle::ntouched	BOUND	ZrcObstacleInfo.touched_count, which is 0 until the first zrcTileCacheUpdate that processes the request fills it
+DetourTileCache	field:dtTileCacheObstacle::orientedBox	BOUND	ZrcObstacleInfo.center, .half_extents and .y_radians, reported when .shape is ZRC_OBSTACLE_ORIENTED_BOX
+DetourTileCache	field:dtTileCacheObstacle::pending	BOUND	ZrcObstacleInfo.pending_count is its length, and reaching 0 is what moves .state to ZRC_OBSTACLE_PROCESSED
+DetourTileCache	field:dtTileCacheObstacle::salt	BOUND	the salt half of a ZrcObstacleRef, turned over when a removal completes so the reference stops resolving
+DetourTileCache	field:dtTileCacheObstacle::state	BOUND	ZrcObstacleInfo.state
+DetourTileCache	field:dtTileCacheObstacle::touched	BOUND	ZrcObstacleInfo.touched_count is its length; zrcTileCacheQueryTiles reports the same set of layers for the obstacle's own bounds, and an obstacle needing more than ZRC_MAX_TOUCHED_TILES of them is refused rather than carved into eight
+DetourTileCache	field:dtTileCacheObstacle::type	BOUND	ZrcObstacleInfo.shape
+DetourTileCache	field:dtTileCacheParams::ch	BOUND	ZrcTileCacheParams.cell_height
+DetourTileCache	field:dtTileCacheParams::cs	BOUND	ZrcTileCacheParams.cell_size
+DetourTileCache	field:dtTileCacheParams::height	BOUND	ZrcTileCacheParams.height, bounded to 255 for the same reason
+DetourTileCache	field:dtTileCacheParams::maxObstacles	BOUND	ZrcTileCacheParams.max_obstacles, which also bounds zrcTileCacheObstacleRefAt
+DetourTileCache	field:dtTileCacheParams::maxSimplificationError	BOUND	ZrcTileCacheParams.max_simplification_error
+DetourTileCache	field:dtTileCacheParams::maxTiles	BOUND	ZrcTileCacheParams.max_tiles, which also bounds zrcTileCacheTileRefAt
+DetourTileCache	field:dtTileCacheParams::orig	BOUND	ZrcTileCacheParams.origin
+DetourTileCache	field:dtTileCacheParams::walkableClimb	BOUND	ZrcTileCacheParams.walkable_climb, whose ratio to cell_height is bounded because upstream converts it to cells with an unchecked cast
+DetourTileCache	field:dtTileCacheParams::walkableHeight	BOUND	ZrcTileCacheParams.walkable_height, which every tile the cache rebuilds carries into its header
+DetourTileCache	field:dtTileCacheParams::walkableRadius	BOUND	ZrcTileCacheParams.walkable_radius
+DetourTileCache	field:dtTileCacheParams::width	BOUND	ZrcTileCacheParams.width, bounded to 255 because a layer header stores it in one byte
+DetourTileCache	field:dtTileCachePolyMesh::areas	BOUND	zrcTileCachePolyMeshAreas copies it, and a ZrcTileCacheMeshProcess callback sees the same ids through ZrcTileCacheBuildParams.areas
+DetourTileCache	field:dtTileCachePolyMesh::flags	BOUND	zrcTileCachePolyMeshFlags copies it; every entry is 0 unless a ZrcTileCacheMeshProcess callback has written it, which is the only place a tile-cache polygon gets flags at all
+DetourTileCache	field:dtTileCachePolyMesh::npolys	BOUND	ZrcTileCachePolyMeshInfo.poly_count, which bounds the polygon accessors
+DetourTileCache	field:dtTileCachePolyMesh::nverts	BOUND	ZrcTileCachePolyMeshInfo.vert_count, which bounds zrcTileCachePolyMeshVerts
+DetourTileCache	field:dtTileCachePolyMesh::nvp	BOUND	ZrcTileCachePolyMeshInfo.verts_per_poly, which is also the stride zrcTileCachePolyMeshPolys writes: 2 * verts_per_poly entries per polygon
+DetourTileCache	field:dtTileCachePolyMesh::polys	BOUND	zrcTileCachePolyMeshPolys copies it
+DetourTileCache	field:dtTileCachePolyMesh::verts	BOUND	zrcTileCachePolyMeshVerts copies it, three uint16 per vertex
+DetourTileCache	func:-::dtAllocTileCache/0	BOUND	zrcTileCacheCreate calls it to obtain the dtTileCache instance
+DetourTileCache	func:-::dtAllocTileCacheContourSet/1	BOUND	zrcTileCacheContourSetCreate calls it to obtain the container
+DetourTileCache	func:-::dtAllocTileCachePolyMesh/1	BOUND	zrcTileCachePolyMeshCreate calls it to obtain the container
+DetourTileCache	func:-::dtBuildTileCacheContours/5	BOUND	zrcTileCacheContourSetCreate
+DetourTileCache	func:-::dtBuildTileCacheLayer/7	BOUND	zrcTileCacheLayerBuild, which also checks that the three grids are each width times height bytes, a length the C side is handed only as bare pointers
+DetourTileCache	func:-::dtBuildTileCachePolyMesh/3	BOUND	zrcTileCachePolyMeshCreate
+DetourTileCache	func:-::dtBuildTileCacheRegions/3	BOUND	zrcTileCacheLayerBuildRegions
+DetourTileCache	func:-::dtDecompressTileCacheLayer/5	BOUND	zrcTileCacheLayerDecompress, which bounds the buffer first: upstream repeats addTile's subtraction and hands a negative length to the host codec for a short one
+DetourTileCache	func:-::dtFreeTileCache/1	BOUND	zrcTileCacheDestroy calls it directly
+DetourTileCache	func:-::dtFreeTileCacheContourSet/2	BOUND	zrcTileCacheContourSetDestroy calls it
+DetourTileCache	func:-::dtFreeTileCacheLayer/2	BOUND	zrcTileCacheLayerDestroy calls it, guarding the null upstream's own two siblings guard and this one does not
+DetourTileCache	func:-::dtFreeTileCachePolyMesh/2	BOUND	zrcTileCachePolyMeshDestroy calls it
+DetourTileCache	func:-::dtMarkBoxArea/7	BOUND	zrcTileCacheLayerMarkBox, the axis-aligned overload taking two corners
+DetourTileCache	func:-::dtMarkBoxArea/8	BOUND	zrcTileCacheLayerMarkOrientedBox, the overload taking a rotation; it takes an angle and computes the two-term form upstream wants, so a host never spells that form itself
+DetourTileCache	func:-::dtMarkCylinderArea/8	BOUND	zrcTileCacheLayerMarkCylinder, the same carve zrcTileCacheUpdate performs for a cylinder obstacle
+DetourTileCache	func:-::dtTileCacheHeaderSwapEndian/2	BOUND	zrcTileCacheHeaderSwapEndian, which checks the length upstream takes and discards before dereferencing the header
+DetourTileCache	func:dtTileCache::addBoxObstacle/3	BOUND	zrcTileCacheAddBoxObstacle, the axis-aligned overload taking two corners
+DetourTileCache	func:dtTileCache::addBoxObstacle/4	BOUND	zrcTileCacheAddOrientedBoxObstacle, the overload taking a centre, half extents and an angle
+DetourTileCache	func:dtTileCache::addObstacle/4	BOUND	zrcTileCacheAddCylinderObstacle
+DetourTileCache	func:dtTileCache::addTile/4	BOUND	zrcTileCacheAddTile, which checks the length and the header before upstream reads either and copies the bytes so the caller keeps its own
+DetourTileCache	func:dtTileCache::buildNavMeshTile/2	BOUND	zrcTileCacheBuildNavMeshTile, which resolves the reference first so upstream's own index bound, one past the array, is never reached with an out-of-range value
+DetourTileCache	func:dtTileCache::buildNavMeshTilesAt/3	BOUND	zrcTileCacheBuildNavMeshTilesAt
+DetourTileCache	func:dtTileCache::calcTightTileBounds/3	BOUND	ZrcCompressedTileInfo carries bmin, min_x, max_x, min_z, max_z and the cell size, which is every term of the same arithmetic
+DetourTileCache	func:dtTileCache::decodeObstacleIdObstacle/1	BOUND	the slot half of a ZrcObstacleRef, which zrcTileCacheObstacleInfo resolves through upstream's own salt-checking accessor
+DetourTileCache	func:dtTileCache::decodeObstacleIdSalt/1	BOUND	the salt half of a ZrcObstacleRef, turned over when a removal completes so zrcTileCacheObstacleInfo answers ZRC_ERR_NOT_FOUND
+DetourTileCache	func:dtTileCache::decodeTileIdSalt/1	BOUND	the salt half of a ZrcCompressedTileRef, which is what makes a reference to a removed layer stop resolving
+DetourTileCache	func:dtTileCache::decodeTileIdTile/1	BOUND	the slot half of a ZrcCompressedTileRef, which zrcTileCacheTileInfo resolves through upstream's own salt-checking accessor
+DetourTileCache	func:dtTileCache::dtTileCache/0	BOUND	zrcTileCacheCreate constructs one through dtAllocTileCache
+DetourTileCache	func:dtTileCache::encodeObstacleId/2	BOUND	zrcTileCacheAddCylinderObstacle and its two siblings hand back what it produces
+DetourTileCache	func:dtTileCache::encodeTileId/2	BOUND	zrcTileCacheTileRefAt and zrcTileCacheTileAt both hand back what it produces
+DetourTileCache	func:dtTileCache::getAlloc/0	BOUND	the ZrcTileCacheAllocator a host hands zrcTileCacheCreate is the one it gets back: the cache borrows it for its whole life and no other allocator can reach it
+DetourTileCache	func:dtTileCache::getCompressor/0	BOUND	the ZrcTileCacheCompressor a host hands zrcTileCacheCreate is the one it gets back, borrowed for the cache's whole life
+DetourTileCache	func:dtTileCache::getObstacle/1	BOUND	zrcTileCacheObstacleRefAt bounds the index upstream's own accessor does not and hands back a reference rather than an interior pointer
+DetourTileCache	func:dtTileCache::getObstacleBounds/3	BOUND	ZrcObstacleInfo reports each shape's own fields, and zrcTileCacheAddBoxObstacle applies the same arithmetic to refuse an obstacle spanning more tiles than upstream can track
+DetourTileCache	func:dtTileCache::getObstacleByRef/1	BOUND	zrcTileCacheObstacleInfo resolves a ZrcObstacleRef through it and copies the obstacle out
+DetourTileCache	func:dtTileCache::getObstacleCount/0	BOUND	ZrcTileCacheParams.max_obstacles, which is what upstream returns, and what bounds zrcTileCacheObstacleRefAt
+DetourTileCache	func:dtTileCache::getObstacleRef/1	BOUND	zrcTileCacheObstacleRefAt answers with what it computes
+DetourTileCache	func:dtTileCache::getParams/0	BOUND	zrcTileCacheParams copies the struct out by value
+DetourTileCache	func:dtTileCache::getTile/1	BOUND	zrcTileCacheTileRefAt bounds the index upstream's own accessor does not and hands back a reference rather than an interior pointer
+DetourTileCache	func:dtTileCache::getTileAt/3	BOUND	zrcTileCacheTileAt, which reports 0 for an empty position rather than a pointer
+DetourTileCache	func:dtTileCache::getTileByRef/1	BOUND	zrcTileCacheTileInfo resolves a ZrcCompressedTileRef through it and copies the layer's header out
+DetourTileCache	func:dtTileCache::getTileCount/0	BOUND	ZrcTileCacheParams.max_tiles, which is what upstream returns, and what bounds zrcTileCacheTileRefAt
+DetourTileCache	func:dtTileCache::getTileRef/1	BOUND	zrcTileCacheTileRefAt and zrcTileCacheTileAt both answer with what it computes
+DetourTileCache	func:dtTileCache::getTilesAt/4	BOUND	zrcTileCacheTilesAt, which reports how many layers are stacked there whether or not they fit, where upstream returns only what it wrote
+DetourTileCache	func:dtTileCache::init/4	BOUND	zrcTileCacheCreate, which is the only place it runs: upstream's init has no purge and leaks every array if called twice, so a ZrcTileCache is created once and destroyed once
+DetourTileCache	func:dtTileCache::queryTiles/5	BOUND	zrcTileCacheQueryTiles, which reports the true count where upstream drops the overflow and returns success
+DetourTileCache	func:dtTileCache::removeObstacle/1	BOUND	zrcTileCacheRemoveObstacle
+DetourTileCache	func:dtTileCache::removeTile/3	BOUND	zrcTileCacheRemoveTile, which hands the layer's bytes back or discards them
+DetourTileCache	func:dtTileCache::update/3	BOUND	zrcTileCacheUpdate, minus the dt upstream declares and ignores; it also reports a mesh-process callback's failure, which upstream's void process() has nowhere to put
+DetourTileCache	func:dtTileCache::~dtTileCache/0	BOUND	zrcTileCacheDestroy reaches it through dtFreeTileCache
+DetourTileCache	func:dtTileCacheAlloc::alloc/1	BOUND	ZrcTileCacheAllocator.allocate
+DetourTileCache	func:dtTileCacheAlloc::free/1	BOUND	ZrcTileCacheAllocator.deallocate
+DetourTileCache	func:dtTileCacheAlloc::reset/0	BOUND	ZrcTileCacheAllocator.reset, called once at the start of every tile rebuild - the one thing upstream's default does not offer, since its own reset is empty
+DetourTileCache	func:dtTileCacheAlloc::~dtTileCacheAlloc/0	BOUND	ZrcTileCacheAllocator is plain data the caller owns; the destructor releases nothing, so there is nothing to destroy
+DetourTileCache	func:dtTileCacheCompressor::compress/5	BOUND	ZrcTileCacheCompressor.compress, reached from zrcTileCacheLayerBuild
+DetourTileCache	func:dtTileCacheCompressor::decompress/5	BOUND	ZrcTileCacheCompressor.decompress, reached from zrcTileCacheUpdate and zrcTileCacheLayerDecompress, and never handed the negative length upstream computes for a short buffer
+DetourTileCache	func:dtTileCacheCompressor::maxCompressedSize/1	BOUND	ZrcTileCacheCompressor.max_compressed_size
+DetourTileCache	func:dtTileCacheCompressor::~dtTileCacheCompressor/0	BOUND	ZrcTileCacheCompressor is plain data the caller owns; the destructor releases nothing
+DetourTileCache	func:dtTileCacheMeshProcess::process/3	BOUND	ZrcTileCacheMeshProcess sees ZrcTileCacheBuildParams: the areas, the flags, the user id and the off-mesh connections, each validated on return and written into the tile by this package rather than by the callback
+DetourTileCache	func:dtTileCacheMeshProcess::~dtTileCacheMeshProcess/0	BOUND	ZrcTileCacheMeshProcess is a function pointer the caller owns; there is nothing to destroy
+DetourTileCache	type:-::ObstacleState	BOUND	ZrcObstacleState, enumerator for enumerator (static_asserts in zrecast_abi.cpp)
+DetourTileCache	type:-::ObstacleType	BOUND	ZrcObstacleShape, enumerator for enumerator (static_asserts in zrecast_abi.cpp)
+DetourTileCache	type:-::dtCompressedTile	BOUND	ZrcCompressedTileInfo copies its header and its length out by value, resolved through zrcTileCacheTileInfo
+DetourTileCache	type:-::dtCompressedTileFlags	BOUND	zrcTileCacheAddTile copies the caller's bytes and adds the layer with the one flag this enum has, so the cache always owns what it holds
+DetourTileCache	type:-::dtCompressedTileRef	BOUND	ZrcCompressedTileRef, the same 32-bit type, checked by a static_assert in zrecast_abi.cpp
+DetourTileCache	type:-::dtObstacleBox	BOUND	ZrcObstacleInfo.bmin and .bmax, which zrcTileCacheAddBoxObstacle takes
+DetourTileCache	type:-::dtObstacleCylinder	BOUND	ZrcObstacleInfo.position, .radius and .height, which zrcTileCacheAddCylinderObstacle takes
+DetourTileCache	type:-::dtObstacleOrientedBox	BOUND	ZrcObstacleInfo.center, .half_extents and .y_radians, which zrcTileCacheAddOrientedBoxObstacle takes
+DetourTileCache	type:-::dtObstacleRef	BOUND	ZrcObstacleRef, the same 32-bit type, checked by a static_assert in zrecast_abi.cpp
+DetourTileCache	type:-::dtTileCache	BOUND	ZrcTileCache, created by zrcTileCacheCreate and released by zrcTileCacheDestroy
+DetourTileCache	type:-::dtTileCacheAlloc	BOUND	ZrcTileCacheAllocator, optional at zrcTileCacheCreate: NULL selects upstream's own default, whose alloc and free already reach the seam zrcSetAllocator installs
+DetourTileCache	type:-::dtTileCacheCompressor	BOUND	ZrcTileCacheCompressor, required by zrcTileCacheCreate and zrcTileCacheLayerBuild; no codec is bundled, so the host's is the only one
+DetourTileCache	type:-::dtTileCacheContour	BOUND	ZrcTileCacheContourInfo copies its scalars out, and zrcTileCacheContourVerts copies its vertices
+DetourTileCache	type:-::dtTileCacheContourSet	BOUND	ZrcTileCacheContourSet, produced by zrcTileCacheContourSetCreate
+DetourTileCache	type:-::dtTileCacheLayer	BOUND	ZrcTileCacheLayer, produced by zrcTileCacheLayerDecompress and released by zrcTileCacheLayerDestroy
+DetourTileCache	type:-::dtTileCacheLayerHeader	BOUND	ZrcTileCacheLayerHeader, which zrcTileCacheLayerBuild takes and zrcTileCacheLayerHeaderOf reads back; zrcTileCacheTileInfo reports the same fields for a layer already in a cache
+DetourTileCache	type:-::dtTileCacheMeshProcess	BOUND	ZrcTileCacheMeshProcess, taken by zrcTileCacheCreate; narrowed to ZrcTileCacheBuildParams rather than the mutable dtNavMeshCreateParams upstream passes, because that tile reaches the navmesh without any of zrcNavMeshAddTile's checks
+DetourTileCache	type:-::dtTileCacheObstacle	BOUND	ZrcObstacleInfo copies one out by value, resolved through zrcTileCacheObstacleInfo
+DetourTileCache	type:-::dtTileCacheParams	BOUND	ZrcTileCacheParams, taken by zrcTileCacheCreate and read back by zrcTileCacheParams
+DetourTileCache	type:-::dtTileCachePolyMesh	BOUND	ZrcTileCachePolyMesh, produced by zrcTileCachePolyMeshCreate
