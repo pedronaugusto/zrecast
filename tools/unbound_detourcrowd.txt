@@ -1,0 +1,215 @@
+DetourCrowd	const:-::DT_CROWDAGENT_MAX_CORNERS	BOUND	ZRC_CROWD_MAX_CORNERS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DetourCrowd	const:-::DT_CROWDAGENT_MAX_NEIGHBOURS	BOUND	ZRC_CROWD_MAX_NEIGHBOURS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DetourCrowd	const:-::DT_CROWD_MAX_OBSTAVOIDANCE_PARAMS	BOUND	ZRC_CROWD_MAX_AVOIDANCE_PARAMS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DetourCrowd	const:-::DT_CROWD_MAX_QUERY_FILTER_TYPE	BOUND	ZRC_CROWD_MAX_FILTERS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DetourCrowd	const:-::DT_MAX_PATTERN_DIVS	BOUND	ZRC_AVOIDANCE_MAX_PATTERN_DIVS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DetourCrowd	const:-::DT_MAX_PATTERN_RINGS	BOUND	ZRC_AVOIDANCE_MAX_PATTERN_RINGS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DetourCrowd	const:-::DT_PATHQ_INVALID	BOUND	ZRC_PATH_REQUEST_NONE, what zrcPathQueueRequest reports when every slot is taken
+DetourCrowd	enum:CrowdAgentState::DT_CROWDAGENT_STATE_INVALID	BOUND	ZRC_CROWD_AGENT_INVALID, reported by ZrcCrowdAgent.state
+DetourCrowd	enum:CrowdAgentState::DT_CROWDAGENT_STATE_OFFMESH	BOUND	ZRC_CROWD_AGENT_OFFMESH, reported by ZrcCrowdAgent.state
+DetourCrowd	enum:CrowdAgentState::DT_CROWDAGENT_STATE_WALKING	BOUND	ZRC_CROWD_AGENT_WALKING, reported by ZrcCrowdAgent.state
+DetourCrowd	enum:MoveRequestState::DT_CROWDAGENT_TARGET_FAILED	BOUND	ZRC_CROWD_TARGET_FAILED, reported by ZrcCrowdAgent.target_state
+DetourCrowd	enum:MoveRequestState::DT_CROWDAGENT_TARGET_NONE	BOUND	ZRC_CROWD_TARGET_NONE, reported by ZrcCrowdAgent.target_state
+DetourCrowd	enum:MoveRequestState::DT_CROWDAGENT_TARGET_REQUESTING	BOUND	ZRC_CROWD_TARGET_REQUESTING, reported by ZrcCrowdAgent.target_state
+DetourCrowd	enum:MoveRequestState::DT_CROWDAGENT_TARGET_VALID	BOUND	ZRC_CROWD_TARGET_VALID, reported by ZrcCrowdAgent.target_state
+DetourCrowd	enum:MoveRequestState::DT_CROWDAGENT_TARGET_VELOCITY	BOUND	ZRC_CROWD_TARGET_VELOCITY, reported by ZrcCrowdAgent.target_state
+DetourCrowd	enum:MoveRequestState::DT_CROWDAGENT_TARGET_WAITING_FOR_PATH	BOUND	ZRC_CROWD_TARGET_WAITING_FOR_PATH, reported by ZrcCrowdAgent.target_state
+DetourCrowd	enum:MoveRequestState::DT_CROWDAGENT_TARGET_WAITING_FOR_QUEUE	BOUND	ZRC_CROWD_TARGET_WAITING_FOR_QUEUE, reported by ZrcCrowdAgent.target_state
+DetourCrowd	enum:UpdateFlags::DT_CROWD_ANTICIPATE_TURNS	BOUND	ZRC_CROWD_ANTICIPATE_TURNS, set in ZrcCrowdAgentParams.update_flags
+DetourCrowd	enum:UpdateFlags::DT_CROWD_OBSTACLE_AVOIDANCE	BOUND	ZRC_CROWD_OBSTACLE_AVOIDANCE, set in ZrcCrowdAgentParams.update_flags
+DetourCrowd	enum:UpdateFlags::DT_CROWD_OPTIMIZE_TOPO	BOUND	ZRC_CROWD_OPTIMIZE_TOPO, set in ZrcCrowdAgentParams.update_flags
+DetourCrowd	enum:UpdateFlags::DT_CROWD_OPTIMIZE_VIS	BOUND	ZRC_CROWD_OPTIMIZE_VIS, set in ZrcCrowdAgentParams.update_flags
+DetourCrowd	enum:UpdateFlags::DT_CROWD_SEPARATION	BOUND	ZRC_CROWD_SEPARATION, set in ZrcCrowdAgentParams.update_flags
+DetourCrowd	field:dtCrowdAgent::active	BOUND	the liveness a ZrcAgentRef carries: zrcCrowdAgentRefAt reports 0 for a free slot and every entry point refuses a reference whose slot is not active
+DetourCrowd	field:dtCrowdAgent::boundary	BOUND	read through zrcCrowdAgentBoundaryCenter and zrcCrowdAgentBoundarySegments; a non-copyable dtLocalBoundary, so it cannot cross inside ZrcCrowdAgent
+DetourCrowd	field:dtCrowdAgent::cornerFlags	BOUND	ZrcCrowdCorner.flags, copied out by zrcCrowdAgentCorners
+DetourCrowd	field:dtCrowdAgent::cornerPolys	BOUND	ZrcCrowdCorner.poly, copied out by zrcCrowdAgentCorners
+DetourCrowd	field:dtCrowdAgent::cornerVerts	BOUND	ZrcCrowdCorner.position, copied out by zrcCrowdAgentCorners
+DetourCrowd	field:dtCrowdAgent::corridor	BOUND	read through zrcCrowdAgentCorridorInfo and zrcCrowdAgentCorridorPath; it embeds a non-copyable dtPathCorridor so it cannot cross inside ZrcCrowdAgent
+DetourCrowd	field:dtCrowdAgent::desiredSpeed	BOUND	ZrcCrowdAgent.desired_speed
+DetourCrowd	field:dtCrowdAgent::disp	BOUND	ZrcCrowdAgent.displacement
+DetourCrowd	field:dtCrowdAgent::dvel	BOUND	ZrcCrowdAgent.desired_velocity
+DetourCrowd	field:dtCrowdAgent::ncorners	BOUND	ZrcCrowdAgent.corner_count
+DetourCrowd	field:dtCrowdAgent::neis	BOUND	ZrcCrowdNeighbour, copied out by zrcCrowdAgentNeighbours
+DetourCrowd	field:dtCrowdAgent::nneis	BOUND	ZrcCrowdAgent.neighbour_count
+DetourCrowd	field:dtCrowdAgent::npos	BOUND	ZrcCrowdAgent.position
+DetourCrowd	field:dtCrowdAgent::nvel	BOUND	ZrcCrowdAgent.avoided_velocity
+DetourCrowd	field:dtCrowdAgent::params	BOUND	ZrcCrowdAgent.params
+DetourCrowd	field:dtCrowdAgent::partial	BOUND	ZrcCrowdAgent.partial
+DetourCrowd	field:dtCrowdAgent::state	BOUND	ZrcCrowdAgent.state
+DetourCrowd	field:dtCrowdAgent::targetPathqRef	BOUND	zrcCrowdAgentInfo reports the request through ZrcCrowdAgent.target_state; the ZrcPathRequestRef itself belongs to the crowd's own queue, which zrcCrowdPathQueue hands back
+DetourCrowd	field:dtCrowdAgent::targetPos	BOUND	ZrcCrowdAgent.target_position
+DetourCrowd	field:dtCrowdAgent::targetRef	BOUND	ZrcCrowdAgent.target_ref
+DetourCrowd	field:dtCrowdAgent::targetReplan	BOUND	ZrcCrowdAgent.target_replan
+DetourCrowd	field:dtCrowdAgent::targetReplanTime	BOUND	ZrcCrowdAgent.target_replan_time
+DetourCrowd	field:dtCrowdAgent::targetState	BOUND	ZrcCrowdAgent.target_state
+DetourCrowd	field:dtCrowdAgent::topologyOptTime	BOUND	ZrcCrowdAgent.topology_opt_time
+DetourCrowd	field:dtCrowdAgent::vel	BOUND	ZrcCrowdAgent.velocity
+DetourCrowd	field:dtCrowdAgentAnimation::active	BOUND	ZrcCrowdAgentAnimation.active; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+DetourCrowd	field:dtCrowdAgentAnimation::endPos	BOUND	ZrcCrowdAgentAnimation.end_position; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+DetourCrowd	field:dtCrowdAgentAnimation::initPos	BOUND	ZrcCrowdAgentAnimation.init_position; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+DetourCrowd	field:dtCrowdAgentAnimation::polyRef	BOUND	ZrcCrowdAgentAnimation.poly; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+DetourCrowd	field:dtCrowdAgentAnimation::startPos	BOUND	ZrcCrowdAgentAnimation.start_position; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+DetourCrowd	field:dtCrowdAgentAnimation::t	BOUND	ZrcCrowdAgentAnimation.t; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+DetourCrowd	field:dtCrowdAgentAnimation::tmax	BOUND	ZrcCrowdAgentAnimation.t_max; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+DetourCrowd	field:dtCrowdAgentDebugInfo::idx	BOUND	ZrcCrowdAgentDebug.agent, a reference zrcCrowdUpdate resolves to the position upstream compares against
+DetourCrowd	field:dtCrowdAgentDebugInfo::optEnd	BOUND	ZrcCrowdAgentDebug.opt_end
+DetourCrowd	field:dtCrowdAgentDebugInfo::optStart	BOUND	ZrcCrowdAgentDebug.opt_start
+DetourCrowd	field:dtCrowdAgentDebugInfo::vod	BOUND	ZrcCrowdAgentDebug.samples
+DetourCrowd	field:dtCrowdAgentParams::collisionQueryRange	BOUND	ZrcCrowdAgentParams.collision_query_range
+DetourCrowd	field:dtCrowdAgentParams::height	BOUND	ZrcCrowdAgentParams.height
+DetourCrowd	field:dtCrowdAgentParams::maxAcceleration	BOUND	ZrcCrowdAgentParams.max_acceleration
+DetourCrowd	field:dtCrowdAgentParams::maxSpeed	BOUND	ZrcCrowdAgentParams.max_speed
+DetourCrowd	field:dtCrowdAgentParams::obstacleAvoidanceType	BOUND	ZrcCrowdAgentParams.obstacle_avoidance_type
+DetourCrowd	field:dtCrowdAgentParams::pathOptimizationRange	BOUND	ZrcCrowdAgentParams.path_optimization_range
+DetourCrowd	field:dtCrowdAgentParams::queryFilterType	BOUND	ZrcCrowdAgentParams.query_filter_type
+DetourCrowd	field:dtCrowdAgentParams::radius	BOUND	ZrcCrowdAgentParams.radius
+DetourCrowd	field:dtCrowdAgentParams::separationWeight	BOUND	ZrcCrowdAgentParams.separation_weight
+DetourCrowd	field:dtCrowdAgentParams::updateFlags	BOUND	ZrcCrowdAgentParams.update_flags
+DetourCrowd	field:dtCrowdAgentParams::userData	BOUND	ZrcCrowdAgentParams.user_data
+DetourCrowd	field:dtCrowdNeighbour::dist	BOUND	ZrcCrowdNeighbour.distance
+DetourCrowd	field:dtCrowdNeighbour::idx	BOUND	ZrcCrowdNeighbour.agent, the slot turned into a reference
+DetourCrowd	field:dtObstacleAvoidanceParams::adaptiveDepth	BOUND	ZrcAvoidanceParams.adaptive_depth
+DetourCrowd	field:dtObstacleAvoidanceParams::adaptiveDivs	BOUND	ZrcAvoidanceParams.adaptive_divs
+DetourCrowd	field:dtObstacleAvoidanceParams::adaptiveRings	BOUND	ZrcAvoidanceParams.adaptive_rings
+DetourCrowd	field:dtObstacleAvoidanceParams::gridSize	BOUND	ZrcAvoidanceParams.grid_size
+DetourCrowd	field:dtObstacleAvoidanceParams::horizTime	BOUND	ZrcAvoidanceParams.horiz_time
+DetourCrowd	field:dtObstacleAvoidanceParams::velBias	BOUND	ZrcAvoidanceParams.vel_bias
+DetourCrowd	field:dtObstacleAvoidanceParams::weightCurVel	BOUND	ZrcAvoidanceParams.weight_current_vel
+DetourCrowd	field:dtObstacleAvoidanceParams::weightDesVel	BOUND	ZrcAvoidanceParams.weight_desired_vel
+DetourCrowd	field:dtObstacleAvoidanceParams::weightSide	BOUND	ZrcAvoidanceParams.weight_side
+DetourCrowd	field:dtObstacleAvoidanceParams::weightToi	BOUND	ZrcAvoidanceParams.weight_toi
+DetourCrowd	field:dtObstacleCircle::dp	BOUND	scratch the sampler derives from ZrcAvoidanceCircle.position each call; zrcAvoidanceCircleAt reports what a caller supplied, which is what upstream lets one observe before prepare() overwrites it
+DetourCrowd	field:dtObstacleCircle::dvel	BOUND	ZrcAvoidanceCircle.desired_velocity
+DetourCrowd	field:dtObstacleCircle::np	BOUND	the other half of the same scratch, derived alongside dp and reported through zrcAvoidanceCircleAt on the same terms
+DetourCrowd	field:dtObstacleCircle::p	BOUND	ZrcAvoidanceCircle.position
+DetourCrowd	field:dtObstacleCircle::rad	BOUND	ZrcAvoidanceCircle.radius
+DetourCrowd	field:dtObstacleCircle::vel	BOUND	ZrcAvoidanceCircle.velocity
+DetourCrowd	field:dtObstacleSegment::p	BOUND	ZrcAvoidanceSegment.p
+DetourCrowd	field:dtObstacleSegment::q	BOUND	ZrcAvoidanceSegment.q
+DetourCrowd	field:dtObstacleSegment::touch	BOUND	ZrcAvoidanceSegment.touching
+DetourCrowd	func:-::dtAllocCrowd/0	BOUND	zrcCrowdCreate calls it to obtain the object
+DetourCrowd	func:-::dtAllocObstacleAvoidanceDebugData/0	BOUND	zrcAvoidanceDebugCreate calls it to obtain the object
+DetourCrowd	func:-::dtAllocObstacleAvoidanceQuery/0	BOUND	zrcAvoidanceQueryCreate calls it to obtain the object
+DetourCrowd	func:-::dtAllocProximityGrid/0	BOUND	zrcProximityGridCreate calls it to obtain the object
+DetourCrowd	func:-::dtFreeCrowd/1	BOUND	zrcCrowdDestroy calls it
+DetourCrowd	func:-::dtFreeObstacleAvoidanceDebugData/1	BOUND	zrcAvoidanceDebugDestroy calls it
+DetourCrowd	func:-::dtFreeObstacleAvoidanceQuery/1	BOUND	zrcAvoidanceQueryDestroy calls it
+DetourCrowd	func:-::dtFreeProximityGrid/1	BOUND	zrcProximityGridDestroy calls it
+DetourCrowd	func:-::dtMergeCorridorEndMoved/5	BOUND	zrcMergeCorridorEndMoved
+DetourCrowd	func:-::dtMergeCorridorStartMoved/5	BOUND	zrcMergeCorridorStartMoved
+DetourCrowd	func:-::dtMergeCorridorStartShortcut/5	BOUND	zrcMergeCorridorStartShortcut
+DetourCrowd	func:dtCrowd::addAgent/2	BOUND	zrcCrowdAddAgent
+DetourCrowd	func:dtCrowd::dtCrowd/0	BOUND	dtAllocCrowd constructs it in place, from zrcCrowdCreate
+DetourCrowd	func:dtCrowd::getActiveAgents/2	BOUND	zrcCrowdActiveAgents, which reports the true total rather than clipping to the buffer
+DetourCrowd	func:dtCrowd::getAgent/1	BOUND	zrcCrowdAgentRefAt names the slot and zrcCrowdAgentInfo reads it, with zrcCrowdAgentCorners, zrcCrowdAgentNeighbours, zrcCrowdAgentCorridorInfo and zrcCrowdAgentBoundaryCenter for the members that cannot cross by value
+DetourCrowd	func:dtCrowd::getAgentCount/0	BOUND	zrcCrowdAgentCapacity, which is what it returns; zrcCrowdActiveAgentCount is the other question
+DetourCrowd	func:dtCrowd::getEditableAgent/1	BOUND	the fields a host can write without desynchronising an agent from its own corridor: zrcCrowdSetAgentParams, zrcCrowdRequestMoveTarget, zrcCrowdRequestMoveVelocity and zrcCrowdResetMoveTarget. The rest are outputs zrcCrowdUpdate recomputes each frame, or crowd invariants upstream neither documents as writable nor defends
+DetourCrowd	func:dtCrowd::getEditableFilter/1	BOUND	zrcCrowdSetFilter
+DetourCrowd	func:dtCrowd::getFilter/1	BOUND	zrcCrowdFilter
+DetourCrowd	func:dtCrowd::getGrid/0	BOUND	zrcCrowdGrid, borrowed
+DetourCrowd	func:dtCrowd::getNavMeshQuery/0	BOUND	zrcCrowdNavMeshQuery, borrowed and const
+DetourCrowd	func:dtCrowd::getObstacleAvoidanceParams/1	BOUND	zrcCrowdAvoidanceParams
+DetourCrowd	func:dtCrowd::getPathQueue/0	BOUND	zrcCrowdPathQueue, borrowed and const so nothing can submit to it, which is what upstream's const return already prevents
+DetourCrowd	func:dtCrowd::getQueryExtents/0	BOUND	zrcCrowdQueryHalfExtents; upstream's own back-compatibility alias of getQueryHalfExtents, returning the same array, so one spelling crosses
+DetourCrowd	func:dtCrowd::getQueryHalfExtents/0	BOUND	zrcCrowdQueryHalfExtents
+DetourCrowd	func:dtCrowd::getVelocitySampleCount/0	BOUND	zrcCrowdVelocitySampleCount
+DetourCrowd	func:dtCrowd::init/3	BOUND	zrcCrowdCreate for the first, zrcCrowdInit for every later one
+DetourCrowd	func:dtCrowd::removeAgent/1	BOUND	zrcCrowdRemoveAgent
+DetourCrowd	func:dtCrowd::requestMoveTarget/3	BOUND	zrcCrowdRequestMoveTarget
+DetourCrowd	func:dtCrowd::requestMoveVelocity/2	BOUND	zrcCrowdRequestMoveVelocity
+DetourCrowd	func:dtCrowd::resetMoveTarget/1	BOUND	zrcCrowdResetMoveTarget
+DetourCrowd	func:dtCrowd::setObstacleAvoidanceParams/2	BOUND	zrcCrowdSetAvoidanceParams
+DetourCrowd	func:dtCrowd::update/2	BOUND	zrcCrowdUpdate
+DetourCrowd	func:dtCrowd::updateAgentParameters/2	BOUND	zrcCrowdSetAgentParams
+DetourCrowd	func:dtCrowd::~dtCrowd/0	BOUND	dtFreeCrowd runs it, from zrcCrowdDestroy
+DetourCrowd	func:dtLocalBoundary::dtLocalBoundary/0	BOUND	zrcLocalBoundaryCreate constructs one
+DetourCrowd	func:dtLocalBoundary::getCenter/0	BOUND	zrcLocalBoundaryCenter, and zrcCrowdAgentBoundaryCenter for an agent's
+DetourCrowd	func:dtLocalBoundary::getSegment/1	BOUND	zrcLocalBoundarySegments, and zrcCrowdAgentBoundarySegments for an agent's
+DetourCrowd	func:dtLocalBoundary::getSegmentCount/0	BOUND	zrcLocalBoundarySegmentCount, and zrcCrowdAgentBoundarySegmentCount for an agent's
+DetourCrowd	func:dtLocalBoundary::isValid/2	BOUND	zrcLocalBoundaryIsValid
+DetourCrowd	func:dtLocalBoundary::reset/0	BOUND	zrcLocalBoundaryReset
+DetourCrowd	func:dtLocalBoundary::update/5	BOUND	zrcLocalBoundaryUpdate
+DetourCrowd	func:dtLocalBoundary::~dtLocalBoundary/0	BOUND	zrcLocalBoundaryDestroy runs it
+DetourCrowd	func:dtObstacleAvoidanceDebugData::addSample/7	BOUND	zrcAvoidanceDebugAddSample, which takes the seven values as one ZrcAvoidanceSample
+DetourCrowd	func:dtObstacleAvoidanceDebugData::dtObstacleAvoidanceDebugData/0	BOUND	dtAllocObstacleAvoidanceDebugData constructs it in place, from zrcAvoidanceDebugCreate
+DetourCrowd	func:dtObstacleAvoidanceDebugData::getSampleCollisionTimePenalty/1	BOUND	ZrcAvoidanceSample.collision_time_penalty
+DetourCrowd	func:dtObstacleAvoidanceDebugData::getSampleCount/0	BOUND	zrcAvoidanceDebugSampleCount
+DetourCrowd	func:dtObstacleAvoidanceDebugData::getSampleCurrentVelocityPenalty/1	BOUND	ZrcAvoidanceSample.current_velocity_penalty
+DetourCrowd	func:dtObstacleAvoidanceDebugData::getSampleDesiredVelocityPenalty/1	BOUND	ZrcAvoidanceSample.desired_velocity_penalty
+DetourCrowd	func:dtObstacleAvoidanceDebugData::getSamplePenalty/1	BOUND	ZrcAvoidanceSample.penalty
+DetourCrowd	func:dtObstacleAvoidanceDebugData::getSamplePreferredSidePenalty/1	BOUND	ZrcAvoidanceSample.preferred_side_penalty
+DetourCrowd	func:dtObstacleAvoidanceDebugData::getSampleSize/1	BOUND	ZrcAvoidanceSample.size
+DetourCrowd	func:dtObstacleAvoidanceDebugData::getSampleVelocity/1	BOUND	ZrcAvoidanceSample.velocity
+DetourCrowd	func:dtObstacleAvoidanceDebugData::init/1	BOUND	zrcAvoidanceDebugCreate, fused with the allocation
+DetourCrowd	func:dtObstacleAvoidanceDebugData::normalizeSamples/0	BOUND	zrcAvoidanceDebugNormalize
+DetourCrowd	func:dtObstacleAvoidanceDebugData::reset/0	BOUND	zrcAvoidanceDebugReset
+DetourCrowd	func:dtObstacleAvoidanceDebugData::~dtObstacleAvoidanceDebugData/0	BOUND	dtFreeObstacleAvoidanceDebugData runs it, from zrcAvoidanceDebugDestroy
+DetourCrowd	func:dtObstacleAvoidanceQuery::addCircle/4	BOUND	zrcAvoidanceAddCircle
+DetourCrowd	func:dtObstacleAvoidanceQuery::addSegment/2	BOUND	zrcAvoidanceAddSegment
+DetourCrowd	func:dtObstacleAvoidanceQuery::dtObstacleAvoidanceQuery/0	BOUND	dtAllocObstacleAvoidanceQuery constructs it in place, from zrcAvoidanceQueryCreate
+DetourCrowd	func:dtObstacleAvoidanceQuery::getObstacleCircle/1	BOUND	zrcAvoidanceCircleAt
+DetourCrowd	func:dtObstacleAvoidanceQuery::getObstacleCircleCount/0	BOUND	zrcAvoidanceCircleCount
+DetourCrowd	func:dtObstacleAvoidanceQuery::getObstacleSegment/1	BOUND	zrcAvoidanceSegmentAt
+DetourCrowd	func:dtObstacleAvoidanceQuery::getObstacleSegmentCount/0	BOUND	zrcAvoidanceSegmentCount
+DetourCrowd	func:dtObstacleAvoidanceQuery::init/2	BOUND	zrcAvoidanceQueryCreate, fused with the allocation
+DetourCrowd	func:dtObstacleAvoidanceQuery::reset/0	BOUND	zrcAvoidanceQueryReset
+DetourCrowd	func:dtObstacleAvoidanceQuery::sampleVelocityAdaptive/8	BOUND	zrcAvoidanceSampleAdaptive, which is also what zrcCrowdUpdate reaches
+DetourCrowd	func:dtObstacleAvoidanceQuery::sampleVelocityGrid/8	BOUND	zrcAvoidanceSampleGrid
+DetourCrowd	func:dtObstacleAvoidanceQuery::~dtObstacleAvoidanceQuery/0	BOUND	dtFreeObstacleAvoidanceQuery runs it, from zrcAvoidanceQueryDestroy
+DetourCrowd	func:dtPathCorridor::dtPathCorridor/0	BOUND	zrcPathCorridorCreate constructs one
+DetourCrowd	func:dtPathCorridor::findCorners/6	BOUND	zrcPathCorridorFindCorners
+DetourCrowd	func:dtPathCorridor::fixPathStart/2	BOUND	zrcPathCorridorFixStart
+DetourCrowd	func:dtPathCorridor::getFirstPoly/0	BOUND	ZrcPathCorridorInfo.first_poly
+DetourCrowd	func:dtPathCorridor::getLastPoly/0	BOUND	ZrcPathCorridorInfo.last_poly
+DetourCrowd	func:dtPathCorridor::getPath/0	BOUND	zrcPathCorridorPath, which copies a range out rather than handing back the interior pointer
+DetourCrowd	func:dtPathCorridor::getPathCount/0	BOUND	ZrcPathCorridorInfo.path_count
+DetourCrowd	func:dtPathCorridor::getPos/0	BOUND	ZrcPathCorridorInfo.position
+DetourCrowd	func:dtPathCorridor::getTarget/0	BOUND	ZrcPathCorridorInfo.target
+DetourCrowd	func:dtPathCorridor::init/1	BOUND	zrcPathCorridorCreate, fused with the allocation because upstream leaks when init is called twice
+DetourCrowd	func:dtPathCorridor::isValid/3	BOUND	zrcPathCorridorIsValid
+DetourCrowd	func:dtPathCorridor::moveOverOffmeshConnection/5	BOUND	zrcPathCorridorMoveOverOffmeshConnection
+DetourCrowd	func:dtPathCorridor::movePosition/3	BOUND	zrcPathCorridorMovePosition
+DetourCrowd	func:dtPathCorridor::moveTargetPosition/3	BOUND	zrcPathCorridorMoveTargetPosition
+DetourCrowd	func:dtPathCorridor::optimizePathTopology/2	BOUND	zrcPathCorridorOptimizeTopology
+DetourCrowd	func:dtPathCorridor::optimizePathVisibility/4	BOUND	zrcPathCorridorOptimizeVisibility
+DetourCrowd	func:dtPathCorridor::reset/2	BOUND	zrcPathCorridorReset
+DetourCrowd	func:dtPathCorridor::setCorridor/3	BOUND	zrcPathCorridorSetCorridor
+DetourCrowd	func:dtPathCorridor::trimInvalidPath/4	BOUND	zrcPathCorridorTrimInvalid
+DetourCrowd	func:dtPathCorridor::~dtPathCorridor/0	BOUND	zrcPathCorridorDestroy runs it
+DetourCrowd	func:dtPathQueue::dtPathQueue/0	BOUND	zrcPathQueueCreate constructs one
+DetourCrowd	func:dtPathQueue::getNavQuery/0	BOUND	zrcPathQueueNavMeshQuery, borrowed and const
+DetourCrowd	func:dtPathQueue::getPathResult/4	BOUND	zrcPathQueueResult
+DetourCrowd	func:dtPathQueue::getRequestStatus/1	BOUND	zrcPathQueueRequestStatus
+DetourCrowd	func:dtPathQueue::init/3	BOUND	zrcPathQueueCreate, fused with the allocation
+DetourCrowd	func:dtPathQueue::request/5	BOUND	zrcPathQueueRequest, which owns the filter for the request's lifetime rather than borrowing the caller's
+DetourCrowd	func:dtPathQueue::update/1	BOUND	zrcPathQueueUpdate
+DetourCrowd	func:dtPathQueue::~dtPathQueue/0	BOUND	zrcPathQueueDestroy runs it
+DetourCrowd	func:dtProximityGrid::addItem/5	BOUND	zrcProximityGridAddItem
+DetourCrowd	func:dtProximityGrid::clear/0	BOUND	zrcProximityGridClear
+DetourCrowd	func:dtProximityGrid::dtProximityGrid/0	BOUND	dtAllocProximityGrid constructs it in place, from zrcProximityGridCreate
+DetourCrowd	func:dtProximityGrid::getBounds/0	BOUND	zrcProximityGridBounds
+DetourCrowd	func:dtProximityGrid::getCellSize/0	BOUND	zrcProximityGridCellSize
+DetourCrowd	func:dtProximityGrid::getItemCountAt/2	BOUND	zrcProximityGridItemCountAt
+DetourCrowd	func:dtProximityGrid::init/2	BOUND	zrcProximityGridCreate, fused with the allocation because upstream leaks when init is called twice
+DetourCrowd	func:dtProximityGrid::queryItems/6	BOUND	zrcProximityGridQueryItems
+DetourCrowd	func:dtProximityGrid::~dtProximityGrid/0	BOUND	dtFreeProximityGrid runs it, from zrcProximityGridDestroy
+DetourCrowd	type:-::CrowdAgentState	BOUND	ZrcCrowdAgentState
+DetourCrowd	type:-::MoveRequestState	BOUND	ZrcCrowdTargetState
+DetourCrowd	type:-::UpdateFlags	BOUND	the ZRC_CROWD_ANTICIPATE_TURNS flag set, taken by ZrcCrowdAgentParams.update_flags
+DetourCrowd	type:-::dtCrowd	BOUND	ZrcCrowd, produced by zrcCrowdCreate
+DetourCrowd	type:-::dtCrowdAgent	BOUND	ZrcCrowdAgent, produced by zrcCrowdAgentInfo
+DetourCrowd	type:-::dtCrowdAgentAnimation	BOUND	ZrcCrowdAgentAnimation, the same value type; upstream declares it publicly and keeps every instance in dtCrowd's private m_agentAnims with no accessor, so neither a C++ nor a Zig host reads a live one
+DetourCrowd	type:-::dtCrowdAgentDebugInfo	BOUND	ZrcCrowdAgentDebug, taken and filled by zrcCrowdUpdate
+DetourCrowd	type:-::dtCrowdAgentParams	BOUND	ZrcCrowdAgentParams, taken by zrcCrowdAddAgent and zrcCrowdSetAgentParams
+DetourCrowd	type:-::dtCrowdNeighbour	BOUND	ZrcCrowdNeighbour, produced by zrcCrowdAgentNeighbours
+DetourCrowd	type:-::dtLocalBoundary	BOUND	ZrcLocalBoundary, produced by zrcLocalBoundaryCreate
+DetourCrowd	type:-::dtObstacleAvoidanceDebugData	BOUND	ZrcAvoidanceDebug, produced by zrcAvoidanceDebugCreate
+DetourCrowd	type:-::dtObstacleAvoidanceParams	BOUND	ZrcAvoidanceParams, taken by zrcCrowdSetAvoidanceParams and the two samplers
+DetourCrowd	type:-::dtObstacleAvoidanceQuery	BOUND	ZrcAvoidanceQuery, produced by zrcAvoidanceQueryCreate
+DetourCrowd	type:-::dtObstacleCircle	BOUND	ZrcAvoidanceCircle, produced by zrcAvoidanceCircleAt
+DetourCrowd	type:-::dtObstacleSegment	BOUND	ZrcAvoidanceSegment, produced by zrcAvoidanceSegmentAt
+DetourCrowd	type:-::dtPathCorridor	BOUND	ZrcPathCorridor, produced by zrcPathCorridorCreate
+DetourCrowd	type:-::dtPathQueue	BOUND	ZrcPathQueue, produced by zrcPathQueueCreate
+DetourCrowd	type:-::dtPathQueueRef	BOUND	ZrcPathRequestRef, produced by zrcPathQueueRequest
+DetourCrowd	type:-::dtProximityGrid	BOUND	ZrcProximityGrid, produced by zrcProximityGridCreate

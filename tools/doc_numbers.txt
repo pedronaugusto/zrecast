@@ -1,0 +1,29 @@
+# Numbers a document may state by hand: NUMBER<TAB>REASON, one per line.
+# Every other multi-digit number outside a generated block, a code span or a
+# link fails ci/check-docs.sh. A number that belongs to the tree belongs in a
+# generated block; a line here has to say why this one cannot go stale.
+#
+# Two kinds qualify. Arithmetic is true forever. A property of the pinned
+# vendor can only move at a re-vendor, whose procedure (UPSTREAM.md) re-reads
+# both documents; each such line names where in upstream the value sits.
+
+# README.md
+170	measured 2026-09-02: the ReleaseFast size gap between a query-only C program (462 KB) and the same with one bake call (634 KB), zig c++ -O2, x86_64-windows; stated as an approximation
+31	field count of dtNavMeshCreateParams at the pinned commit (DetourNavMeshBuilder.h)
+12	count of dtStatus detail bits declared static const unsigned int at the pinned commit (DetourStatus.h)
+24	constants in the six enums whose names carry no rc/dt prefix at the pinned commit (DetourCrowd.h, DetourTileCache.h)
+421	the retired coverage script's own answer, quoted as history
+
+# UPSTREAM.md
+855	size of upstream's excluded Tests/ tree, summed file bytes at the pinned commit
+584	size of upstream's excluded Docs/ tree, summed file bytes at the pinned commit
+29	arithmetic: 73856093 * 29 fits an int and 73856093 * 30 does not (hashPos2, DetourProximityGrid.cpp)
+32767	arithmetic: the largest magnitude whose doubled square still fits an int
+2147352578	arithmetic: 2 * 32767^2
+32	MAX_NEIS, the fixed neighbour-tile buffer at the pinned commit (DetourNavMesh.cpp:1021)
+128	arithmetic: an erosion radius of 128 doubles to 256, which an unsigned char wraps to 0
+129	arithmetic: an erosion radius of 129 doubles to 258, which wraps to 2 — radius 1's threshold
+255	the saturation ceiling rcErodeWalkableArea clamps distances to at the pinned commit (RecastArea.cpp:111)
+127	arithmetic: the largest erosion radius whose doubled threshold an unsigned char can hold
+512	MSG_SIZE, the log-message buffer at the pinned commit (Recast.cpp)
+511	arithmetic: MSG_SIZE minus the terminator — where a longer message is cut

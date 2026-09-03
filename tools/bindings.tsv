@@ -1,0 +1,1109 @@
+# zrecast — the names that are answered, and how.
+#
+# SYMBOL<TAB>VERDICT<TAB>EVIDENCE, one line per public Recast/Detour name that
+# is not a gap. This is the only hand-maintained half of the coverage record:
+# tools/record.sh joins it with the upstream harvest and tools/tranches.awk to
+# write tools/unbound_*.txt, and ci/check-coverage.sh then checks every line of
+# it against the tree.
+#
+# Binding a name is one line appended here. The verdicts:
+#
+#   BOUND      a zrecast entry point a host can call to get the capability
+#   EXTENSION  zrecast offers it in a shape upstream does not have
+#   LANGUAGE   Zig spells it directly; the evidence names the facility
+#   ZIG        src/FILE.zig:decl implements it
+#   INTERNAL   upstream marks it internal; tools/classify.sh must agree
+#
+# Evidence is prose that has to survive a check: BOUND and EXTENSION name a
+# symbol ffi/*.h declares, LANGUAGE names a facility from a closed list, ZIG
+# names a declaration that exists, and INTERNAL must match what classify.sh
+# computes. Sorted by symbol.
+const:-::DT_ALREADY_OCCUPIED	BOUND	ZRC_ERR_TILE_OCCUPIED - zrcNavMeshAddTile checks the slot itself so the condition has its own result rather than a generic failure
+const:-::DT_BUFFER_TOO_SMALL	BOUND	ZRC_ERR_BUFFER_TOO_SMALL maps this detail bit in zrc::ResultFromStatus, and it also drives the out_partial/out_truncated flags on success
+const:-::DT_CROWDAGENT_MAX_CORNERS	BOUND	ZRC_CROWD_MAX_CORNERS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+const:-::DT_CROWDAGENT_MAX_NEIGHBOURS	BOUND	ZRC_CROWD_MAX_NEIGHBOURS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+const:-::DT_CROWD_MAX_OBSTAVOIDANCE_PARAMS	BOUND	ZRC_CROWD_MAX_AVOIDANCE_PARAMS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+const:-::DT_CROWD_MAX_QUERY_FILTER_TYPE	BOUND	ZRC_CROWD_MAX_FILTERS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+const:-::DT_EXT_LINK	BOUND	ZRC_EXT_LINK mirrors the bit exactly; it is how a ZrcPolyInfo.neis entry says the edge crosses into another tile
+const:-::DT_FAILURE	BOUND	ZRC_ERR_QUERY_FAILED is the generic-failure fallback zrc::ResultFromStatus returns once dtStatusFailed(status) is true and no detail bit matches
+const:-::DT_INVALID_PARAM	BOUND	ZRC_ERR_INVALID_ARGUMENT is returned by zrc::ResultFromStatus when this detail bit is set
+const:-::DT_IN_PROGRESS	BOUND	zrcSlicedFindPathUpdate's out_in_progress is this bit, tested rather than surfaced raw
+const:-::DT_MAX_AREAS	BOUND	ZRC_MAX_AREAS mirrors this exactly (static_assert in zrecast_abi.cpp)
+const:-::DT_MAX_PATTERN_DIVS	BOUND	ZRC_AVOIDANCE_MAX_PATTERN_DIVS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+const:-::DT_MAX_PATTERN_RINGS	BOUND	ZRC_AVOIDANCE_MAX_PATTERN_RINGS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+const:-::DT_MAX_STATES_PER_NODE	BOUND	ZRC_MAX_NODE_STATES mirrors it exactly, and bounds zrcQueryFindNodes
+const:-::DT_MAX_TOUCHED_TILES	BOUND	ZRC_MAX_TOUCHED_TILES mirrors it exactly (static_assert in zrecast_abi.cpp), and it is the ceiling zrcTileCacheAddBoxObstacle refuses an obstacle for rather than letting upstream carve into eight and stop
+const:-::DT_NAVMESH_MAGIC	BOUND	zrcNavMeshValidate is how a host asks whether a buffer is a navmesh image at all, which is what a C++ host uses this constant for; a mismatch is ZRC_ERR_BAD_FORMAT
+const:-::DT_NAVMESH_STATE_MAGIC	BOUND	zrcNavMeshRestoreTileState surfaces upstream's magic check on the blob as ZRC_ERR_BAD_FORMAT
+const:-::DT_NAVMESH_STATE_VERSION	BOUND	zrcNavMeshRestoreTileState surfaces upstream's version check on the blob as ZRC_ERR_UNSUPPORTED_VERSION
+const:-::DT_NAVMESH_VERSION	BOUND	zrcNavMeshDataVersion returns this value directly (ffi/zrecast_core.cpp)
+const:-::DT_NODE_PARENT_BITS	BOUND	the width ZrcNode.parent_index is packed into upstream and reported whole here
+const:-::DT_NODE_STATE_BITS	BOUND	the width ZrcNode.state is packed into upstream and reported whole here
+const:-::DT_NULL_IDX	BOUND	ZrcNode.parent_index of 0, which is how zrcQueryNodeAt spells no node
+const:-::DT_NULL_LINK	BOUND	ZRC_NULL_LINK mirrors it exactly; it ends the chain walked from ZrcPolyInfo.first_link through ZrcLink.next
+const:-::DT_OFFMESH_CON_BIDIR	BOUND	ZrcOffMeshConnection.bidirectional, which decides whether B's ground polygon lists the connection as a neighbour
+const:-::DT_OUT_OF_MEMORY	BOUND	ZRC_ERR_OUT_OF_MEMORY is returned by zrc::ResultFromStatus when this detail bit is set
+const:-::DT_OUT_OF_NODES	BOUND	ZRC_ERR_OUT_OF_NODES is returned by zrc::ResultFromStatus when this detail bit is set
+const:-::DT_PARTIAL_RESULT	BOUND	zrc::StatusIsPartial tests this bit and it surfaces through zrcFindPath's out_partial and zrcMoveAlongSurface/zrcRaycast's out_truncated parameters
+const:-::DT_PATHQ_INVALID	BOUND	ZRC_PATH_REQUEST_NONE, what zrcPathQueueRequest reports when every slot is taken
+const:-::DT_POLY_BITS	BOUND	zrcDecodePolyRef and zrcEncodePolyRef, which split and rebuild a reference along it
+const:-::DT_RAY_CAST_LIMIT_PROPORTIONS	BOUND	ZRC_RAYCAST_LIMIT_PROPORTIONS mirrors it exactly
+const:-::DT_SALT_BITS	BOUND	zrcDecodePolyRef and zrcEncodePolyRef, which split and rebuild a reference along it
+const:-::DT_STATUS_DETAIL_MASK	BOUND	the detail bits it masks are what zrc::ResultFromStatus turns into a ZrcResult, and what the out_partial and out_truncated flags report
+const:-::DT_SUCCESS	BOUND	ZRC_OK is returned by zrc::ResultFromStatus (via dtStatusSucceed) whenever this bit is set
+const:-::DT_TILECACHE_MAGIC	BOUND	ZRC_TILECACHE_MAGIC mirrors it exactly (static_assert in zrecast_abi.cpp), and zrcTileCacheAddTile is how a host asks whether a buffer is a compressed layer
+const:-::DT_TILECACHE_NULL_AREA	BOUND	ZRC_TILECACHE_AREA_NULL mirrors it exactly (static_assert in zrecast_abi.cpp)
+const:-::DT_TILECACHE_NULL_IDX	BOUND	ZRC_TILECACHE_NULL_IDX mirrors it exactly (static_assert in zrecast_abi.cpp); it is what zrcTileCachePolyMeshPolys writes past a polygon's last corner
+const:-::DT_TILECACHE_VERSION	BOUND	ZRC_TILECACHE_VERSION mirrors it exactly (static_assert in zrecast_abi.cpp); a mismatch is ZRC_ERR_UNSUPPORTED_VERSION
+const:-::DT_TILECACHE_WALKABLE_AREA	BOUND	ZRC_TILECACHE_AREA_WALKABLE mirrors it exactly (static_assert in zrecast_abi.cpp)
+const:-::DT_TILE_BITS	BOUND	zrcDecodePolyRef and zrcEncodePolyRef, which split and rebuild a reference along it
+const:-::DT_VERTS_PER_POLYGON	BOUND	ZRC_VERTS_PER_POLYGON mirrors this exactly (static_assert in zrecast_abi.cpp)
+const:-::DT_WRONG_MAGIC	BOUND	ZRC_ERR_BAD_FORMAT is returned by zrc::ResultFromStatus when this detail bit is set
+const:-::DT_WRONG_VERSION	BOUND	ZRC_ERR_UNSUPPORTED_VERSION is returned by zrc::ResultFromStatus when this detail bit is set
+const:-::RC_AREA_BORDER	BOUND	ZRC_AREA_BORDER mirrors it exactly: the flag zrcContourVerts and zrcContourRawVerts set above ZRC_CONTOUR_REG_MASK when a vertex sits on an area boundary
+const:-::RC_BORDER_REG	BOUND	ZRC_BORDER_REG mirrors it exactly: the region id zrcCompactHeightfieldSpans and zrcCompactHeightfieldSetSpans read and write in ZrcCompactSpan.reg for a border span
+const:-::RC_BORDER_VERTEX	BOUND	ZRC_BORDER_VERTEX mirrors it exactly: the flag zrcContourVerts and zrcContourRawVerts set above ZRC_CONTOUR_REG_MASK when a vertex sits on a tile border
+const:-::RC_CONTOUR_REG_MASK	BOUND	ZRC_CONTOUR_REG_MASK mirrors it exactly, the mask zrcContourVerts and zrcContourRawVerts document for isolating the region id from a vertex's fourth component
+const:-::RC_MESH_NULL_IDX	BOUND	ZRC_MESH_NULL_IDX mirrors it exactly, the value zrcPolyMeshPolys reports where a polygon has no further corner and no neighbour
+const:-::RC_MULTIPLE_REGS	BOUND	ZRC_MULTIPLE_REGS mirrors it exactly, the region id zrcPolyMeshRegions reports for a polygon merged from more than one region
+const:-::RC_NOT_CONNECTED	BOUND	ZRC_NOT_CONNECTED mirrors it exactly, the value ZrcCompactSpan.con packs into each direction with no neighbour
+const:-::RC_NULL_AREA	BOUND	ZRC_AREA_NULL - the area id Recast gives an unwalkable surface, same value
+const:-::RC_PI	LANGUAGE	std.math.pi, which rounds to this float exactly; Recast reaches for its copy only to turn a slope limit into a cosine, and zrc::CosDegrees does that from degrees so nothing crosses the boundary in radians
+const:-::RC_SPANS_PER_POOL	BOUND	ZRC_SPANS_PER_POOL mirrors it exactly; zrcHeightfieldStorage reports it back verbatim as ZrcHeightfieldStorage.spans_per_pool
+const:-::RC_SPAN_HEIGHT_BITS	BOUND	ZRC_SPAN_HEIGHT_BITS mirrors it exactly, the bit width zrcHeightfieldAddSpan and the rasterisation entry points bound span_min/span_max against
+const:-::RC_SPAN_MAX_HEIGHT	BOUND	ZRC_SPAN_MAX_HEIGHT mirrors it exactly, the ceiling zrcHeightfieldAddSpan's span_max and ZrcSpan.smax are checked against
+const:-::RC_WALKABLE_AREA	BOUND	ZRC_AREA_WALKABLE - the area id zrcPolyMeshBake gives a walkable surface, same value
+enum:CrowdAgentState::DT_CROWDAGENT_STATE_INVALID	BOUND	ZRC_CROWD_AGENT_INVALID, reported by ZrcCrowdAgent.state
+enum:CrowdAgentState::DT_CROWDAGENT_STATE_OFFMESH	BOUND	ZRC_CROWD_AGENT_OFFMESH, reported by ZrcCrowdAgent.state
+enum:CrowdAgentState::DT_CROWDAGENT_STATE_WALKING	BOUND	ZRC_CROWD_AGENT_WALKING, reported by ZrcCrowdAgent.state
+enum:MoveRequestState::DT_CROWDAGENT_TARGET_FAILED	BOUND	ZRC_CROWD_TARGET_FAILED, reported by ZrcCrowdAgent.target_state
+enum:MoveRequestState::DT_CROWDAGENT_TARGET_NONE	BOUND	ZRC_CROWD_TARGET_NONE, reported by ZrcCrowdAgent.target_state
+enum:MoveRequestState::DT_CROWDAGENT_TARGET_REQUESTING	BOUND	ZRC_CROWD_TARGET_REQUESTING, reported by ZrcCrowdAgent.target_state
+enum:MoveRequestState::DT_CROWDAGENT_TARGET_VALID	BOUND	ZRC_CROWD_TARGET_VALID, reported by ZrcCrowdAgent.target_state
+enum:MoveRequestState::DT_CROWDAGENT_TARGET_VELOCITY	BOUND	ZRC_CROWD_TARGET_VELOCITY, reported by ZrcCrowdAgent.target_state
+enum:MoveRequestState::DT_CROWDAGENT_TARGET_WAITING_FOR_PATH	BOUND	ZRC_CROWD_TARGET_WAITING_FOR_PATH, reported by ZrcCrowdAgent.target_state
+enum:MoveRequestState::DT_CROWDAGENT_TARGET_WAITING_FOR_QUEUE	BOUND	ZRC_CROWD_TARGET_WAITING_FOR_QUEUE, reported by ZrcCrowdAgent.target_state
+enum:ObstacleState::DT_OBSTACLE_EMPTY	BOUND	ZRC_OBSTACLE_EMPTY, which zrcTileCacheObstacleRefAt reports as a 0 reference; zrcTileCacheObstacleInfo can never report it, because upstream turns the slot's salt over in the same statement that sets it
+enum:ObstacleState::DT_OBSTACLE_PROCESSED	BOUND	ZRC_OBSTACLE_PROCESSED, which ZrcObstacleInfo.state reports once every tile it touches has been rebuilt
+enum:ObstacleState::DT_OBSTACLE_PROCESSING	BOUND	ZRC_OBSTACLE_PROCESSING, which ZrcObstacleInfo.state reports between an add and the update that carves it
+enum:ObstacleState::DT_OBSTACLE_REMOVING	BOUND	ZRC_OBSTACLE_REMOVING, which ZrcObstacleInfo.state reports between a removal request and the update that completes it
+enum:ObstacleType::DT_OBSTACLE_BOX	BOUND	ZRC_OBSTACLE_BOX, which ZrcObstacleInfo.shape reports
+enum:ObstacleType::DT_OBSTACLE_CYLINDER	BOUND	ZRC_OBSTACLE_CYLINDER, which ZrcObstacleInfo.shape reports
+enum:ObstacleType::DT_OBSTACLE_ORIENTED_BOX	BOUND	ZRC_OBSTACLE_ORIENTED_BOX, which ZrcObstacleInfo.shape reports
+enum:UpdateFlags::DT_CROWD_ANTICIPATE_TURNS	BOUND	ZRC_CROWD_ANTICIPATE_TURNS, set in ZrcCrowdAgentParams.update_flags
+enum:UpdateFlags::DT_CROWD_OBSTACLE_AVOIDANCE	BOUND	ZRC_CROWD_OBSTACLE_AVOIDANCE, set in ZrcCrowdAgentParams.update_flags
+enum:UpdateFlags::DT_CROWD_OPTIMIZE_TOPO	BOUND	ZRC_CROWD_OPTIMIZE_TOPO, set in ZrcCrowdAgentParams.update_flags
+enum:UpdateFlags::DT_CROWD_OPTIMIZE_VIS	BOUND	ZRC_CROWD_OPTIMIZE_VIS, set in ZrcCrowdAgentParams.update_flags
+enum:UpdateFlags::DT_CROWD_SEPARATION	BOUND	ZRC_CROWD_SEPARATION, set in ZrcCrowdAgentParams.update_flags
+enum:dtAllocHint::DT_ALLOC_PERM	BOUND	ZRC_ALLOC_PERM (ZrcAllocHint mirrors dtAllocHint exactly, static_assert in zrecast_abi.cpp)
+enum:dtAllocHint::DT_ALLOC_TEMP	BOUND	ZRC_ALLOC_TEMP (ZrcAllocHint mirrors dtAllocHint exactly, static_assert in zrecast_abi.cpp)
+enum:dtCompressedTileFlags::DT_COMPRESSEDTILE_FREE_DATA	BOUND	zrcTileCacheAddTile always sets it: the bytes it adds are its own copy, which is why the caller keeps ownership of the buffer it passed
+enum:dtDetailTriEdgeFlags::DT_DETAIL_EDGE_BOUNDARY	BOUND	ZRC_DETAIL_EDGE_BOUNDARY mirrors the bit exactly
+enum:dtFindPathOptions::DT_FINDPATH_ANY_ANGLE	BOUND	ZRC_FINDPATH_ANY_ANGLE mirrors the bit exactly
+enum:dtNodeFlags::DT_NODE_CLOSED	BOUND	ZRC_NODE_CLOSED mirrors the bit exactly
+enum:dtNodeFlags::DT_NODE_OPEN	BOUND	ZRC_NODE_OPEN mirrors the bit exactly
+enum:dtNodeFlags::DT_NODE_PARENT_DETACHED	BOUND	ZRC_NODE_PARENT_DETACHED mirrors the bit exactly
+enum:dtPolyTypes::DT_POLYTYPE_GROUND	BOUND	ZRC_POLY_GROUND, reported by zrcNavMeshGetPolyType with the identical value
+enum:dtPolyTypes::DT_POLYTYPE_OFFMESH_CONNECTION	BOUND	ZRC_POLY_OFFMESH_CONNECTION, reported by zrcNavMeshGetPolyType with the identical value
+enum:dtRaycastOptions::DT_RAYCAST_USE_COSTS	BOUND	ZRC_RAYCAST_USE_COSTS mirrors the bit exactly
+enum:dtStraightPathFlags::DT_STRAIGHTPATH_END	BOUND	ZRC_STRAIGHTPATH_END, written into zrcFindStraightPath's out_flags array with the identical bit value
+enum:dtStraightPathFlags::DT_STRAIGHTPATH_OFFMESH_CONNECTION	BOUND	ZRC_STRAIGHTPATH_OFFMESH_CONNECTION mirrors this bit exactly in zrcFindStraightPath's out_flags
+enum:dtStraightPathFlags::DT_STRAIGHTPATH_START	BOUND	ZRC_STRAIGHTPATH_START, written into zrcFindStraightPath's out_flags array with the identical bit value
+enum:dtStraightPathOptions::DT_STRAIGHTPATH_ALL_CROSSINGS	BOUND	ZRC_STRAIGHTPATH_ALL_CROSSINGS mirrors the bit exactly
+enum:dtStraightPathOptions::DT_STRAIGHTPATH_AREA_CROSSINGS	BOUND	ZRC_STRAIGHTPATH_AREA_CROSSINGS mirrors the bit exactly
+enum:dtTileFlags::DT_TILE_FREE_DATA	BOUND	ZRC_TILE_FREE_DATA mirrors it exactly, reported in ZrcTileInfo.flags
+enum:rcAllocHint::RC_ALLOC_PERM	BOUND	ZRC_ALLOC_PERM - passed through verbatim to the host allocate callback
+enum:rcAllocHint::RC_ALLOC_TEMP	BOUND	ZRC_ALLOC_TEMP - passed through verbatim to the host allocate callback
+enum:rcBuildContoursFlags::RC_CONTOUR_TESS_AREA_EDGES	BOUND	ZRC_CONTOUR_TESS_AREA_EDGES mirrors the bit exactly, one of the flags zrcContourSetCreate's flags parameter takes
+enum:rcBuildContoursFlags::RC_CONTOUR_TESS_WALL_EDGES	BOUND	ZRC_CONTOUR_TESS_WALL_EDGES mirrors the bit exactly, one of the flags zrcContourSetCreate's flags parameter takes
+enum:rcLogCategory::RC_LOG_ERROR	BOUND	ZRC_LOG_ERROR mirrors it exactly, the category zrcBuildContextLog takes and ZrcBuildContext.log receives from an erroring stage
+enum:rcLogCategory::RC_LOG_PROGRESS	BOUND	ZRC_LOG_PROGRESS mirrors it exactly, the category zrcBuildContextLog takes and ZrcBuildContext.log receives from a progress message
+enum:rcLogCategory::RC_LOG_WARNING	BOUND	ZRC_LOG_WARNING mirrors it exactly, the category zrcBuildContextLog takes and ZrcBuildContext.log receives from a warning
+enum:rcTimerLabel::RC_MAX_TIMERS	BOUND	ZRC_MAX_TIMERS mirrors it exactly: not a phase to time but the length of the label table, one past ZRC_TIMER_MERGE_POLYMESHDETAIL
+enum:rcTimerLabel::RC_TIMER_BUILD_COMPACTHEIGHTFIELD	BOUND	ZRC_TIMER_BUILD_COMPACTHEIGHTFIELD mirrors it exactly, the label zrcCompactHeightfieldCreate starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_CONTOURS	BOUND	ZRC_TIMER_BUILD_CONTOURS mirrors it exactly, the label zrcContourSetCreate starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_CONTOURS_SIMPLIFY	BOUND	ZRC_TIMER_BUILD_CONTOURS_SIMPLIFY mirrors it exactly, one of the finer-grained labels zrcContourSetCreate starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_CONTOURS_TRACE	BOUND	ZRC_TIMER_BUILD_CONTOURS_TRACE mirrors it exactly, one of the finer-grained labels zrcContourSetCreate starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_DISTANCEFIELD	BOUND	ZRC_TIMER_BUILD_DISTANCEFIELD mirrors it exactly, the label zrcCompactHeightfieldBuildDistanceField starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_DISTANCEFIELD_BLUR	BOUND	ZRC_TIMER_BUILD_DISTANCEFIELD_BLUR mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildDistanceField starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_DISTANCEFIELD_DIST	BOUND	ZRC_TIMER_BUILD_DISTANCEFIELD_DIST mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildDistanceField starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_LAYERS	BOUND	ZRC_TIMER_BUILD_LAYERS mirrors it exactly, the label zrcCompactHeightfieldBuildRegions starts and stops around ZRC_PARTITION_LAYERS; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_POLYMESH	BOUND	ZRC_TIMER_BUILD_POLYMESH mirrors it exactly, the label zrcPolyMeshBuild starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_POLYMESHDETAIL	BOUND	ZRC_TIMER_BUILD_POLYMESHDETAIL mirrors it exactly, the label zrcPolyMeshBuildDetail starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS	BOUND	ZRC_TIMER_BUILD_REGIONS mirrors it exactly, the label zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS_EXPAND	BOUND	ZRC_TIMER_BUILD_REGIONS_EXPAND mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS_FILTER	BOUND	ZRC_TIMER_BUILD_REGIONS_FILTER mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS_FLOOD	BOUND	ZRC_TIMER_BUILD_REGIONS_FLOOD mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS_WATERSHED	BOUND	ZRC_TIMER_BUILD_REGIONS_WATERSHED mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_ERODE_AREA	BOUND	ZRC_TIMER_ERODE_AREA mirrors it exactly, the label zrcCompactHeightfieldErode starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_FILTER_BORDER	BOUND	ZRC_TIMER_FILTER_BORDER mirrors it exactly, one of the labels the heightfield filter entry points start and stop around themselves; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_FILTER_LOW_OBSTACLES	BOUND	ZRC_TIMER_FILTER_LOW_OBSTACLES mirrors it exactly, the label zrcHeightfieldFilterLowHangingObstacles starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_FILTER_WALKABLE	BOUND	ZRC_TIMER_FILTER_WALKABLE mirrors it exactly, the label zrcHeightfieldFilterWalkableLowHeightSpans starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_MARK_BOX_AREA	BOUND	ZRC_TIMER_MARK_BOX_AREA mirrors it exactly, the label zrcCompactHeightfieldMarkAreas starts and stops around a ZRC_VOLUME_BOX volume; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_MARK_CONVEXPOLY_AREA	BOUND	ZRC_TIMER_MARK_CONVEXPOLY_AREA mirrors it exactly, the label zrcCompactHeightfieldMarkAreas starts and stops around a ZRC_VOLUME_CONVEX volume; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_MARK_CYLINDER_AREA	BOUND	ZRC_TIMER_MARK_CYLINDER_AREA mirrors it exactly, the label zrcCompactHeightfieldMarkAreas starts and stops around a ZRC_VOLUME_CYLINDER volume; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_MEDIAN_AREA	BOUND	ZRC_TIMER_MEDIAN_AREA mirrors it exactly, the label zrcCompactHeightfieldMedianFilter starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_MERGE_POLYMESH	BOUND	ZRC_TIMER_MERGE_POLYMESH mirrors it exactly, the label zrcPolyMeshMerge starts and stops around its polygon half; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_MERGE_POLYMESHDETAIL	BOUND	ZRC_TIMER_MERGE_POLYMESHDETAIL mirrors it exactly, the label zrcPolyMeshMerge starts and stops around its detail half; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_RASTERIZE_TRIANGLES	BOUND	ZRC_TIMER_RASTERIZE_TRIANGLES mirrors it exactly, the label the rasterisation entry points start and stop around themselves; zrcBuildContextAccumulatedTime reads what it measured
+enum:rcTimerLabel::RC_TIMER_TEMP	BOUND	ZRC_TIMER_TEMP mirrors it exactly; Recast never starts this one either, so it is also the host's own to start and stop with zrcBuildContextStartTimer/zrcBuildContextStopTimer for whatever it wants to measure
+enum:rcTimerLabel::RC_TIMER_TOTAL	BOUND	ZRC_TIMER_TOTAL mirrors it exactly; Recast never starts this one, so it is the host's own to start and stop with zrcBuildContextStartTimer/zrcBuildContextStopTimer for the whole build
+field:dtBVNode::bmax	BOUND	ZrcBvNode.bmax
+field:dtBVNode::bmin	BOUND	ZrcBvNode.bmin
+field:dtBVNode::i	BOUND	ZrcBvNode.i
+field:dtCompressedTile::compressed	BOUND	the payload after the header, which zrcTileCacheAddTile bounds by requiring the buffer to be at least a header long before upstream computes this pointer
+field:dtCompressedTile::compressedSize	BOUND	the length upstream derives by subtracting the header size, which zrcTileCacheAddTile keeps non-negative by checking the buffer first
+field:dtCompressedTile::data	BOUND	zrcTileCacheRemoveTile hands the bytes back, and zrcTileCacheAddTile is what put them there
+field:dtCompressedTile::dataSize	BOUND	ZrcCompressedTileInfo.data_size, and the length zrcTileCacheRemoveTile reports with the bytes
+field:dtCompressedTile::flags	BOUND	zrcTileCacheAddTile sets DT_COMPRESSEDTILE_FREE_DATA, the only flag this field has
+field:dtCompressedTile::header	BOUND	ZrcCompressedTileInfo carries every field of it, and a slot whose header is null is reported as a free slot by zrcTileCacheTileRefAt
+field:dtCompressedTile::next	BOUND	the free-list and hash chain a slot sits on; zrcTileCacheTilesAt walks the same stack of layers at one grid position
+field:dtCompressedTile::salt	BOUND	the salt half of a ZrcCompressedTileRef, turned over by zrcTileCacheRemoveTile so the reference stops resolving
+field:dtCrowdAgent::active	BOUND	the liveness a ZrcAgentRef carries: zrcCrowdAgentRefAt reports 0 for a free slot and every entry point refuses a reference whose slot is not active
+field:dtCrowdAgent::boundary	BOUND	read through zrcCrowdAgentBoundaryCenter and zrcCrowdAgentBoundarySegments; a non-copyable dtLocalBoundary, so it cannot cross inside ZrcCrowdAgent
+field:dtCrowdAgent::cornerFlags	BOUND	ZrcCrowdCorner.flags, copied out by zrcCrowdAgentCorners
+field:dtCrowdAgent::cornerPolys	BOUND	ZrcCrowdCorner.poly, copied out by zrcCrowdAgentCorners
+field:dtCrowdAgent::cornerVerts	BOUND	ZrcCrowdCorner.position, copied out by zrcCrowdAgentCorners
+field:dtCrowdAgent::corridor	BOUND	read through zrcCrowdAgentCorridorInfo and zrcCrowdAgentCorridorPath; it embeds a non-copyable dtPathCorridor so it cannot cross inside ZrcCrowdAgent
+field:dtCrowdAgent::desiredSpeed	BOUND	ZrcCrowdAgent.desired_speed
+field:dtCrowdAgent::disp	BOUND	ZrcCrowdAgent.displacement
+field:dtCrowdAgent::dvel	BOUND	ZrcCrowdAgent.desired_velocity
+field:dtCrowdAgent::ncorners	BOUND	ZrcCrowdAgent.corner_count
+field:dtCrowdAgent::neis	BOUND	ZrcCrowdNeighbour, copied out by zrcCrowdAgentNeighbours
+field:dtCrowdAgent::nneis	BOUND	ZrcCrowdAgent.neighbour_count
+field:dtCrowdAgent::npos	BOUND	ZrcCrowdAgent.position
+field:dtCrowdAgent::nvel	BOUND	ZrcCrowdAgent.avoided_velocity
+field:dtCrowdAgent::params	BOUND	ZrcCrowdAgent.params
+field:dtCrowdAgent::partial	BOUND	ZrcCrowdAgent.partial
+field:dtCrowdAgent::state	BOUND	ZrcCrowdAgent.state
+field:dtCrowdAgent::targetPathqRef	BOUND	zrcCrowdAgentInfo reports the request through ZrcCrowdAgent.target_state; the ZrcPathRequestRef itself belongs to the crowd's own queue, which zrcCrowdPathQueue hands back
+field:dtCrowdAgent::targetPos	BOUND	ZrcCrowdAgent.target_position
+field:dtCrowdAgent::targetRef	BOUND	ZrcCrowdAgent.target_ref
+field:dtCrowdAgent::targetReplan	BOUND	ZrcCrowdAgent.target_replan
+field:dtCrowdAgent::targetReplanTime	BOUND	ZrcCrowdAgent.target_replan_time
+field:dtCrowdAgent::targetState	BOUND	ZrcCrowdAgent.target_state
+field:dtCrowdAgent::topologyOptTime	BOUND	ZrcCrowdAgent.topology_opt_time
+field:dtCrowdAgent::vel	BOUND	ZrcCrowdAgent.velocity
+field:dtCrowdAgentAnimation::active	BOUND	ZrcCrowdAgentAnimation.active; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+field:dtCrowdAgentAnimation::endPos	BOUND	ZrcCrowdAgentAnimation.end_position; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+field:dtCrowdAgentAnimation::initPos	BOUND	ZrcCrowdAgentAnimation.init_position; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+field:dtCrowdAgentAnimation::polyRef	BOUND	ZrcCrowdAgentAnimation.poly; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+field:dtCrowdAgentAnimation::startPos	BOUND	ZrcCrowdAgentAnimation.start_position; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+field:dtCrowdAgentAnimation::t	BOUND	ZrcCrowdAgentAnimation.t; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+field:dtCrowdAgentAnimation::tmax	BOUND	ZrcCrowdAgentAnimation.t_max; upstream declares dtCrowdAgentAnimation publicly and keeps every instance private, so the field is all a C++ host reaches too
+field:dtCrowdAgentDebugInfo::idx	BOUND	ZrcCrowdAgentDebug.agent, a reference zrcCrowdUpdate resolves to the position upstream compares against
+field:dtCrowdAgentDebugInfo::optEnd	BOUND	ZrcCrowdAgentDebug.opt_end
+field:dtCrowdAgentDebugInfo::optStart	BOUND	ZrcCrowdAgentDebug.opt_start
+field:dtCrowdAgentDebugInfo::vod	BOUND	ZrcCrowdAgentDebug.samples
+field:dtCrowdAgentParams::collisionQueryRange	BOUND	ZrcCrowdAgentParams.collision_query_range
+field:dtCrowdAgentParams::height	BOUND	ZrcCrowdAgentParams.height
+field:dtCrowdAgentParams::maxAcceleration	BOUND	ZrcCrowdAgentParams.max_acceleration
+field:dtCrowdAgentParams::maxSpeed	BOUND	ZrcCrowdAgentParams.max_speed
+field:dtCrowdAgentParams::obstacleAvoidanceType	BOUND	ZrcCrowdAgentParams.obstacle_avoidance_type
+field:dtCrowdAgentParams::pathOptimizationRange	BOUND	ZrcCrowdAgentParams.path_optimization_range
+field:dtCrowdAgentParams::queryFilterType	BOUND	ZrcCrowdAgentParams.query_filter_type
+field:dtCrowdAgentParams::radius	BOUND	ZrcCrowdAgentParams.radius
+field:dtCrowdAgentParams::separationWeight	BOUND	ZrcCrowdAgentParams.separation_weight
+field:dtCrowdAgentParams::updateFlags	BOUND	ZrcCrowdAgentParams.update_flags
+field:dtCrowdAgentParams::userData	BOUND	ZrcCrowdAgentParams.user_data
+field:dtCrowdNeighbour::dist	BOUND	ZrcCrowdNeighbour.distance
+field:dtCrowdNeighbour::idx	BOUND	ZrcCrowdNeighbour.agent, the slot turned into a reference
+field:dtLink::bmax	BOUND	ZrcLink.bmax
+field:dtLink::bmin	BOUND	ZrcLink.bmin
+field:dtLink::edge	BOUND	ZrcLink.edge
+field:dtLink::next	BOUND	ZrcLink.next
+field:dtLink::ref	BOUND	ZrcLink.ref
+field:dtLink::side	BOUND	ZrcLink.side
+field:dtMeshHeader::bmax	BOUND	zrcNavMeshBounds reads tile->header->bmax directly
+field:dtMeshHeader::bmin	BOUND	zrcNavMeshBounds reads tile->header->bmin directly
+field:dtMeshHeader::bvNodeCount	BOUND	ZrcTileInfo.bv_node_count, and the bound zrcNavMeshTileBvNode checks an index against
+field:dtMeshHeader::bvQuantFactor	BOUND	ZrcTileInfo.bv_quant_factor, which is what turns a ZrcBvNode's quantised bounds back into world units
+field:dtMeshHeader::detailMeshCount	BOUND	ZrcTileInfo.detail_mesh_count
+field:dtMeshHeader::detailTriCount	BOUND	ZrcTileInfo.detail_tri_count, and the bound zrcNavMeshTileDetailTris checks a range against
+field:dtMeshHeader::detailVertCount	BOUND	ZrcTileInfo.detail_vert_count, and the bound zrcNavMeshTileDetailVerts checks a range against
+field:dtMeshHeader::layer	BOUND	zrcTileDataBuild writes it and zrcNavMeshTileRefAt looks a tile up by it
+field:dtMeshHeader::magic	BOUND	ZrcTileInfo.magic
+field:dtMeshHeader::maxLinkCount	BOUND	ZrcTileInfo.max_link_count, and the bound zrcNavMeshTileLink checks an index against
+field:dtMeshHeader::offMeshBase	BOUND	ZrcTileInfo.ground_poly_count - the index the off-mesh polygons begin at
+field:dtMeshHeader::offMeshConCount	BOUND	ZrcTileInfo.off_mesh_con_count
+field:dtMeshHeader::polyCount	BOUND	zrcNavMeshPolyCount sums tile->header->polyCount across tiles
+field:dtMeshHeader::userId	BOUND	ZrcTileInfo.user_id, written by ZrcTileAuthoring.user_id
+field:dtMeshHeader::version	BOUND	a mismatch here is the one header field that earns its own distinct outcome, ZRC_ERR_UNSUPPORTED_VERSION, in zrc::ValidateNavMeshImage
+field:dtMeshHeader::vertCount	BOUND	ZrcTileInfo.vert_count, and the bound zrcNavMeshTileVerts checks a range against
+field:dtMeshHeader::walkableClimb	BOUND	ZrcTileInfo.walkable_climb
+field:dtMeshHeader::walkableHeight	BOUND	ZrcTileInfo.walkable_height
+field:dtMeshHeader::walkableRadius	BOUND	ZrcTileInfo.walkable_radius
+field:dtMeshHeader::x	BOUND	zrcTileDataBuild writes it and zrcNavMeshTileRefAt looks a tile up by it
+field:dtMeshHeader::y	BOUND	zrcTileDataBuild writes it and zrcNavMeshTileRefAt looks a tile up by it
+field:dtMeshTile::bvTree	BOUND	zrcNavMeshTileBvNode copies one node out by index
+field:dtMeshTile::data	BOUND	zrcNavMeshSerialize copies tile->data out to the caller
+field:dtMeshTile::dataSize	BOUND	zrcNavMeshSerialize sizes its copy from tile->dataSize
+field:dtMeshTile::detailMeshes	BOUND	the detail_* fields of ZrcPolyInfo carry the entry belonging to a polygon
+field:dtMeshTile::detailTris	BOUND	zrcNavMeshTileDetailTris copies a range of it out by value
+field:dtMeshTile::detailVerts	BOUND	zrcNavMeshTileDetailVerts copies a range of it out by value
+field:dtMeshTile::flags	BOUND	ZrcTileInfo.flags
+field:dtMeshTile::header	BOUND	zrcNavMeshBounds and zrcNavMeshPolyCount both read through tile->header
+field:dtMeshTile::links	BOUND	zrcNavMeshTileLink copies one out by index
+field:dtMeshTile::linksFreeList	BOUND	ZrcTileInfo.links_free_list
+field:dtMeshTile::next	BOUND	ZrcTileInfo.next_tile, converted from the pointer to a ZrcTileRef
+field:dtMeshTile::offMeshCons	BOUND	the array zrcNavMeshOffMeshConnection reads a connection record out of
+field:dtMeshTile::polys	BOUND	zrcNavMeshTilePolyRef names each entry and zrcNavMeshPolyInfo copies it out
+field:dtMeshTile::salt	BOUND	ZrcTileInfo.salt
+field:dtMeshTile::verts	BOUND	zrcNavMeshTileVerts copies a range of it out by value
+field:dtNavMeshCreateParams::bmax	BOUND	round-trips through zrcNavMeshCreate into the tile header and back out through zrcNavMeshBounds
+field:dtNavMeshCreateParams::bmin	BOUND	round-trips through zrcNavMeshCreate into the tile header and back out through zrcNavMeshBounds
+field:dtNavMeshCreateParams::buildBvTree	BOUND	ZrcTileAuthoring.skip_bv_tree, stated as a negative so a zeroed struct builds the tree
+field:dtNavMeshCreateParams::ch	BOUND	ZrcBakeConfig.cell_height reaches it via zrcNavMeshCreate
+field:dtNavMeshCreateParams::cs	BOUND	ZrcBakeConfig.cell_size reaches it via zrcNavMeshCreate
+field:dtNavMeshCreateParams::detailMeshes	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+field:dtNavMeshCreateParams::detailTriCount	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+field:dtNavMeshCreateParams::detailTris	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+field:dtNavMeshCreateParams::detailVerts	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+field:dtNavMeshCreateParams::detailVertsCount	BOUND	carried from the baked ZrcPolyMesh detail mesh into the navmesh by zrcNavMeshCreate
+field:dtNavMeshCreateParams::nvp	BOUND	zrcNavMeshCreate validates poly.nvp against ZRC_VERTS_PER_POLYGON and carries it through
+field:dtNavMeshCreateParams::offMeshConAreas	BOUND	ZrcOffMeshConnection.area, unpacked into the parallel array by zrcNavMeshCreate
+field:dtNavMeshCreateParams::offMeshConCount	BOUND	ZrcTileAuthoring.connection_count
+field:dtNavMeshCreateParams::offMeshConDir	BOUND	ZrcOffMeshConnection.bidirectional, unpacked into the parallel array by zrcNavMeshCreate
+field:dtNavMeshCreateParams::offMeshConFlags	BOUND	ZrcOffMeshConnection.flags, unpacked into the parallel array by zrcNavMeshCreate
+field:dtNavMeshCreateParams::offMeshConRad	BOUND	ZrcOffMeshConnection.radius, unpacked into the parallel array by zrcNavMeshCreate
+field:dtNavMeshCreateParams::offMeshConUserID	BOUND	ZrcOffMeshConnection.user_id, unpacked into the parallel array by zrcNavMeshCreate
+field:dtNavMeshCreateParams::offMeshConVerts	BOUND	ZrcOffMeshConnection.start and .end, unpacked into the parallel array by zrcNavMeshCreate
+field:dtNavMeshCreateParams::polyAreas	BOUND	ZrcAreaAuthoring.volumes decide each polygon's area, which zrcNavMeshCreate carries into the navmesh
+field:dtNavMeshCreateParams::polyCount	BOUND	zrcNavMeshPolyCount reports it back after zrcNavMeshCreate builds the tile from it
+field:dtNavMeshCreateParams::polyFlags	BOUND	ZrcAreaAuthoring.area_flags decides each polygon's flags, which zrcNavMeshCreate carries into the navmesh
+field:dtNavMeshCreateParams::polys	BOUND	carried from the baked ZrcPolyMesh polygon topology into the navmesh by zrcNavMeshCreate
+field:dtNavMeshCreateParams::tileLayer	BOUND	zrcTileDataBuild's tile_layer parameter
+field:dtNavMeshCreateParams::tileX	BOUND	zrcTileDataBuild's tile_x parameter
+field:dtNavMeshCreateParams::tileY	BOUND	zrcTileDataBuild's tile_z parameter
+field:dtNavMeshCreateParams::userId	BOUND	ZrcTileAuthoring.user_id, read back by zrcNavMeshTileUserId
+field:dtNavMeshCreateParams::vertCount	BOUND	carried from the baked ZrcPolyMesh vertex count into the navmesh by zrcNavMeshCreate
+field:dtNavMeshCreateParams::verts	BOUND	carried from the baked ZrcPolyMesh vertex data into the navmesh by zrcNavMeshCreate
+field:dtNavMeshCreateParams::walkableClimb	BOUND	ZrcBakeConfig.agent_max_climb reaches it via zrcNavMeshCreate
+field:dtNavMeshCreateParams::walkableHeight	BOUND	ZrcBakeConfig.agent_height reaches it via zrcNavMeshCreate
+field:dtNavMeshCreateParams::walkableRadius	BOUND	ZrcBakeConfig.agent_radius reaches it via zrcNavMeshCreate
+field:dtNavMeshParams::maxPolys	BOUND	zrcNavMeshCreateTiled's max_polys_per_tile parameter
+field:dtNavMeshParams::maxTiles	BOUND	zrcNavMeshCreateTiled's max_tiles parameter, reported back by zrcNavMeshMaxTiles
+field:dtNavMeshParams::orig	BOUND	ZrcTileGrid.origin
+field:dtNavMeshParams::tileHeight	BOUND	ZrcTileGrid.tile_world_size - a square tile, so one field feeds both
+field:dtNavMeshParams::tileWidth	BOUND	ZrcTileGrid.tile_world_size
+field:dtNode::cost	BOUND	ZrcNode.cost
+field:dtNode::flags	BOUND	ZrcNode.flags
+field:dtNode::id	BOUND	ZrcNode.ref
+field:dtNode::pidx	BOUND	ZrcNode.parent_index
+field:dtNode::pos	BOUND	ZrcNode.pos
+field:dtNode::state	BOUND	ZrcNode.state
+field:dtNode::total	BOUND	ZrcNode.total
+field:dtObstacleAvoidanceParams::adaptiveDepth	BOUND	ZrcAvoidanceParams.adaptive_depth
+field:dtObstacleAvoidanceParams::adaptiveDivs	BOUND	ZrcAvoidanceParams.adaptive_divs
+field:dtObstacleAvoidanceParams::adaptiveRings	BOUND	ZrcAvoidanceParams.adaptive_rings
+field:dtObstacleAvoidanceParams::gridSize	BOUND	ZrcAvoidanceParams.grid_size
+field:dtObstacleAvoidanceParams::horizTime	BOUND	ZrcAvoidanceParams.horiz_time
+field:dtObstacleAvoidanceParams::velBias	BOUND	ZrcAvoidanceParams.vel_bias
+field:dtObstacleAvoidanceParams::weightCurVel	BOUND	ZrcAvoidanceParams.weight_current_vel
+field:dtObstacleAvoidanceParams::weightDesVel	BOUND	ZrcAvoidanceParams.weight_desired_vel
+field:dtObstacleAvoidanceParams::weightSide	BOUND	ZrcAvoidanceParams.weight_side
+field:dtObstacleAvoidanceParams::weightToi	BOUND	ZrcAvoidanceParams.weight_toi
+field:dtObstacleBox::bmax	BOUND	ZrcObstacleInfo.bmax
+field:dtObstacleBox::bmin	BOUND	ZrcObstacleInfo.bmin
+field:dtObstacleCircle::dp	BOUND	scratch the sampler derives from ZrcAvoidanceCircle.position each call; zrcAvoidanceCircleAt reports what a caller supplied, which is what upstream lets one observe before prepare() overwrites it
+field:dtObstacleCircle::dvel	BOUND	ZrcAvoidanceCircle.desired_velocity
+field:dtObstacleCircle::np	BOUND	the other half of the same scratch, derived alongside dp and reported through zrcAvoidanceCircleAt on the same terms
+field:dtObstacleCircle::p	BOUND	ZrcAvoidanceCircle.position
+field:dtObstacleCircle::rad	BOUND	ZrcAvoidanceCircle.radius
+field:dtObstacleCircle::vel	BOUND	ZrcAvoidanceCircle.velocity
+field:dtObstacleCylinder::height	BOUND	ZrcObstacleInfo.height
+field:dtObstacleCylinder::pos	BOUND	ZrcObstacleInfo.position
+field:dtObstacleCylinder::radius	BOUND	ZrcObstacleInfo.radius
+field:dtObstacleOrientedBox::center	BOUND	ZrcObstacleInfo.center
+field:dtObstacleOrientedBox::halfExtents	BOUND	ZrcObstacleInfo.half_extents
+field:dtObstacleOrientedBox::rotAux	BOUND	ZrcObstacleInfo.y_radians is this pair's own angle: upstream stores cos and sin half-angle terms rather than the angle, and the accessor inverts them
+field:dtObstacleSegment::p	BOUND	ZrcAvoidanceSegment.p
+field:dtObstacleSegment::q	BOUND	ZrcAvoidanceSegment.q
+field:dtObstacleSegment::touch	BOUND	ZrcAvoidanceSegment.touching
+field:dtOffMeshConnection::flags	BOUND	ZrcOffMeshConnection.bidirectional, round-tripped through zrcNavMeshOffMeshConnection
+field:dtOffMeshConnection::poly	BOUND	the polygon this names is the ZrcPolyRef zrcNavMeshOffMeshConnection is asked about, and zrcNavMeshTilePolyRef is what enumerates the off-mesh range it lies in
+field:dtOffMeshConnection::pos	BOUND	ZrcOffMeshConnection.start and .end, written by zrcNavMeshCreate and read by zrcNavMeshOffMeshConnection
+field:dtOffMeshConnection::rad	BOUND	ZrcOffMeshConnection.radius, round-tripped through zrcNavMeshOffMeshConnection
+field:dtOffMeshConnection::side	BOUND	ZrcOffMeshConnection.end_side, which is what says whether a single-tile navmesh wires the connection at both ends
+field:dtOffMeshConnection::userId	BOUND	ZrcOffMeshConnection.user_id, round-tripped through zrcNavMeshOffMeshConnection
+field:dtPoly::areaAndtype	BOUND	both halves are reachable - the area through zrcNavMeshGetPolyArea and zrcNavMeshSetPolyArea, the type through zrcNavMeshGetPolyType
+field:dtPoly::firstLink	BOUND	ZrcPolyInfo.first_link, the index zrcNavMeshTileLink is walked from
+field:dtPoly::flags	BOUND	zrcNavMeshGetPolyFlags and zrcNavMeshSetPolyFlags read and write this field
+field:dtPoly::neis	BOUND	ZrcPolyInfo.neis, readable because ZRC_EXT_LINK mirrors the flag its entries carry
+field:dtPoly::vertCount	BOUND	ZrcPolyInfo.vert_count
+field:dtPoly::verts	BOUND	ZrcPolyInfo.verts
+field:dtPolyDetail::triBase	BOUND	ZrcPolyInfo.detail_tri_base
+field:dtPolyDetail::triCount	BOUND	ZrcPolyInfo.detail_tri_count
+field:dtPolyDetail::vertBase	BOUND	ZrcPolyInfo.detail_vert_base
+field:dtPolyDetail::vertCount	BOUND	ZrcPolyInfo.detail_vert_count
+field:dtRaycastHit::hitEdgeIndex	BOUND	ZrcRaycastHit.hit_edge_index, seeded to -1 because upstream can return without ever writing it
+field:dtRaycastHit::hitNormal	BOUND	ZrcRaycastHit.normal — zrcRaycast copies hit.hitNormal into out_hit->normal when the ray struck a wall
+field:dtRaycastHit::maxPath	BOUND	zrcRaycast's max_path parameter sets dtRaycastHit::maxPath (hit.maxPath) to bound the out_path buffer
+field:dtRaycastHit::path	BOUND	zrcRaycast's out_path parameter is assigned directly to dtRaycastHit::path (hit.path = out_path)
+field:dtRaycastHit::pathCost	BOUND	ZrcRaycastHit.path_cost
+field:dtRaycastHit::pathCount	BOUND	zrcRaycast's out_path_count parameter reports dtRaycastHit::pathCount (hit.pathCount) after the call
+field:dtRaycastHit::t	BOUND	ZrcRaycastHit.t — zrcRaycast normalises hit.t (FLT_MAX clamped to 1.0) into out_hit->t
+field:dtTileCacheContour::area	BOUND	ZrcTileCacheContourInfo.area
+field:dtTileCacheContour::nverts	BOUND	ZrcTileCacheContourInfo.vert_count, which bounds zrcTileCacheContourVerts
+field:dtTileCacheContour::reg	BOUND	ZrcTileCacheContourInfo.region
+field:dtTileCacheContour::verts	BOUND	zrcTileCacheContourVerts copies it, four bytes per vertex
+field:dtTileCacheContourSet::conts	BOUND	zrcTileCacheContourAt indexes it, bounded by the count zrcTileCacheContourSetCount reports
+field:dtTileCacheContourSet::nconts	BOUND	zrcTileCacheContourSetCount
+field:dtTileCacheLayer::areas	BOUND	zrcTileCacheLayerAreas copies it and zrcTileCacheLayerSetAreas writes it back, which is how an obstacle is carved by hand
+field:dtTileCacheLayer::cons	BOUND	zrcTileCacheLayerCons copies it; src/tilecache.zig:layerCon and layerPortal split the two nibbles it packs
+field:dtTileCacheLayer::header	BOUND	zrcTileCacheLayerHeaderOf copies it out as a ZrcTileCacheLayerHeader
+field:dtTileCacheLayer::heights	BOUND	zrcTileCacheLayerHeights copies it, one byte per cell
+field:dtTileCacheLayer::regCount	BOUND	zrcTileCacheLayerRegionCount
+field:dtTileCacheLayer::regs	BOUND	zrcTileCacheLayerRegions copies it, and reports ZRC_ERR_NOT_FOUND before zrcTileCacheLayerBuildRegions has filled it
+field:dtTileCacheLayerHeader::bmax	BOUND	ZrcTileCacheLayerHeader.bmax, and ZrcCompressedTileInfo.bmax
+field:dtTileCacheLayerHeader::bmin	BOUND	ZrcTileCacheLayerHeader.bmin, and ZrcCompressedTileInfo.bmin
+field:dtTileCacheLayerHeader::height	BOUND	ZrcTileCacheLayerHeader.height, and ZrcCompressedTileInfo.height
+field:dtTileCacheLayerHeader::hmax	BOUND	ZrcTileCacheLayerHeader.height_max, and ZrcCompressedTileInfo.height_max
+field:dtTileCacheLayerHeader::hmin	BOUND	ZrcTileCacheLayerHeader.height_min, and ZrcCompressedTileInfo.height_min
+field:dtTileCacheLayerHeader::magic	BOUND	zrcTileCacheAddTile is how a host asks whether a buffer is a compressed layer at all, which is what a C++ host uses this constant for; a mismatch is ZRC_ERR_BAD_FORMAT
+field:dtTileCacheLayerHeader::maxx	BOUND	ZrcTileCacheLayerHeader.max_x, and ZrcCompressedTileInfo.max_x
+field:dtTileCacheLayerHeader::maxy	BOUND	ZrcTileCacheLayerHeader.max_z, and ZrcCompressedTileInfo.max_z, which is upstream's maxy
+field:dtTileCacheLayerHeader::minx	BOUND	ZrcTileCacheLayerHeader.min_x, and ZrcCompressedTileInfo.min_x
+field:dtTileCacheLayerHeader::miny	BOUND	ZrcTileCacheLayerHeader.min_z, and ZrcCompressedTileInfo.min_z - upstream spells the z axis with a y here
+field:dtTileCacheLayerHeader::tlayer	BOUND	ZrcTileCacheLayerHeader.tile_layer, and ZrcCompressedTileInfo.tile_layer
+field:dtTileCacheLayerHeader::tx	BOUND	ZrcTileCacheLayerHeader.tile_x, and ZrcCompressedTileInfo.tile_x for a layer already added
+field:dtTileCacheLayerHeader::ty	BOUND	ZrcTileCacheLayerHeader.tile_y, and ZrcCompressedTileInfo.tile_y
+field:dtTileCacheLayerHeader::version	BOUND	zrcTileCacheAddTile surfaces upstream's version check as ZRC_ERR_UNSUPPORTED_VERSION
+field:dtTileCacheLayerHeader::width	BOUND	ZrcTileCacheLayerHeader.width, and ZrcCompressedTileInfo.width; bounded to 255 because upstream stores it in one byte
+field:dtTileCacheObstacle::box	BOUND	ZrcObstacleInfo.bmin and .bmax, reported when .shape is ZRC_OBSTACLE_BOX
+field:dtTileCacheObstacle::cylinder	BOUND	ZrcObstacleInfo.position, .radius and .height, reported when .shape is ZRC_OBSTACLE_CYLINDER
+field:dtTileCacheObstacle::next	BOUND	the free-list chain a slot rejoins on removal; zrcTileCacheObstacleRefAt reports 0 for a slot on it
+field:dtTileCacheObstacle::npending	BOUND	ZrcObstacleInfo.pending_count
+field:dtTileCacheObstacle::ntouched	BOUND	ZrcObstacleInfo.touched_count, which is 0 until the first zrcTileCacheUpdate that processes the request fills it
+field:dtTileCacheObstacle::orientedBox	BOUND	ZrcObstacleInfo.center, .half_extents and .y_radians, reported when .shape is ZRC_OBSTACLE_ORIENTED_BOX
+field:dtTileCacheObstacle::pending	BOUND	ZrcObstacleInfo.pending_count is its length, and reaching 0 is what moves .state to ZRC_OBSTACLE_PROCESSED
+field:dtTileCacheObstacle::salt	BOUND	the salt half of a ZrcObstacleRef, turned over when a removal completes so the reference stops resolving
+field:dtTileCacheObstacle::state	BOUND	ZrcObstacleInfo.state
+field:dtTileCacheObstacle::touched	BOUND	ZrcObstacleInfo.touched_count is its length; zrcTileCacheQueryTiles reports the same set of layers for the obstacle's own bounds, and an obstacle needing more than ZRC_MAX_TOUCHED_TILES of them is refused rather than carved into eight
+field:dtTileCacheObstacle::type	BOUND	ZrcObstacleInfo.shape
+field:dtTileCacheParams::ch	BOUND	ZrcTileCacheParams.cell_height
+field:dtTileCacheParams::cs	BOUND	ZrcTileCacheParams.cell_size
+field:dtTileCacheParams::height	BOUND	ZrcTileCacheParams.height, bounded to 255 for the same reason
+field:dtTileCacheParams::maxObstacles	BOUND	ZrcTileCacheParams.max_obstacles, which also bounds zrcTileCacheObstacleRefAt
+field:dtTileCacheParams::maxSimplificationError	BOUND	ZrcTileCacheParams.max_simplification_error
+field:dtTileCacheParams::maxTiles	BOUND	ZrcTileCacheParams.max_tiles, which also bounds zrcTileCacheTileRefAt
+field:dtTileCacheParams::orig	BOUND	ZrcTileCacheParams.origin
+field:dtTileCacheParams::walkableClimb	BOUND	ZrcTileCacheParams.walkable_climb, whose ratio to cell_height is bounded because upstream converts it to cells with an unchecked cast
+field:dtTileCacheParams::walkableHeight	BOUND	ZrcTileCacheParams.walkable_height, which every tile the cache rebuilds carries into its header
+field:dtTileCacheParams::walkableRadius	BOUND	ZrcTileCacheParams.walkable_radius
+field:dtTileCacheParams::width	BOUND	ZrcTileCacheParams.width, bounded to 255 because a layer header stores it in one byte
+field:dtTileCachePolyMesh::areas	BOUND	zrcTileCachePolyMeshAreas copies it, and a ZrcTileCacheMeshProcess callback sees the same ids through ZrcTileCacheBuildParams.areas
+field:dtTileCachePolyMesh::flags	BOUND	zrcTileCachePolyMeshFlags copies it; every entry is 0 unless a ZrcTileCacheMeshProcess callback has written it, which is the only place a tile-cache polygon gets flags at all
+field:dtTileCachePolyMesh::npolys	BOUND	ZrcTileCachePolyMeshInfo.poly_count, which bounds the polygon accessors
+field:dtTileCachePolyMesh::nverts	BOUND	ZrcTileCachePolyMeshInfo.vert_count, which bounds zrcTileCachePolyMeshVerts
+field:dtTileCachePolyMesh::nvp	BOUND	ZrcTileCachePolyMeshInfo.verts_per_poly, which is also the stride zrcTileCachePolyMeshPolys writes: 2 * verts_per_poly entries per polygon
+field:dtTileCachePolyMesh::polys	BOUND	zrcTileCachePolyMeshPolys copies it
+field:dtTileCachePolyMesh::verts	BOUND	zrcTileCachePolyMeshVerts copies it, three uint16 per vertex
+field:rcCompactCell::count	BOUND	ZrcCompactCell.count, copied by zrcCompactHeightfieldCells
+field:rcCompactCell::index	BOUND	ZrcCompactCell.index, copied by zrcCompactHeightfieldCells
+field:rcCompactHeightfield::areas	BOUND	zrcCompactHeightfieldAreas reads it and zrcCompactHeightfieldSetAreas writes it back, one byte per span
+field:rcCompactHeightfield::bmax	BOUND	ZrcCompactHeightfieldInfo.bmax
+field:rcCompactHeightfield::bmin	BOUND	ZrcCompactHeightfieldInfo.bmin
+field:rcCompactHeightfield::borderSize	BOUND	ZrcCompactHeightfieldInfo.border_size
+field:rcCompactHeightfield::cells	BOUND	zrcCompactHeightfieldCells copies it, width * height cells in row-major order
+field:rcCompactHeightfield::ch	BOUND	ZrcCompactHeightfieldInfo.cell_height
+field:rcCompactHeightfield::cs	BOUND	ZrcCompactHeightfieldInfo.cell_size
+field:rcCompactHeightfield::dist	BOUND	zrcCompactHeightfieldDistances copies it once zrcCompactHeightfieldBuildDistanceField has run; ZrcCompactHeightfieldInfo.has_distance_field reports whether it exists yet
+field:rcCompactHeightfield::height	BOUND	ZrcCompactHeightfieldInfo.height
+field:rcCompactHeightfield::maxDistance	BOUND	ZrcCompactHeightfieldInfo.max_distance
+field:rcCompactHeightfield::maxRegions	BOUND	ZrcCompactHeightfieldInfo.max_regions
+field:rcCompactHeightfield::spanCount	BOUND	ZrcCompactHeightfieldInfo.span_count
+field:rcCompactHeightfield::spans	BOUND	zrcCompactHeightfieldSpans reads it and zrcCompactHeightfieldSetSpans writes it back
+field:rcCompactHeightfield::walkableClimb	BOUND	ZrcCompactHeightfieldInfo.walkable_climb
+field:rcCompactHeightfield::walkableHeight	BOUND	ZrcCompactHeightfieldInfo.walkable_height
+field:rcCompactHeightfield::width	BOUND	ZrcCompactHeightfieldInfo.width
+field:rcCompactSpan::con	BOUND	ZrcCompactSpan.con, copied whole by zrcCompactHeightfieldSpans and written back whole by zrcCompactHeightfieldSetSpans; decoding the four packed neighbour indices is a separate concern from reading the field itself
+field:rcCompactSpan::h	BOUND	ZrcCompactSpan.h, copied by zrcCompactHeightfieldSpans and written back by zrcCompactHeightfieldSetSpans
+field:rcCompactSpan::reg	BOUND	ZrcCompactSpan.reg, copied by zrcCompactHeightfieldSpans and written back by zrcCompactHeightfieldSetSpans
+field:rcCompactSpan::y	BOUND	ZrcCompactSpan.y, copied by zrcCompactHeightfieldSpans and written back by zrcCompactHeightfieldSetSpans
+field:rcConfig::bmax	BOUND	the bmax zrcHeightfieldCreate takes directly, and zrcCalcBounds's out_bmax produces from a mesh
+field:rcConfig::bmin	BOUND	the bmin zrcHeightfieldCreate takes directly, and zrcCalcBounds's out_bmin produces from a mesh
+field:rcConfig::borderSize	BOUND	ZrcBakeConfig.border_size - negative derives the value Recast's own tiled build uses
+field:rcConfig::ch	BOUND	ZrcBakeConfig.cell_height
+field:rcConfig::cs	BOUND	ZrcBakeConfig.cell_size
+field:rcConfig::detailSampleDist	BOUND	ZrcBakeConfig.detail_sample_dist
+field:rcConfig::detailSampleMaxError	BOUND	ZrcBakeConfig.detail_sample_max_error
+field:rcConfig::height	BOUND	the height zrcHeightfieldCreate takes directly, and zrcCalcGridSize's out_height produces from bounds and cell size
+field:rcConfig::maxEdgeLen	BOUND	ZrcBakeConfig.edge_max_len - world units, converted to voxels by the bake
+field:rcConfig::maxSimplificationError	BOUND	ZrcBakeConfig.edge_max_error
+field:rcConfig::maxVertsPerPoly	BOUND	ZrcBakeConfig.verts_per_poly
+field:rcConfig::mergeRegionArea	BOUND	ZrcBakeConfig.region_merge_size - squared into a voxel area by the bake
+field:rcConfig::minRegionArea	BOUND	ZrcBakeConfig.region_min_size - squared into a voxel area by the bake
+field:rcConfig::tileSize	BOUND	ZrcBakeConfig.tile_size - voxels, the unit that makes the grid divide exactly
+field:rcConfig::walkableClimb	BOUND	ZrcBakeConfig.agent_max_climb - world units, converted to voxels by the bake
+field:rcConfig::walkableHeight	BOUND	ZrcBakeConfig.agent_height - world units, converted to voxels by the bake
+field:rcConfig::walkableRadius	BOUND	ZrcBakeConfig.agent_radius - world units, converted to voxels by the bake
+field:rcConfig::walkableSlopeAngle	BOUND	ZrcBakeConfig.agent_max_slope
+field:rcConfig::width	BOUND	the width zrcHeightfieldCreate takes directly, and zrcCalcGridSize's out_width produces from bounds and cell size
+field:rcContour::area	BOUND	ZrcContourInfo.area
+field:rcContour::nrverts	BOUND	ZrcContourInfo.raw_vert_count
+field:rcContour::nverts	BOUND	ZrcContourInfo.vert_count
+field:rcContour::reg	BOUND	ZrcContourInfo.region
+field:rcContour::rverts	BOUND	zrcContourRawVerts copies it, four ints per vertex
+field:rcContour::verts	BOUND	zrcContourVerts copies it, four ints per vertex
+field:rcContourSet::bmax	BOUND	ZrcContourSetInfo.bmax
+field:rcContourSet::bmin	BOUND	ZrcContourSetInfo.bmin
+field:rcContourSet::borderSize	BOUND	ZrcContourSetInfo.border_size
+field:rcContourSet::ch	BOUND	ZrcContourSetInfo.cell_height
+field:rcContourSet::conts	BOUND	zrcContourAt indexes it directly by contour index, and zrcContourVerts/zrcContourRawVerts read the same element's vertex arrays
+field:rcContourSet::cs	BOUND	ZrcContourSetInfo.cell_size
+field:rcContourSet::height	BOUND	ZrcContourSetInfo.height
+field:rcContourSet::maxError	BOUND	ZrcContourSetInfo.max_error
+field:rcContourSet::nconts	BOUND	ZrcContourSetInfo.contour_count
+field:rcContourSet::width	BOUND	ZrcContourSetInfo.width
+field:rcHeightfield::bmax	BOUND	ZrcHeightfieldInfo.bmax
+field:rcHeightfield::bmin	BOUND	ZrcHeightfieldInfo.bmin
+field:rcHeightfield::ch	BOUND	ZrcHeightfieldInfo.cell_height
+field:rcHeightfield::cs	BOUND	ZrcHeightfieldInfo.cell_size
+field:rcHeightfield::freelist	BOUND	ZrcHeightfieldStorage.free_count is this list's length, counted by walking it; which spans are on it is not reported, only how many
+field:rcHeightfield::height	BOUND	ZrcHeightfieldInfo.height
+field:rcHeightfield::pools	BOUND	ZrcHeightfieldStorage.pool_count is this list's length, counted by walking it; the pools themselves are not reported, only how many
+field:rcHeightfield::spans	BOUND	zrcHeightfieldColumn indexes it directly per column, and zrcHeightfieldSpanCount walks the whole array
+field:rcHeightfield::width	BOUND	ZrcHeightfieldInfo.width
+field:rcHeightfieldLayer::areas	BOUND	zrcHeightfieldLayerAreas copies it, one byte per cell
+field:rcHeightfieldLayer::bmax	BOUND	ZrcHeightfieldLayer.bmax
+field:rcHeightfieldLayer::bmin	BOUND	ZrcHeightfieldLayer.bmin
+field:rcHeightfieldLayer::ch	BOUND	ZrcHeightfieldLayer.cell_height
+field:rcHeightfieldLayer::cons	BOUND	zrcHeightfieldLayerCons copies it; src/tilecache.zig:layerCon and layerPortal split the two nibbles it packs
+field:rcHeightfieldLayer::cs	BOUND	ZrcHeightfieldLayer.cell_size
+field:rcHeightfieldLayer::height	BOUND	ZrcHeightfieldLayer.height
+field:rcHeightfieldLayer::heights	BOUND	zrcHeightfieldLayerHeights copies it, one byte per cell
+field:rcHeightfieldLayer::hmax	BOUND	ZrcHeightfieldLayer.height_max
+field:rcHeightfieldLayer::hmin	BOUND	ZrcHeightfieldLayer.height_min
+field:rcHeightfieldLayer::maxx	BOUND	ZrcHeightfieldLayer.max_x
+field:rcHeightfieldLayer::maxy	BOUND	ZrcHeightfieldLayer.max_z, upstream's maxy, which is the z axis
+field:rcHeightfieldLayer::minx	BOUND	ZrcHeightfieldLayer.min_x
+field:rcHeightfieldLayer::miny	BOUND	ZrcHeightfieldLayer.min_z - upstream spells the z axis with a y here, the same wart rcGetDirOffsetY carries
+field:rcHeightfieldLayer::width	BOUND	ZrcHeightfieldLayer.width, which with height is the length of all three arrays
+field:rcHeightfieldLayerSet::layers	BOUND	zrcHeightfieldLayerAt indexes it, bounded by the count zrcHeightfieldLayerSetCount reports
+field:rcHeightfieldLayerSet::nlayers	BOUND	zrcHeightfieldLayerSetCount
+field:rcPolyMesh::areas	BOUND	zrcPolyMeshPolyAreas reads it and zrcPolyMeshSetPolyAreas writes it back, one area id per polygon
+field:rcPolyMesh::bmax	BOUND	ZrcPolyMeshInfo.bmax
+field:rcPolyMesh::bmin	BOUND	ZrcPolyMeshInfo.bmin
+field:rcPolyMesh::borderSize	BOUND	ZrcPolyMeshInfo.border_size
+field:rcPolyMesh::ch	BOUND	ZrcPolyMeshInfo.cell_height
+field:rcPolyMesh::cs	BOUND	ZrcPolyMeshInfo.cell_size
+field:rcPolyMesh::flags	BOUND	zrcPolyMeshPolyFlags reads it and zrcPolyMeshSetPolyFlags writes it back, one flag word per polygon
+field:rcPolyMesh::maxEdgeError	BOUND	ZrcPolyMeshInfo.max_edge_error
+field:rcPolyMesh::maxpolys	BOUND	ZrcPolyMeshInfo.max_polys, which is what indexes the polys/regs/areas/flags arrays rather than npolys
+field:rcPolyMesh::npolys	BOUND	ZrcPolyMeshInfo.poly_count
+field:rcPolyMesh::nverts	BOUND	ZrcPolyMeshInfo.vert_count
+field:rcPolyMesh::nvp	BOUND	ZrcPolyMeshInfo.verts_per_poly, which is also the stride zrcPolyMeshPolys writes: 2 * verts_per_poly entries per polygon
+field:rcPolyMesh::polys	BOUND	zrcPolyMeshPolys copies it, 2 * verts_per_poly entries per polygon
+field:rcPolyMesh::regs	BOUND	zrcPolyMeshRegions copies it, one region id per polygon
+field:rcPolyMesh::verts	BOUND	zrcPolyMeshVerts copies it, three uint16_t per vertex
+field:rcPolyMeshDetail::meshes	BOUND	zrcPolyMeshDetailMeshes copies it, four uint32_t per sub-mesh
+field:rcPolyMeshDetail::nmeshes	BOUND	ZrcPolyMeshInfo.detail_mesh_count
+field:rcPolyMeshDetail::ntris	BOUND	ZrcPolyMeshInfo.detail_tri_count
+field:rcPolyMeshDetail::nverts	BOUND	ZrcPolyMeshInfo.detail_vert_count
+field:rcPolyMeshDetail::tris	BOUND	zrcPolyMeshDetailTris copies it, four bytes per detail triangle
+field:rcPolyMeshDetail::verts	BOUND	zrcPolyMeshDetailVerts copies it, three floats per detail vertex
+field:rcSpan::area	BOUND	ZrcSpan.area, copied by zrcHeightfieldColumn
+field:rcSpan::next	BOUND	the ordering zrcHeightfieldColumn writes spans in: lowest first, following this chain
+field:rcSpan::smax	BOUND	ZrcSpan.smax, copied by zrcHeightfieldColumn
+field:rcSpan::smin	BOUND	ZrcSpan.smin, copied by zrcHeightfieldColumn
+field:rcSpanPool::items	BOUND	ZrcHeightfieldStorage.spans_per_pool is this array's length, and every span in it is either live, reported in its column's order by zrcHeightfieldColumn, or free, counted by ZrcHeightfieldStorage.free_count; nothing indexes a pool directly because a slot carries no way to tell the two apart
+field:rcSpanPool::next	BOUND	the chain zrcHeightfieldStorage walks to produce ZrcHeightfieldStorage.pool_count
+func:-::dtAbs/1	ZIG	src/vec.zig:scalar.abs - written as upstream's comparison rather than the builtin, which differs at negative zero: upstream returns it unchanged
+func:-::dtAlign4/1	ZIG	src/vec.zig:scalar.align4, with the wrapping add upstream's signed overflow would otherwise be
+func:-::dtAlloc/2	BOUND	zrcAlloc, which allocates on the same seam zrcSetAllocator installs and pairs with zrcFree
+func:-::dtAllocCrowd/0	BOUND	zrcCrowdCreate calls it to obtain the object
+func:-::dtAllocNavMesh/0	BOUND	zrcNavMeshCreate and zrcNavMeshDeserialize both call it to construct the handle a host keeps
+func:-::dtAllocNavMeshQuery/0	BOUND	zrcNavMeshQueryCreate calls dtAllocNavMeshQuery to obtain the dtNavMeshQuery instance
+func:-::dtAllocObstacleAvoidanceDebugData/0	BOUND	zrcAvoidanceDebugCreate calls it to obtain the object
+func:-::dtAllocObstacleAvoidanceQuery/0	BOUND	zrcAvoidanceQueryCreate calls it to obtain the object
+func:-::dtAllocProximityGrid/0	BOUND	zrcProximityGridCreate calls it to obtain the object
+func:-::dtAllocSetCustom/2	BOUND	zrcSetAllocator installs it
+func:-::dtAllocTileCache/0	BOUND	zrcTileCacheCreate calls it to obtain the dtTileCache instance
+func:-::dtAllocTileCacheContourSet/1	BOUND	zrcTileCacheContourSetCreate calls it to obtain the container
+func:-::dtAllocTileCachePolyMesh/1	BOUND	zrcTileCachePolyMeshCreate calls it to obtain the container
+func:-::dtAssertFailGetCustom/0	BOUND	zrcAssertHandler
+func:-::dtAssertFailSetCustom/1	BOUND	zrcSetAssertHandler installs it, and zrcAssertsEnabled says whether this build kept the assertions that would call it
+func:-::dtBuildTileCacheContours/5	BOUND	zrcTileCacheContourSetCreate
+func:-::dtBuildTileCacheLayer/7	BOUND	zrcTileCacheLayerBuild, which also checks that the three grids are each width times height bytes, a length the C side is handed only as bare pointers
+func:-::dtBuildTileCachePolyMesh/3	BOUND	zrcTileCachePolyMeshCreate
+func:-::dtBuildTileCacheRegions/3	BOUND	zrcTileCacheLayerBuildRegions
+func:-::dtCalcPolyCenter/4	BOUND	zrcPolyCenter - upstream takes no vertex count and divides by the index count without testing it, so both are real parameters here
+func:-::dtClamp/3	ZIG	src/vec.zig:scalar.clamp - written as upstream's nested comparisons, which pass a NaN through where a min-of-max spelling would replace it with a bound
+func:-::dtClosestHeightPointTriangle/5	BOUND	zrcClosestHeightPointTriangle
+func:-::dtClosestPtPointTriangle/5	BOUND	zrcClosestPointOnTriangle
+func:-::dtCreateNavMeshData/3	BOUND	zrcNavMeshCreate runs it and the host gets and keeps the result
+func:-::dtDecompressTileCacheLayer/5	BOUND	zrcTileCacheLayerDecompress, which bounds the buffer first: upstream repeats addTile's subtraction and hands a negative length to the host codec for a short one
+func:-::dtDistancePtPolyEdgesSqr/5	BOUND	zrcDistancePointToPolyEdges - upstream takes three arrays and one count that nothing checks they agree with, so the vertex count is checked against all three here
+func:-::dtDistancePtSegSqr2D/4	BOUND	zrcDistancePointToSegment2D, which returns the squared distance through an out parameter and the position along the segment through another
+func:-::dtFree/1	BOUND	zrcFree calls it directly
+func:-::dtFreeCrowd/1	BOUND	zrcCrowdDestroy calls it
+func:-::dtFreeNavMesh/1	BOUND	zrcNavMeshDestroy calls it directly
+func:-::dtFreeNavMeshQuery/1	BOUND	zrcNavMeshQueryDestroy calls dtFreeNavMeshQuery to release the dtNavMeshQuery instance
+func:-::dtFreeObstacleAvoidanceDebugData/1	BOUND	zrcAvoidanceDebugDestroy calls it
+func:-::dtFreeObstacleAvoidanceQuery/1	BOUND	zrcAvoidanceQueryDestroy calls it
+func:-::dtFreeProximityGrid/1	BOUND	zrcProximityGridDestroy calls it
+func:-::dtFreeTileCache/1	BOUND	zrcTileCacheDestroy calls it directly
+func:-::dtFreeTileCacheContourSet/2	BOUND	zrcTileCacheContourSetDestroy calls it
+func:-::dtFreeTileCacheLayer/2	BOUND	zrcTileCacheLayerDestroy calls it, guarding the null upstream's own two siblings guard and this one does not
+func:-::dtFreeTileCachePolyMesh/2	BOUND	zrcTileCachePolyMeshDestroy calls it
+func:-::dtGetDetailTriEdgeFlags/2	ZIG	src/navmesh.zig:detailTriEdgeFlags
+func:-::dtGetThenAdvanceBufferPointer/2(const unsigned char*&,const size_t)	BOUND	zrcTileLayout reports the offsets this primitive derives, which is what a host walking a tile image itself needs
+func:-::dtGetThenAdvanceBufferPointer/2(unsigned char*&,const size_t)	BOUND	zrcTileLayout reports the offsets this primitive derives, which is what a host walking a tile image itself needs
+func:-::dtIgnoreUnused/1	LANGUAGE	the discard, `_ = value;` - upstream's body is empty
+func:-::dtIlog2/1	ZIG	src/vec.zig:scalar.ilog2 - upstream answers 0 for 0, which the obvious count-leading-zeros spelling gets wrong by returning -1
+func:-::dtIntersectSegSeg2D/6	BOUND	zrcIntersectSegSeg2D
+func:-::dtIntersectSegmentPoly2D/8	BOUND	zrcIntersectSegmentPoly2D
+func:-::dtMarkBoxArea/7	BOUND	zrcTileCacheLayerMarkBox, the axis-aligned overload taking two corners
+func:-::dtMarkBoxArea/8	BOUND	zrcTileCacheLayerMarkOrientedBox, the overload taking a rotation; it takes an angle and computes the two-term form upstream wants, so a host never spells that form itself
+func:-::dtMarkCylinderArea/8	BOUND	zrcTileCacheLayerMarkCylinder, the same carve zrcTileCacheUpdate performs for a cylinder obstacle
+func:-::dtMathAtan2f/2	LANGUAGE	std.math.atan2
+func:-::dtMathCeilf/1	LANGUAGE	@ceil, which is ceilf
+func:-::dtMathCosf/1	LANGUAGE	@cos, which lowers to the platform's own cosf, the same function upstream calls
+func:-::dtMathFabsf/1	LANGUAGE	@abs, which is fabsf
+func:-::dtMathFloorf/1	LANGUAGE	@floor, which is floorf
+func:-::dtMathIsfinite/1	LANGUAGE	std.math.isFinite
+func:-::dtMathSinf/1	LANGUAGE	@sin, which lowers to the platform's own sinf, the same function upstream calls
+func:-::dtMathSqrtf/1	LANGUAGE	@sqrt - a plain sqrtf, which IEEE-754 requires to be correctly rounded, so the two agree bit for bit
+func:-::dtMax/2	ZIG	src/vec.zig:scalar.max - written as upstream's comparison rather than the builtin, because a NaN operand makes that comparison false and the result is asymmetric in a way the builtin does not promise
+func:-::dtMergeCorridorEndMoved/5	BOUND	zrcMergeCorridorEndMoved
+func:-::dtMergeCorridorStartMoved/5	BOUND	zrcMergeCorridorStartMoved
+func:-::dtMergeCorridorStartShortcut/5	BOUND	zrcMergeCorridorStartShortcut
+func:-::dtMin/2	ZIG	src/vec.zig:scalar.min - written as upstream's comparison rather than the builtin, because a NaN operand makes that comparison false and the result is asymmetric in a way the builtin does not promise
+func:-::dtNavMeshDataSwapEndian/2	BOUND	zrcNavMeshImageSwapEndian runs it as the body half of the conversion, after the header on the way in and before it on the way out
+func:-::dtNavMeshHeaderSwapEndian/2	BOUND	zrcNavMeshImageSwapEndian runs it as the header half of the conversion, first on the way in and last on the way out
+func:-::dtNextPow2/1	ZIG	src/vec.zig:scalar.nextPow2 - upstream answers 0 for 0, reached by an unsigned decrement wrapping to 0xFFFFFFFF and an increment wrapping back, so the port uses the wrapping operators rather than the obvious spelling
+func:-::dtOppositeTile/1	BOUND	zrcOppositeTileSide
+func:-::dtOverlapBounds/4	BOUND	zrcOverlapBounds
+func:-::dtOverlapPolyPoly2D/4	BOUND	zrcOverlapPolyPoly2D - its projectPoly helper reads the first vertex before any loop, so an empty polygon is an out-of-bounds read and both counts are checked at the door
+func:-::dtOverlapQuantBounds/4	BOUND	zrcOverlapQuantBounds, the test a BV-tree walk runs over the nodes zrcNavMeshTileBvNode reports
+func:-::dtPointInPolygon/3	BOUND	zrcPointInPolygon
+func:-::dtRandomPointInConvexPoly/6	BOUND	zrcRandomPointInConvexPoly - a single-vertex polygon makes upstream read three floats before the start of the array, so three vertices is the minimum here
+func:-::dtSqr/1	ZIG	src/vec.zig:scalar.sqr
+func:-::dtStatusDetail/2	BOUND	zrc::ResultFromStatus calls it repeatedly to pick the distinct ZrcResult a host observes
+func:-::dtStatusFailed/1	BOUND	ZrcResult: every query entry point calls it to decide between success and one of the ZrcResult error codes
+func:-::dtStatusInProgress/1	BOUND	zrcSlicedFindPathUpdate reports it through out_in_progress
+func:-::dtStatusSucceed/1	BOUND	zrc::ResultFromStatus calls it to decide ZRC_OK
+func:-::dtSwap/2	LANGUAGE	std.mem.swap
+func:-::dtSwapByte/2	LANGUAGE	@byteSwap on the integer, rather than swapping two bytes through pointers
+func:-::dtSwapEndian/1(float*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+func:-::dtSwapEndian/1(int*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+func:-::dtSwapEndian/1(short*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+func:-::dtSwapEndian/1(unsigned int*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+func:-::dtSwapEndian/1(unsigned short*)	LANGUAGE	@byteSwap, which is generic over the integer widths and takes @bitCast for the float
+func:-::dtTileCacheHeaderSwapEndian/2	BOUND	zrcTileCacheHeaderSwapEndian, which checks the length upstream takes and discards before dereferencing the header
+func:-::dtTriArea2D/3	BOUND	zrcTriArea2D
+func:-::dtVadd/3	ZIG	src/vec.zig:add - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVcopy/2	ZIG	src/vec.zig:Vec3 is [3]f32 and every operation takes and returns one by value, so a set is the array literal and a copy is assignment
+func:-::dtVcross/3	ZIG	src/vec.zig:cross - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVdist/2	ZIG	src/vec.zig:dist - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVdist2D/2	ZIG	src/vec.zig:dist2D - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVdist2DSqr/2	ZIG	src/vec.zig:dist2DSqr - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVdistSqr/2	ZIG	src/vec.zig:distSqr - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVdot/2	ZIG	src/vec.zig:dot - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVdot2D/2	ZIG	src/vec.zig:dot2D - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVequal/2	ZIG	src/vec.zig:equal - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVisfinite/1	ZIG	src/vec.zig:isFinite - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVisfinite2D/1	ZIG	src/vec.zig:isFinite2D - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVlen/1	ZIG	src/vec.zig:len - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVlenSqr/1	ZIG	src/vec.zig:lenSqr - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVlerp/4	ZIG	src/vec.zig:lerp - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVmad/4	ZIG	src/vec.zig:mad - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVmax/2	ZIG	src/vec.zig:max - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVmin/2	ZIG	src/vec.zig:min - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVnormalize/1	ZIG	src/vec.zig:normalize - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVperp2D/2	ZIG	src/vec.zig:perp2D - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVscale/3	ZIG	src/vec.zig:scale - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::dtVset/4	ZIG	src/vec.zig:Vec3 is [3]f32 and every operation takes and returns one by value, so a set is the array literal and a copy is assignment
+func:-::dtVsub/3	ZIG	src/vec.zig:sub - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcAbs/1	ZIG	src/vec.zig:scalar.abs - written as upstream's comparison rather than the builtin, which differs at negative zero: upstream returns it unchanged
+func:-::rcAddSpan/8	BOUND	zrcHeightfieldAddSpan calls it directly, after checking x/z against the heightfield's own extent and span_min/span_max/area against the limits it packs into
+func:-::rcAlloc/2	BOUND	every zrcHeightfieldCreate/zrcCompactHeightfieldCreate/zrcContourSetCreate/zrcPolyMeshCreate container allocation calls it directly with RC_ALLOC_PERM before constructing the container in place; zrcSetAllocator installs the callback it reaches
+func:-::rcAllocCompactHeightfield/0	BOUND	zrcCompactHeightfieldCreate allocates the container the same way this does, fused with the rcBuildCompactHeightfield call that populates it in the same step
+func:-::rcAllocContourSet/0	BOUND	zrcContourSetCreate allocates the container the same way this does, fused with the rcBuildContours call that populates it in the same step
+func:-::rcAllocHeightfield/0	BOUND	zrcHeightfieldCreate allocates the container the same way this does, fused with the rcCreateHeightfield call that populates it in the same step
+func:-::rcAllocHeightfieldLayerSet/0	BOUND	zrcHeightfieldLayerSetCreate allocates the container the same way, through rcAlloc with RC_ALLOC_PERM, fused with the build that fills it
+func:-::rcAllocPolyMesh/0	BOUND	zrcPolyMeshCreate allocates an empty container the same way this does; zrcPolyMeshBuild fills it in a later call
+func:-::rcAllocPolyMeshDetail/0	BOUND	zrcPolyMeshCreate allocates an empty container the same way this does, alongside the polygon half; zrcPolyMeshBuildDetail fills it in a later call
+func:-::rcAllocSetCustom/2	BOUND	zrcSetAllocator
+func:-::rcAssertFailGetCustom/0	BOUND	zrcAssertHandler
+func:-::rcAssertFailSetCustom/1	BOUND	zrcSetAssertHandler installs it, and zrcAssertsEnabled says whether this build kept the assertions that would call it
+func:-::rcBuildCompactHeightfield/5	BOUND	zrcCompactHeightfieldCreate calls it directly
+func:-::rcBuildContours/6	BOUND	zrcContourSetCreate calls it directly
+func:-::rcBuildDistanceField/2	BOUND	zrcCompactHeightfieldBuildDistanceField calls it directly
+func:-::rcBuildHeightfieldLayers/5	BOUND	zrcHeightfieldLayerSetCreate, which also refuses a border wider than half the field: upstream computes the layer dimensions as width minus twice the border and never checks the two against each other
+func:-::rcBuildLayerRegions/4	BOUND	zrcCompactHeightfieldBuildRegions calls it directly for ZRC_PARTITION_LAYERS
+func:-::rcBuildPolyMesh/4	BOUND	zrcPolyMeshBuild calls it directly
+func:-::rcBuildPolyMeshDetail/6	BOUND	zrcPolyMeshBuildDetail calls it directly
+func:-::rcBuildRegions/5	BOUND	zrcCompactHeightfieldBuildRegions calls it directly for ZRC_PARTITION_WATERSHED
+func:-::rcBuildRegionsMonotone/5	BOUND	zrcCompactHeightfieldBuildRegions calls it directly for ZRC_PARTITION_MONOTONE
+func:-::rcCalcBounds/4	BOUND	zrcCalcBounds calls it directly
+func:-::rcCalcGridSize/5	BOUND	zrcCalcGridSize calls it directly
+func:-::rcClamp/3	ZIG	src/vec.zig:scalar.clamp - written as upstream's nested comparisons, which pass a NaN through where a min-of-max spelling would replace it with a bound
+func:-::rcClearUnwalkableTriangles/7	BOUND	zrcClearUnwalkableTriangles clears to ZRC_AREA_NULL by the same slope test, through a bit-exact reimplementation rather than a direct call, so the cosine threshold does not depend on the host's libm
+func:-::rcCopyPolyMesh/3	BOUND	zrcPolyMeshCopy calls it directly
+func:-::rcCreateHeightfield/8	BOUND	zrcHeightfieldCreate calls it directly
+func:-::rcErodeWalkableArea/3	BOUND	zrcCompactHeightfieldErode calls it directly
+func:-::rcFilterLedgeSpans/4	BOUND	zrcHeightfieldFilterLedgeSpans calls it directly
+func:-::rcFilterLowHangingWalkableObstacles/3	BOUND	zrcHeightfieldFilterLowHangingObstacles calls it directly
+func:-::rcFilterWalkableLowHeightSpans/3	BOUND	zrcHeightfieldFilterWalkableLowHeightSpans calls it directly
+func:-::rcFree/1	BOUND	every zrcHeightfieldDestroy/zrcCompactHeightfieldDestroy/zrcContourSetDestroy/zrcPolyMeshDestroy reaches it, through the matching upstream free function which calls it right after the destructor; zrcSetAllocator installs the callback it reaches
+func:-::rcFreeCompactHeightfield/1	BOUND	zrcCompactHeightfieldDestroy calls it directly
+func:-::rcFreeContourSet/1	BOUND	zrcContourSetDestroy calls it directly
+func:-::rcFreeHeightField/1	BOUND	zrcHeightfieldDestroy calls it directly
+func:-::rcFreeHeightfieldLayerSet/1	BOUND	zrcHeightfieldLayerSetDestroy calls it, through zrc::RcFree's overload for this type
+func:-::rcFreePolyMesh/1	BOUND	zrcPolyMeshDestroy calls it directly
+func:-::rcFreePolyMeshDetail/1	BOUND	zrcPolyMeshDestroy calls it directly; rcPolyMeshDetail has no destructor of its own, so this is the only thing that releases its three buffers
+func:-::rcGetCon/2	ZIG	src/pipeline.zig:getCon - the same shift-and-mask upstream writes, over the ZrcCompactSpan.con field zrcCompactHeightfieldSpans reports
+func:-::rcGetDirForOffset/2	ZIG	src/pipeline.zig:dirForOffset - upstream's five-entry table, with the derived index bounded rather than read out of range for a diagonal
+func:-::rcGetDirOffsetX/1	ZIG	src/pipeline.zig:dirOffsetX - upstream's four-entry table, indexed with upstream's own two-bit mask so any input answers
+func:-::rcGetDirOffsetY/1	ZIG	src/pipeline.zig:dirOffsetY - upstream's four-entry table under upstream's own name, which steps along z despite the Y its own TODO complains about
+func:-::rcGetHeightFieldSpanCount/2	BOUND	zrcHeightfieldSpanCount calls it directly
+func:-::rcIgnoreUnused/1	LANGUAGE	the discard, `_ = value;` - upstream's body is empty
+func:-::rcMarkBoxArea/5	BOUND	ZrcAreaVolume with shape ZRC_VOLUME_BOX, applied by zrcPolyMeshBake between erosion and region building
+func:-::rcMarkConvexPolyArea/7	BOUND	ZrcAreaVolume with shape ZRC_VOLUME_CONVEX, applied by zrcPolyMeshBake between erosion and region building
+func:-::rcMarkCylinderArea/6	BOUND	ZrcAreaVolume with shape ZRC_VOLUME_CYLINDER, applied by zrcPolyMeshBake between erosion and region building
+func:-::rcMarkWalkableTriangles/7	BOUND	zrcMarkWalkableTriangles writes ZRC_AREA_WALKABLE by the same slope test, through a bit-exact reimplementation rather than a direct call, so the cosine threshold does not depend on the host's libm
+func:-::rcMax/2	ZIG	src/vec.zig:scalar.max - written as upstream's comparison rather than the builtin, because a NaN operand makes that comparison false and the result is asymmetric in a way the builtin does not promise
+func:-::rcMedianFilterWalkableArea/2	BOUND	zrcCompactHeightfieldMedianFilter calls it directly
+func:-::rcMergePolyMeshDetails/4	BOUND	zrcPolyMeshMerge calls it directly when every input's detail half is filled
+func:-::rcMergePolyMeshes/4	BOUND	zrcPolyMeshMerge calls it directly
+func:-::rcMin/2	ZIG	src/vec.zig:scalar.min - written as upstream's comparison rather than the builtin, because a NaN operand makes that comparison false and the result is asymmetric in a way the builtin does not promise
+func:-::rcOffsetPoly/5	BOUND	zrcOffsetPoly, with upstream's did-not-fit return of zero named as ZRC_ERR_BUFFER_TOO_SMALL
+func:-::rcRasterizeTriangle/7	BOUND	zrcHeightfieldRasterizeTriangle calls it directly
+func:-::rcRasterizeTriangles/6	BOUND	zrcHeightfieldRasterizeTriangleSoup calls this triangle-soup overload directly
+func:-::rcRasterizeTriangles/8(rcContext*,const float*,int,const int*,const unsigned char*,int,rcHeightfield&,int)	BOUND	zrcHeightfieldRasterizeTriangles calls this 32-bit-index overload directly
+func:-::rcRasterizeTriangles/8(rcContext*,const float*,int,const unsigned short*,const unsigned char*,int,rcHeightfield&,int)	BOUND	zrcHeightfieldRasterizeTrianglesU16 calls this 16-bit-index overload directly
+func:-::rcSetCon/3	ZIG	src/pipeline.zig:setCon - upstream's own clear-then-or expression, and zrcCompactHeightfieldSetSpans is how the result goes back into the field
+func:-::rcSqr/1	ZIG	src/vec.zig:scalar.sqr
+func:-::rcSqrt/1	LANGUAGE	@sqrt - a plain sqrtf, which IEEE-754 requires to be correctly rounded, so the two agree bit for bit
+func:-::rcSwap/2	LANGUAGE	std.mem.swap
+func:-::rcVadd/3	ZIG	src/vec.zig:add - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcVcopy/2	ZIG	src/vec.zig:Vec3 is [3]f32 and every operation takes and returns one by value, so a set is the array literal and a copy is assignment
+func:-::rcVcross/3	ZIG	src/vec.zig:cross - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcVdist/2	ZIG	src/vec.zig:dist - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcVdistSqr/2	ZIG	src/vec.zig:distSqr - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcVdot/2	ZIG	src/vec.zig:dot - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcVmad/4	ZIG	src/vec.zig:mad - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcVmax/2	ZIG	src/vec.zig:max - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcVmin/2	ZIG	src/vec.zig:min - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcVnormalize/1	ZIG	src/vec.zig:normalize - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::rcVsub/3	ZIG	src/vec.zig:sub - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:dtCrowd::addAgent/2	BOUND	zrcCrowdAddAgent
+func:dtCrowd::dtCrowd/0	BOUND	dtAllocCrowd constructs it in place, from zrcCrowdCreate
+func:dtCrowd::getActiveAgents/2	BOUND	zrcCrowdActiveAgents, which reports the true total rather than clipping to the buffer
+func:dtCrowd::getAgent/1	BOUND	zrcCrowdAgentRefAt names the slot and zrcCrowdAgentInfo reads it, with zrcCrowdAgentCorners, zrcCrowdAgentNeighbours, zrcCrowdAgentCorridorInfo and zrcCrowdAgentBoundaryCenter for the members that cannot cross by value
+func:dtCrowd::getAgentCount/0	BOUND	zrcCrowdAgentCapacity, which is what it returns; zrcCrowdActiveAgentCount is the other question
+func:dtCrowd::getEditableAgent/1	BOUND	the fields a host can write without desynchronising an agent from its own corridor: zrcCrowdSetAgentParams, zrcCrowdRequestMoveTarget, zrcCrowdRequestMoveVelocity and zrcCrowdResetMoveTarget. The rest are outputs zrcCrowdUpdate recomputes each frame, or crowd invariants upstream neither documents as writable nor defends
+func:dtCrowd::getEditableFilter/1	BOUND	zrcCrowdSetFilter
+func:dtCrowd::getFilter/1	BOUND	zrcCrowdFilter
+func:dtCrowd::getGrid/0	BOUND	zrcCrowdGrid, borrowed
+func:dtCrowd::getNavMeshQuery/0	BOUND	zrcCrowdNavMeshQuery, borrowed and const
+func:dtCrowd::getObstacleAvoidanceParams/1	BOUND	zrcCrowdAvoidanceParams
+func:dtCrowd::getPathQueue/0	BOUND	zrcCrowdPathQueue, borrowed and const so nothing can submit to it, which is what upstream's const return already prevents
+func:dtCrowd::getQueryExtents/0	BOUND	zrcCrowdQueryHalfExtents; upstream's own back-compatibility alias of getQueryHalfExtents, returning the same array, so one spelling crosses
+func:dtCrowd::getQueryHalfExtents/0	BOUND	zrcCrowdQueryHalfExtents
+func:dtCrowd::getVelocitySampleCount/0	BOUND	zrcCrowdVelocitySampleCount
+func:dtCrowd::init/3	BOUND	zrcCrowdCreate for the first, zrcCrowdInit for every later one
+func:dtCrowd::removeAgent/1	BOUND	zrcCrowdRemoveAgent
+func:dtCrowd::requestMoveTarget/3	BOUND	zrcCrowdRequestMoveTarget
+func:dtCrowd::requestMoveVelocity/2	BOUND	zrcCrowdRequestMoveVelocity
+func:dtCrowd::resetMoveTarget/1	BOUND	zrcCrowdResetMoveTarget
+func:dtCrowd::setObstacleAvoidanceParams/2	BOUND	zrcCrowdSetAvoidanceParams
+func:dtCrowd::update/2	BOUND	zrcCrowdUpdate
+func:dtCrowd::updateAgentParameters/2	BOUND	zrcCrowdSetAgentParams
+func:dtCrowd::~dtCrowd/0	BOUND	dtFreeCrowd runs it, from zrcCrowdDestroy
+func:dtLocalBoundary::dtLocalBoundary/0	BOUND	zrcLocalBoundaryCreate constructs one
+func:dtLocalBoundary::getCenter/0	BOUND	zrcLocalBoundaryCenter, and zrcCrowdAgentBoundaryCenter for an agent's
+func:dtLocalBoundary::getSegment/1	BOUND	zrcLocalBoundarySegments, and zrcCrowdAgentBoundarySegments for an agent's
+func:dtLocalBoundary::getSegmentCount/0	BOUND	zrcLocalBoundarySegmentCount, and zrcCrowdAgentBoundarySegmentCount for an agent's
+func:dtLocalBoundary::isValid/2	BOUND	zrcLocalBoundaryIsValid
+func:dtLocalBoundary::reset/0	BOUND	zrcLocalBoundaryReset
+func:dtLocalBoundary::update/5	BOUND	zrcLocalBoundaryUpdate
+func:dtLocalBoundary::~dtLocalBoundary/0	BOUND	zrcLocalBoundaryDestroy runs it
+func:dtNavMesh::addTile/5	BOUND	zrcNavMeshAddTile
+func:dtNavMesh::calcTileLoc/3	BOUND	zrcNavMeshCalcTileLoc
+func:dtNavMesh::decodePolyId/4	BOUND	zrcDecodePolyRef
+func:dtNavMesh::decodePolyIdPoly/1	BOUND	zrcDecodePolyRef's out_poly
+func:dtNavMesh::decodePolyIdSalt/1	BOUND	zrcDecodePolyRef's out_salt
+func:dtNavMesh::decodePolyIdTile/1	BOUND	zrcDecodePolyRef's out_tile
+func:dtNavMesh::dtNavMesh/0	BOUND	zrcNavMeshCreate and zrcNavMeshDeserialize both construct one via dtAllocNavMesh
+func:dtNavMesh::encodePolyId/3	BOUND	zrcEncodePolyRef, which refuses a field too wide for the navmesh's own bit layout where upstream truncates it
+func:dtNavMesh::getMaxTiles/0	BOUND	zrcNavMeshMaxTiles
+func:dtNavMesh::getOffMeshConnectionByRef/1	BOUND	zrcNavMeshOffMeshConnection
+func:dtNavMesh::getOffMeshConnectionPolyEndPoints/4	BOUND	zrcNavMeshOffMeshConnectionEndPoints
+func:dtNavMesh::getParams/0	BOUND	zrcNavMeshParams copies every field of dtNavMeshParams into ZrcNavMeshParams
+func:dtNavMesh::getPolyArea/2	BOUND	zrcNavMeshGetPolyArea
+func:dtNavMesh::getPolyFlags/2	BOUND	zrcNavMeshGetPolyFlags
+func:dtNavMesh::getPolyRefBase/1	BOUND	zrcNavMeshTilePolyRef composes it with a bounded index, which keeps reference arithmetic on the checked side of the boundary
+func:dtNavMesh::getTile/1	BOUND	zrcNavMeshTileRefAtIndex walks the same slots, handing back a reference rather than the tile struct
+func:dtNavMesh::getTileAndPolyByRef/3	BOUND	zrcNavMeshPolyInfo copies the polygon out and zrcDecodePolyRef names its tile, which is both halves of what it resolves
+func:dtNavMesh::getTileAndPolyByRefUnsafe/3	BOUND	zrcNavMeshPolyInfo, which always checks. The unchecked form skips the salt and index tests only, and across an ABI that saves two comparisons in exchange for a reference from another navmesh reading arbitrary memory
+func:dtNavMesh::getTileAt/3	BOUND	zrcNavMeshTileRefAt
+func:dtNavMesh::getTileByRef/1	BOUND	zrcNavMeshTileBounds resolves a reference to a resident tile
+func:dtNavMesh::getTileRef/1	BOUND	zrcNavMeshTileRefAt returns the reference of the tile it finds
+func:dtNavMesh::getTileRefAt/3	BOUND	zrcNavMeshTileRefAt
+func:dtNavMesh::getTileStateSize/1	BOUND	zrcNavMeshTileStateSize
+func:dtNavMesh::getTilesAt/4	BOUND	zrcNavMeshTileRefsAt, which reports how many tiles are stacked at a grid position whether or not they fit, where upstream returns only what it wrote
+func:dtNavMesh::init/1	BOUND	zrcNavMeshCreate and zrcNavMeshDeserialize call it (via InitSingleTile) to bring up the single-tile mesh
+func:dtNavMesh::init/3	BOUND	zrcNavMeshDeserialize - the same capability, split into init and addTile so each failure is attributed instead of inferred from a shared status bit
+func:dtNavMesh::isValidPolyRef/1	BOUND	zrcIsValidPolyRef with a NULL filter, which is the liveness question alone
+func:dtNavMesh::removeTile/3	BOUND	zrcNavMeshRemoveTile
+func:dtNavMesh::restoreTileState/3	BOUND	zrcNavMeshRestoreTileState
+func:dtNavMesh::setPolyArea/2	BOUND	zrcNavMeshSetPolyArea
+func:dtNavMesh::setPolyFlags/2	BOUND	zrcNavMeshSetPolyFlags
+func:dtNavMesh::storeTileState/3	BOUND	zrcNavMeshStoreTileState
+func:dtNavMesh::~dtNavMesh/0	BOUND	zrcNavMeshDestroy runs it via dtFreeNavMesh
+func:dtNavMeshQuery::closestPointOnPoly/4	BOUND	zrcClosestPointOnPoly
+func:dtNavMeshQuery::closestPointOnPolyBoundary/3	BOUND	zrcClosestPointOnPolyBoundary
+func:dtNavMeshQuery::dtNavMeshQuery/0	BOUND	zrcNavMeshQueryCreate triggers it via dtAllocNavMeshQuery's placement-new
+func:dtNavMeshQuery::finalizeSlicedFindPath/3	BOUND	zrcSlicedFindPathFinalize - a second call is ZRC_ERR_NO_SEARCH rather than upstream's success with a one-element null path
+func:dtNavMeshQuery::finalizeSlicedFindPathPartial/5	BOUND	zrcSlicedFindPathFinalizePartial
+func:dtNavMeshQuery::findDistanceToWall/7	BOUND	zrcFindDistanceToWall, which reports nothing-in-range through out_found instead of upstream's success over an untouched hit position
+func:dtNavMeshQuery::findLocalNeighbourhood/8	BOUND	zrcFindLocalNeighbourhood, whose out_refs is required because upstream writes through it without the null check both its siblings make
+func:dtNavMeshQuery::findNearestPoly/5	BOUND	zrcFindNearestPoly calls the five-argument overload when out_over_poly is NULL
+func:dtNavMeshQuery::findNearestPoly/6	BOUND	zrcFindNearestPoly's out_over_poly, which is the only thing the six-argument overload adds over the five
+func:dtNavMeshQuery::findPath/8	BOUND	zrcFindPath calls query->impl->findPath with all 8 parameters
+func:dtNavMeshQuery::findPolysAroundCircle/9	BOUND	zrcFindPolysAroundCircle
+func:dtNavMeshQuery::findPolysAroundShape/9	BOUND	zrcFindPolysAroundShape
+func:dtNavMeshQuery::findRandomPoint/4	BOUND	zrcFindRandomPoint, with the randomness supplied through ZrcRandomSource so a placement is reproducible from a seed
+func:dtNavMeshQuery::findRandomPointAroundCircle/7	BOUND	zrcFindRandomPointAroundCircle, same seam
+func:dtNavMeshQuery::findStraightPath/10	BOUND	zrcFindStraightPath calls query->impl->findStraightPath with all 10 parameters
+func:dtNavMeshQuery::getAttachedNavMesh/0	BOUND	zrcQueryNavMesh
+func:dtNavMeshQuery::getNodePool/0	BOUND	zrcQueryNodePoolInfo, zrcQueryFindNode, zrcQueryFindNodes and zrcQueryNodeAt read the pool it returns; nothing writes to it, because a host allocating or reordering nodes is corrupting the search that owns them
+func:dtNavMeshQuery::getPathFromDijkstraSearch/4	BOUND	zrcPathFromDijkstraSearch
+func:dtNavMeshQuery::getPolyHeight/3	BOUND	zrcPolyHeight
+func:dtNavMeshQuery::getPolyWallSegments/6	BOUND	zrcPolyWallSegments
+func:dtNavMeshQuery::init/2	BOUND	zrcNavMeshQueryCreate calls handle->impl->init(navmesh->impl, max_nodes)
+func:dtNavMeshQuery::initSlicedFindPath/6	BOUND	zrcSlicedFindPathInit, which copies the filter into the query handle because upstream keeps only a pointer to it
+func:dtNavMeshQuery::isInClosedList/1	BOUND	zrcIsInClosedList
+func:dtNavMeshQuery::isValidPolyRef/2	BOUND	zrcIsValidPolyRef with a filter
+func:dtNavMeshQuery::moveAlongSurface/8	BOUND	zrcMoveAlongSurface calls query->impl->moveAlongSurface with all 8 parameters
+func:dtNavMeshQuery::queryPolygons/4	BOUND	zrcQueryPolygonsBatched
+func:dtNavMeshQuery::queryPolygons/6	BOUND	zrcQueryPolygons
+func:dtNavMeshQuery::raycast/7	BOUND	zrcRaycast calls it with the caller's options and prev_ref, filling a ZrcRaycastHit
+func:dtNavMeshQuery::raycast/9	BOUND	zrcRaycast reports the same hit fraction, normal and visited path through ZrcRaycastHit; the two upstream overloads differ only in shape and the one bound here is a superset, adding the edge index, the accumulated cost and the options
+func:dtNavMeshQuery::updateSlicedFindPath/2	BOUND	zrcSlicedFindPathUpdate
+func:dtNavMeshQuery::~dtNavMeshQuery/0	BOUND	zrcNavMeshQueryDestroy triggers it via dtFreeNavMeshQuery, which destroys the instance before freeing it
+func:dtNodePool::clear/0	BOUND	every search clears it at its start, which is why zrcSlicedFindPathInit refuses to let another one run underneath a slice
+func:dtNodePool::dtNodePool/2	BOUND	zrcNavMeshQueryCreate's max_nodes sizes the pool the query owns
+func:dtNodePool::findNode/2	BOUND	zrcQueryFindNode
+func:dtNodePool::findNodes/3	BOUND	zrcQueryFindNodes
+func:dtNodePool::getFirst/1	BOUND	zrcQueryFindNodes walks the bucket chain these two step through, and returns every node a polygon has rather than the chain's shape
+func:dtNodePool::getHashSize/0	BOUND	ZrcNodePoolInfo.hash_size
+func:dtNodePool::getMaxNodes/0	BOUND	ZrcNodePoolInfo.max_nodes
+func:dtNodePool::getMemUsed/0	BOUND	ZrcNodePoolInfo.bytes_used
+func:dtNodePool::getNext/1	BOUND	zrcQueryFindNodes walks the bucket chain these two step through, and returns every node a polygon has rather than the chain's shape
+func:dtNodePool::getNode/2	BOUND	the searches allocate through it; zrcQueryFindNode is how a host sees what they allocated
+func:dtNodePool::getNodeAtIdx/1(unsigned int)	BOUND	zrcQueryNodeAt
+func:dtNodePool::getNodeAtIdx/1(unsigned int)const	BOUND	zrcQueryNodeAt
+func:dtNodePool::getNodeCount/0	BOUND	ZrcNodePoolInfo.node_count
+func:dtNodePool::getNodeIdx/1	BOUND	ZrcNode.parent_index is that one-based index
+func:dtNodePool::~dtNodePool/0	BOUND	zrcNavMeshQueryDestroy releases the query that owns the pool
+func:dtNodeQueue::clear/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtNodeQueue::dtNodeQueue/1	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtNodeQueue::empty/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtNodeQueue::getCapacity/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtNodeQueue::getMemUsed/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtNodeQueue::modify/1	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtNodeQueue::pop/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtNodeQueue::push/1	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtNodeQueue::top/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtNodeQueue::~dtNodeQueue/0	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+func:dtObstacleAvoidanceDebugData::addSample/7	BOUND	zrcAvoidanceDebugAddSample, which takes the seven values as one ZrcAvoidanceSample
+func:dtObstacleAvoidanceDebugData::dtObstacleAvoidanceDebugData/0	BOUND	dtAllocObstacleAvoidanceDebugData constructs it in place, from zrcAvoidanceDebugCreate
+func:dtObstacleAvoidanceDebugData::getSampleCollisionTimePenalty/1	BOUND	ZrcAvoidanceSample.collision_time_penalty
+func:dtObstacleAvoidanceDebugData::getSampleCount/0	BOUND	zrcAvoidanceDebugSampleCount
+func:dtObstacleAvoidanceDebugData::getSampleCurrentVelocityPenalty/1	BOUND	ZrcAvoidanceSample.current_velocity_penalty
+func:dtObstacleAvoidanceDebugData::getSampleDesiredVelocityPenalty/1	BOUND	ZrcAvoidanceSample.desired_velocity_penalty
+func:dtObstacleAvoidanceDebugData::getSamplePenalty/1	BOUND	ZrcAvoidanceSample.penalty
+func:dtObstacleAvoidanceDebugData::getSamplePreferredSidePenalty/1	BOUND	ZrcAvoidanceSample.preferred_side_penalty
+func:dtObstacleAvoidanceDebugData::getSampleSize/1	BOUND	ZrcAvoidanceSample.size
+func:dtObstacleAvoidanceDebugData::getSampleVelocity/1	BOUND	ZrcAvoidanceSample.velocity
+func:dtObstacleAvoidanceDebugData::init/1	BOUND	zrcAvoidanceDebugCreate, fused with the allocation
+func:dtObstacleAvoidanceDebugData::normalizeSamples/0	BOUND	zrcAvoidanceDebugNormalize
+func:dtObstacleAvoidanceDebugData::reset/0	BOUND	zrcAvoidanceDebugReset
+func:dtObstacleAvoidanceDebugData::~dtObstacleAvoidanceDebugData/0	BOUND	dtFreeObstacleAvoidanceDebugData runs it, from zrcAvoidanceDebugDestroy
+func:dtObstacleAvoidanceQuery::addCircle/4	BOUND	zrcAvoidanceAddCircle
+func:dtObstacleAvoidanceQuery::addSegment/2	BOUND	zrcAvoidanceAddSegment
+func:dtObstacleAvoidanceQuery::dtObstacleAvoidanceQuery/0	BOUND	dtAllocObstacleAvoidanceQuery constructs it in place, from zrcAvoidanceQueryCreate
+func:dtObstacleAvoidanceQuery::getObstacleCircle/1	BOUND	zrcAvoidanceCircleAt
+func:dtObstacleAvoidanceQuery::getObstacleCircleCount/0	BOUND	zrcAvoidanceCircleCount
+func:dtObstacleAvoidanceQuery::getObstacleSegment/1	BOUND	zrcAvoidanceSegmentAt
+func:dtObstacleAvoidanceQuery::getObstacleSegmentCount/0	BOUND	zrcAvoidanceSegmentCount
+func:dtObstacleAvoidanceQuery::init/2	BOUND	zrcAvoidanceQueryCreate, fused with the allocation
+func:dtObstacleAvoidanceQuery::reset/0	BOUND	zrcAvoidanceQueryReset
+func:dtObstacleAvoidanceQuery::sampleVelocityAdaptive/8	BOUND	zrcAvoidanceSampleAdaptive, which is also what zrcCrowdUpdate reaches
+func:dtObstacleAvoidanceQuery::sampleVelocityGrid/8	BOUND	zrcAvoidanceSampleGrid
+func:dtObstacleAvoidanceQuery::~dtObstacleAvoidanceQuery/0	BOUND	dtFreeObstacleAvoidanceQuery runs it, from zrcAvoidanceQueryDestroy
+func:dtPathCorridor::dtPathCorridor/0	BOUND	zrcPathCorridorCreate constructs one
+func:dtPathCorridor::findCorners/6	BOUND	zrcPathCorridorFindCorners
+func:dtPathCorridor::fixPathStart/2	BOUND	zrcPathCorridorFixStart
+func:dtPathCorridor::getFirstPoly/0	BOUND	ZrcPathCorridorInfo.first_poly
+func:dtPathCorridor::getLastPoly/0	BOUND	ZrcPathCorridorInfo.last_poly
+func:dtPathCorridor::getPath/0	BOUND	zrcPathCorridorPath, which copies a range out rather than handing back the interior pointer
+func:dtPathCorridor::getPathCount/0	BOUND	ZrcPathCorridorInfo.path_count
+func:dtPathCorridor::getPos/0	BOUND	ZrcPathCorridorInfo.position
+func:dtPathCorridor::getTarget/0	BOUND	ZrcPathCorridorInfo.target
+func:dtPathCorridor::init/1	BOUND	zrcPathCorridorCreate, fused with the allocation because upstream leaks when init is called twice
+func:dtPathCorridor::isValid/3	BOUND	zrcPathCorridorIsValid
+func:dtPathCorridor::moveOverOffmeshConnection/5	BOUND	zrcPathCorridorMoveOverOffmeshConnection
+func:dtPathCorridor::movePosition/3	BOUND	zrcPathCorridorMovePosition
+func:dtPathCorridor::moveTargetPosition/3	BOUND	zrcPathCorridorMoveTargetPosition
+func:dtPathCorridor::optimizePathTopology/2	BOUND	zrcPathCorridorOptimizeTopology
+func:dtPathCorridor::optimizePathVisibility/4	BOUND	zrcPathCorridorOptimizeVisibility
+func:dtPathCorridor::reset/2	BOUND	zrcPathCorridorReset
+func:dtPathCorridor::setCorridor/3	BOUND	zrcPathCorridorSetCorridor
+func:dtPathCorridor::trimInvalidPath/4	BOUND	zrcPathCorridorTrimInvalid
+func:dtPathCorridor::~dtPathCorridor/0	BOUND	zrcPathCorridorDestroy runs it
+func:dtPathQueue::dtPathQueue/0	BOUND	zrcPathQueueCreate constructs one
+func:dtPathQueue::getNavQuery/0	BOUND	zrcPathQueueNavMeshQuery, borrowed and const
+func:dtPathQueue::getPathResult/4	BOUND	zrcPathQueueResult
+func:dtPathQueue::getRequestStatus/1	BOUND	zrcPathQueueRequestStatus
+func:dtPathQueue::init/3	BOUND	zrcPathQueueCreate, fused with the allocation
+func:dtPathQueue::request/5	BOUND	zrcPathQueueRequest, which owns the filter for the request's lifetime rather than borrowing the caller's
+func:dtPathQueue::update/1	BOUND	zrcPathQueueUpdate
+func:dtPathQueue::~dtPathQueue/0	BOUND	zrcPathQueueDestroy runs it
+func:dtPoly::getArea/0	BOUND	zrcNavMeshGetPolyArea returns exactly what this returns
+func:dtPoly::getType/0	BOUND	zrcNavMeshGetPolyType returns exactly what this returns
+func:dtPoly::setArea/1	BOUND	zrcNavMeshSetPolyArea calls it, after refusing the ids it would silently truncate
+func:dtPoly::setType/1	BOUND	called for each ZrcTileAuthoring.connections entry as the tile is built, which is how a host decides a polygon's type; zrcNavMeshGetPolyType reads the result back
+func:dtPolyQuery::process/4	BOUND	ZrcPolyQuery.process - the references cross the boundary and the live tile and polygon pointers do not, because everything about a polygon is readable from its reference
+func:dtPolyQuery::~dtPolyQuery/0	BOUND	ZrcPolyQuery is the caller's own storage, so its lifetime is the caller's and there is no virtual destructor to call
+func:dtProximityGrid::addItem/5	BOUND	zrcProximityGridAddItem
+func:dtProximityGrid::clear/0	BOUND	zrcProximityGridClear
+func:dtProximityGrid::dtProximityGrid/0	BOUND	dtAllocProximityGrid constructs it in place, from zrcProximityGridCreate
+func:dtProximityGrid::getBounds/0	BOUND	zrcProximityGridBounds
+func:dtProximityGrid::getCellSize/0	BOUND	zrcProximityGridCellSize
+func:dtProximityGrid::getItemCountAt/2	BOUND	zrcProximityGridItemCountAt
+func:dtProximityGrid::init/2	BOUND	zrcProximityGridCreate, fused with the allocation because upstream leaks when init is called twice
+func:dtProximityGrid::queryItems/6	BOUND	zrcProximityGridQueryItems
+func:dtProximityGrid::~dtProximityGrid/0	BOUND	dtFreeProximityGrid runs it, from zrcProximityGridDestroy
+func:dtQueryFilter::dtQueryFilter/0	BOUND	zrcQueryFilterDefault fills a ZrcQueryFilter with the same defaults its constructor sets
+func:dtQueryFilter::getAreaCost/1	BOUND	ZrcQueryFilter.area_cost — a host reads any of the per-area costs directly from the array
+func:dtQueryFilter::getCost/11	BOUND	ZrcQueryFilter is the whole of it: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields mirrored here
+func:dtQueryFilter::getExcludeFlags/0	BOUND	ZrcQueryFilter.exclude_flags — a host reads the field directly
+func:dtQueryFilter::getIncludeFlags/0	BOUND	ZrcQueryFilter.include_flags — a host reads the field directly
+func:dtQueryFilter::passFilter/3	BOUND	ZrcQueryFilter is the whole of it: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields mirrored here
+func:dtQueryFilter::setAreaCost/2	BOUND	ZrcQueryFilter.area_cost — a host writes any of the per-area costs, applied via BuildFilter's setAreaCost call
+func:dtQueryFilter::setExcludeFlags/1	BOUND	ZrcQueryFilter.exclude_flags — a host sets the field, applied via BuildFilter's setExcludeFlags call
+func:dtQueryFilter::setIncludeFlags/1	BOUND	ZrcQueryFilter.include_flags — a host sets the field, applied via BuildFilter's setIncludeFlags call
+func:dtQueryFilter::~dtQueryFilter/0	BOUND	ZrcQueryFilter is plain data the caller owns, so there is nothing to destroy
+func:dtTileCache::addBoxObstacle/3	BOUND	zrcTileCacheAddBoxObstacle, the axis-aligned overload taking two corners
+func:dtTileCache::addBoxObstacle/4	BOUND	zrcTileCacheAddOrientedBoxObstacle, the overload taking a centre, half extents and an angle
+func:dtTileCache::addObstacle/4	BOUND	zrcTileCacheAddCylinderObstacle
+func:dtTileCache::addTile/4	BOUND	zrcTileCacheAddTile, which checks the length and the header before upstream reads either and copies the bytes so the caller keeps its own
+func:dtTileCache::buildNavMeshTile/2	BOUND	zrcTileCacheBuildNavMeshTile, which resolves the reference first so upstream's own index bound, one past the array, is never reached with an out-of-range value
+func:dtTileCache::buildNavMeshTilesAt/3	BOUND	zrcTileCacheBuildNavMeshTilesAt
+func:dtTileCache::calcTightTileBounds/3	BOUND	ZrcCompressedTileInfo carries bmin, min_x, max_x, min_z, max_z and the cell size, which is every term of the same arithmetic
+func:dtTileCache::decodeObstacleIdObstacle/1	BOUND	the slot half of a ZrcObstacleRef, which zrcTileCacheObstacleInfo resolves through upstream's own salt-checking accessor
+func:dtTileCache::decodeObstacleIdSalt/1	BOUND	the salt half of a ZrcObstacleRef, turned over when a removal completes so zrcTileCacheObstacleInfo answers ZRC_ERR_NOT_FOUND
+func:dtTileCache::decodeTileIdSalt/1	BOUND	the salt half of a ZrcCompressedTileRef, which is what makes a reference to a removed layer stop resolving
+func:dtTileCache::decodeTileIdTile/1	BOUND	the slot half of a ZrcCompressedTileRef, which zrcTileCacheTileInfo resolves through upstream's own salt-checking accessor
+func:dtTileCache::dtTileCache/0	BOUND	zrcTileCacheCreate constructs one through dtAllocTileCache
+func:dtTileCache::encodeObstacleId/2	BOUND	zrcTileCacheAddCylinderObstacle and its two siblings hand back what it produces
+func:dtTileCache::encodeTileId/2	BOUND	zrcTileCacheTileRefAt and zrcTileCacheTileAt both hand back what it produces
+func:dtTileCache::getAlloc/0	BOUND	the ZrcTileCacheAllocator a host hands zrcTileCacheCreate is the one it gets back: the cache borrows it for its whole life and no other allocator can reach it
+func:dtTileCache::getCompressor/0	BOUND	the ZrcTileCacheCompressor a host hands zrcTileCacheCreate is the one it gets back, borrowed for the cache's whole life
+func:dtTileCache::getObstacle/1	BOUND	zrcTileCacheObstacleRefAt bounds the index upstream's own accessor does not and hands back a reference rather than an interior pointer
+func:dtTileCache::getObstacleBounds/3	BOUND	ZrcObstacleInfo reports each shape's own fields, and zrcTileCacheAddBoxObstacle applies the same arithmetic to refuse an obstacle spanning more tiles than upstream can track
+func:dtTileCache::getObstacleByRef/1	BOUND	zrcTileCacheObstacleInfo resolves a ZrcObstacleRef through it and copies the obstacle out
+func:dtTileCache::getObstacleCount/0	BOUND	ZrcTileCacheParams.max_obstacles, which is what upstream returns, and what bounds zrcTileCacheObstacleRefAt
+func:dtTileCache::getObstacleRef/1	BOUND	zrcTileCacheObstacleRefAt answers with what it computes
+func:dtTileCache::getParams/0	BOUND	zrcTileCacheParams copies the struct out by value
+func:dtTileCache::getTile/1	BOUND	zrcTileCacheTileRefAt bounds the index upstream's own accessor does not and hands back a reference rather than an interior pointer
+func:dtTileCache::getTileAt/3	BOUND	zrcTileCacheTileAt, which reports 0 for an empty position rather than a pointer
+func:dtTileCache::getTileByRef/1	BOUND	zrcTileCacheTileInfo resolves a ZrcCompressedTileRef through it and copies the layer's header out
+func:dtTileCache::getTileCount/0	BOUND	ZrcTileCacheParams.max_tiles, which is what upstream returns, and what bounds zrcTileCacheTileRefAt
+func:dtTileCache::getTileRef/1	BOUND	zrcTileCacheTileRefAt and zrcTileCacheTileAt both answer with what it computes
+func:dtTileCache::getTilesAt/4	BOUND	zrcTileCacheTilesAt, which reports how many layers are stacked there whether or not they fit, where upstream returns only what it wrote
+func:dtTileCache::init/4	BOUND	zrcTileCacheCreate, which is the only place it runs: upstream's init has no purge and leaks every array if called twice, so a ZrcTileCache is created once and destroyed once
+func:dtTileCache::queryTiles/5	BOUND	zrcTileCacheQueryTiles, which reports the true count where upstream drops the overflow and returns success
+func:dtTileCache::removeObstacle/1	BOUND	zrcTileCacheRemoveObstacle
+func:dtTileCache::removeTile/3	BOUND	zrcTileCacheRemoveTile, which hands the layer's bytes back or discards them
+func:dtTileCache::update/3	BOUND	zrcTileCacheUpdate, minus the dt upstream declares and ignores; it also reports a mesh-process callback's failure, which upstream's void process() has nowhere to put
+func:dtTileCache::~dtTileCache/0	BOUND	zrcTileCacheDestroy reaches it through dtFreeTileCache
+func:dtTileCacheAlloc::alloc/1	BOUND	ZrcTileCacheAllocator.allocate
+func:dtTileCacheAlloc::free/1	BOUND	ZrcTileCacheAllocator.deallocate
+func:dtTileCacheAlloc::reset/0	BOUND	ZrcTileCacheAllocator.reset, called once at the start of every tile rebuild - the one thing upstream's default does not offer, since its own reset is empty
+func:dtTileCacheAlloc::~dtTileCacheAlloc/0	BOUND	ZrcTileCacheAllocator is plain data the caller owns; the destructor releases nothing, so there is nothing to destroy
+func:dtTileCacheCompressor::compress/5	BOUND	ZrcTileCacheCompressor.compress, reached from zrcTileCacheLayerBuild
+func:dtTileCacheCompressor::decompress/5	BOUND	ZrcTileCacheCompressor.decompress, reached from zrcTileCacheUpdate and zrcTileCacheLayerDecompress, and never handed the negative length upstream computes for a short buffer
+func:dtTileCacheCompressor::maxCompressedSize/1	BOUND	ZrcTileCacheCompressor.max_compressed_size
+func:dtTileCacheCompressor::~dtTileCacheCompressor/0	BOUND	ZrcTileCacheCompressor is plain data the caller owns; the destructor releases nothing
+func:dtTileCacheMeshProcess::process/3	BOUND	ZrcTileCacheMeshProcess sees ZrcTileCacheBuildParams: the areas, the flags, the user id and the off-mesh connections, each validated on return and written into the tile by this package rather than by the callback
+func:dtTileCacheMeshProcess::~dtTileCacheMeshProcess/0	BOUND	ZrcTileCacheMeshProcess is a function pointer the caller owns; there is nothing to destroy
+func:rcCompactHeightfield::rcCompactHeightfield/0	BOUND	zrcCompactHeightfieldCreate constructs it in place while allocating the container
+func:rcCompactHeightfield::~rcCompactHeightfield/0	BOUND	zrcCompactHeightfieldDestroy triggers it, through rcFreeCompactHeightfield
+func:rcContext::enableLog/1	BOUND	ZrcBuildContext.log_enabled
+func:rcContext::enableTimer/1	BOUND	ZrcBuildContext.timers_enabled
+func:rcContext::getAccumulatedTime/1	BOUND	zrcBuildContextAccumulatedTime
+func:rcContext::log/3	BOUND	zrcBuildContextLog
+func:rcContext::rcContext/1	BOUND	ZrcBuildContext.log_enabled and .timers_enabled, set to the same value, reproduce what the single-bool constructor sets both flags to
+func:rcContext::resetLog/0	BOUND	zrcBuildContextResetLog
+func:rcContext::resetTimers/0	BOUND	zrcBuildContextResetTimers
+func:rcContext::startTimer/1	BOUND	zrcBuildContextStartTimer
+func:rcContext::stopTimer/1	BOUND	zrcBuildContextStopTimer
+func:rcContext::~rcContext/0	BOUND	ZrcBuildContext is plain data the caller owns; the destructor releases nothing, so there is nothing to destroy
+func:rcContourSet::rcContourSet/0	BOUND	zrcContourSetCreate constructs it in place while allocating the container
+func:rcContourSet::~rcContourSet/0	BOUND	zrcContourSetDestroy triggers it, through rcFreeContourSet
+func:rcHeightfield::rcHeightfield/0	BOUND	zrcHeightfieldCreate constructs it in place while allocating the container
+func:rcHeightfield::~rcHeightfield/0	BOUND	zrcHeightfieldDestroy triggers it, through rcFreeHeightField
+func:rcHeightfieldLayerSet::rcHeightfieldLayerSet/0	BOUND	zrcHeightfieldLayerSetCreate constructs one
+func:rcHeightfieldLayerSet::~rcHeightfieldLayerSet/0	BOUND	zrcHeightfieldLayerSetDestroy reaches it through rcFreeHeightfieldLayerSet, which is what frees every layer's three arrays
+func:rcIntArray::clear/0	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+func:rcIntArray::pop/0	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+func:rcIntArray::push/1	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+func:rcIntArray::rcIntArray/0	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+func:rcIntArray::rcIntArray/1	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+func:rcIntArray::resize/1	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+func:rcIntArray::size/0	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+func:rcPermVector::rcPermVector/0	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+func:rcPermVector::rcPermVector/1(const rcPermVector<T>&)	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+func:rcPermVector::rcPermVector/1(rcSizeType)	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+func:rcPermVector::rcPermVector/2(const T*,const T*)	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+func:rcPermVector::rcPermVector/2(rcSizeType,const T&)	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+func:rcPolyMesh::rcPolyMesh/0	BOUND	zrcPolyMeshCreate constructs it in place while allocating the container
+func:rcPolyMesh::~rcPolyMesh/0	BOUND	zrcPolyMeshDestroy triggers it, through rcFreePolyMesh
+func:rcPolyMeshDetail::rcPolyMeshDetail/0	BOUND	zrcPolyMeshCreate constructs it in place while allocating the container, alongside the polygon half
+func:rcScopedDelete::rcScopedDelete/0	LANGUAGE	defer, which releases at end of scope the way this guard's destructor does
+func:rcScopedDelete::rcScopedDelete/1	LANGUAGE	defer, which releases at end of scope the way this guard's destructor does
+func:rcScopedDelete::~rcScopedDelete/0	LANGUAGE	defer, which releases at end of scope the way this guard's destructor does
+func:rcScopedTimer::rcScopedTimer/2	LANGUAGE	defer, paired with zrcBuildContextStartTimer to start the timer immediately and defer the matching stop
+func:rcScopedTimer::~rcScopedTimer/0	LANGUAGE	defer, paired with zrcBuildContextStartTimer to stop what it started at scope exit
+func:rcTempVector::rcTempVector/0	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+func:rcTempVector::rcTempVector/1(const rcTempVector<T>&)	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+func:rcTempVector::rcTempVector/1(rcSizeType)	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+func:rcTempVector::rcTempVector/2(const T*,const T*)	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+func:rcTempVector::rcTempVector/2(rcSizeType,const T&)	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+func:rcVectorBase::assign/2(const T*,const T*)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::assign/2(rcSizeType,const T&)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::back/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::back/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::begin/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::begin/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::capacity/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::clear/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::data/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::data/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::empty/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::end/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::end/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::front/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::front/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::pop_back/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::push_back/1	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::rcVectorBase/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::rcVectorBase/1(const rcVectorBase<T, H>&)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::rcVectorBase/1(rcSizeType)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::rcVectorBase/2(const T*,const T*)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::rcVectorBase/2(rcSizeType,const T&)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::reserve/1	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::resize/1	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::resize/2	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::size/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::swap/1	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+func:rcVectorBase::~rcVectorBase/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+type:-::CrowdAgentState	BOUND	ZrcCrowdAgentState
+type:-::MoveRequestState	BOUND	ZrcCrowdTargetState
+type:-::ObstacleState	BOUND	ZrcObstacleState, enumerator for enumerator (static_asserts in zrecast_abi.cpp)
+type:-::ObstacleType	BOUND	ZrcObstacleShape, enumerator for enumerator (static_asserts in zrecast_abi.cpp)
+type:-::UpdateFlags	BOUND	the ZRC_CROWD_ANTICIPATE_TURNS flag set, taken by ZrcCrowdAgentParams.update_flags
+type:-::dtAllocFunc	BOUND	ZrcAllocator.allocate - the function a host installs, called with a size and a hint
+type:-::dtAllocHint	BOUND	ZrcAllocHint mirrors it exactly, enumerators and all
+type:-::dtAssertFailFunc	BOUND	ZrcAssertFailFunc, which carries a host pointer upstream's own signature has nowhere to put
+type:-::dtBVNode	BOUND	ZrcBvNode, filled by zrcNavMeshTileBvNode
+type:-::dtCompressedTile	BOUND	ZrcCompressedTileInfo copies its header and its length out by value, resolved through zrcTileCacheTileInfo
+type:-::dtCompressedTileFlags	BOUND	zrcTileCacheAddTile copies the caller's bytes and adds the layer with the one flag this enum has, so the cache always owns what it holds
+type:-::dtCompressedTileRef	BOUND	ZrcCompressedTileRef, the same 32-bit type, checked by a static_assert in zrecast_abi.cpp
+type:-::dtCrowd	BOUND	ZrcCrowd, produced by zrcCrowdCreate
+type:-::dtCrowdAgent	BOUND	ZrcCrowdAgent, produced by zrcCrowdAgentInfo
+type:-::dtCrowdAgentAnimation	BOUND	ZrcCrowdAgentAnimation, the same value type; upstream declares it publicly and keeps every instance in dtCrowd's private m_agentAnims with no accessor, so neither a C++ nor a Zig host reads a live one
+type:-::dtCrowdAgentDebugInfo	BOUND	ZrcCrowdAgentDebug, taken and filled by zrcCrowdUpdate
+type:-::dtCrowdAgentParams	BOUND	ZrcCrowdAgentParams, taken by zrcCrowdAddAgent and zrcCrowdSetAgentParams
+type:-::dtCrowdNeighbour	BOUND	ZrcCrowdNeighbour, produced by zrcCrowdAgentNeighbours
+type:-::dtDetailTriEdgeFlags	BOUND	ZRC_DETAIL_EDGE_BOUNDARY is its only member
+type:-::dtFindPathOptions	BOUND	ZRC_FINDPATH_ANY_ANGLE is the only member, and zrcSlicedFindPathInit takes it
+type:-::dtFreeFunc	BOUND	ZrcAllocator.deallocate - the matching free a host installs
+type:-::dtLink	BOUND	ZrcLink, filled by zrcNavMeshTileLink
+type:-::dtLocalBoundary	BOUND	ZrcLocalBoundary, produced by zrcLocalBoundaryCreate
+type:-::dtMeshHeader	BOUND	ZrcTileInfo carries every field of it, filled by zrcNavMeshTileInfo
+type:-::dtMeshTile	BOUND	ZrcTileInfo for its scalars, and zrcNavMeshTileVerts, zrcNavMeshTileLink, zrcNavMeshTileBvNode and their siblings for its arrays
+type:-::dtNavMesh	BOUND	ZrcNavMesh
+type:-::dtNavMeshCreateParams	BOUND	ZrcBakeConfig, ZrcTileAuthoring and ZrcAreaAuthoring together fill every field of it that a host chooses
+type:-::dtNavMeshParams	BOUND	ZrcTileGrid together with zrcNavMeshCreateTiled's two count parameters
+type:-::dtNavMeshQuery	BOUND	ZrcNavMeshQuery is the opaque handle wrapping a dtNavMeshQuery instance
+type:-::dtNode	BOUND	ZrcNode, with upstream's three bitfields copied out as whole fields
+type:-::dtNodeFlags	BOUND	ZRC_NODE_OPEN, ZRC_NODE_CLOSED and ZRC_NODE_PARENT_DETACHED, reported in ZrcNode.flags
+type:-::dtNodeIndex	BOUND	ZrcNode.parent_index, widened to 32 bits so the ABI carries no packed type
+type:-::dtNodePool	BOUND	ZrcNodePoolInfo describes it and ZrcNode is what it holds
+type:-::dtNodeQueue	LANGUAGE	std.PriorityQueue is the same container. Nothing public takes or returns a dtNodeQueue: dtNavMeshQuery keeps its open list private with no accessor, so a host can only build one and talk to itself
+type:-::dtObstacleAvoidanceDebugData	BOUND	ZrcAvoidanceDebug, produced by zrcAvoidanceDebugCreate
+type:-::dtObstacleAvoidanceParams	BOUND	ZrcAvoidanceParams, taken by zrcCrowdSetAvoidanceParams and the two samplers
+type:-::dtObstacleAvoidanceQuery	BOUND	ZrcAvoidanceQuery, produced by zrcAvoidanceQueryCreate
+type:-::dtObstacleBox	BOUND	ZrcObstacleInfo.bmin and .bmax, which zrcTileCacheAddBoxObstacle takes
+type:-::dtObstacleCircle	BOUND	ZrcAvoidanceCircle, produced by zrcAvoidanceCircleAt
+type:-::dtObstacleCylinder	BOUND	ZrcObstacleInfo.position, .radius and .height, which zrcTileCacheAddCylinderObstacle takes
+type:-::dtObstacleOrientedBox	BOUND	ZrcObstacleInfo.center, .half_extents and .y_radians, which zrcTileCacheAddOrientedBoxObstacle takes
+type:-::dtObstacleRef	BOUND	ZrcObstacleRef, the same 32-bit type, checked by a static_assert in zrecast_abi.cpp
+type:-::dtObstacleSegment	BOUND	ZrcAvoidanceSegment, produced by zrcAvoidanceSegmentAt
+type:-::dtOffMeshConnection	BOUND	ZrcOffMeshConnection mirrors it as an authoring input and as what zrcNavMeshOffMeshConnection reports
+type:-::dtPathCorridor	BOUND	ZrcPathCorridor, produced by zrcPathCorridorCreate
+type:-::dtPathQueue	BOUND	ZrcPathQueue, produced by zrcPathQueueCreate
+type:-::dtPathQueueRef	BOUND	ZrcPathRequestRef, produced by zrcPathQueueRequest
+type:-::dtPoly	BOUND	ZrcPolyInfo, filled by zrcNavMeshPolyInfo
+type:-::dtPolyDetail	BOUND	the detail_vert_base, detail_tri_base, detail_vert_count and detail_tri_count fields of ZrcPolyInfo
+type:-::dtPolyQuery	BOUND	ZrcPolyQuery, a struct of function pointers rather than a class to subclass
+type:-::dtPolyRef	BOUND	ZrcPolyRef is exactly dtPolyRef (static_assert SameType in zrecast_abi.cpp)
+type:-::dtPolyTypes	BOUND	ZrcPolyType mirrors both enumerators
+type:-::dtProximityGrid	BOUND	ZrcProximityGrid, produced by zrcProximityGridCreate
+type:-::dtQueryFilter	BOUND	ZrcQueryFilter mirrors area_cost/include_flags/exclude_flags, the data a host can set per query
+type:-::dtRaycastHit	BOUND	ZrcRaycastHit mirrors t/position/normal/hit, the raycast result a host can read
+type:-::dtRaycastOptions	BOUND	ZRC_RAYCAST_USE_COSTS, taken by zrcRaycast
+type:-::dtStatus	BOUND	ZrcResult, which every entry point returns in its place
+type:-::dtStraightPathFlags	BOUND	ZRC_STRAIGHTPATH_START, ZRC_STRAIGHTPATH_END and ZRC_STRAIGHTPATH_OFFMESH_CONNECTION, written into zrcFindStraightPath's out_flags
+type:-::dtStraightPathOptions	BOUND	ZRC_STRAIGHTPATH_AREA_CROSSINGS and ZRC_STRAIGHTPATH_ALL_CROSSINGS, taken by zrcFindStraightPath
+type:-::dtTileCache	BOUND	ZrcTileCache, created by zrcTileCacheCreate and released by zrcTileCacheDestroy
+type:-::dtTileCacheAlloc	BOUND	ZrcTileCacheAllocator, optional at zrcTileCacheCreate: NULL selects upstream's own default, whose alloc and free already reach the seam zrcSetAllocator installs
+type:-::dtTileCacheCompressor	BOUND	ZrcTileCacheCompressor, required by zrcTileCacheCreate and zrcTileCacheLayerBuild; no codec is bundled, so the host's is the only one
+type:-::dtTileCacheContour	BOUND	ZrcTileCacheContourInfo copies its scalars out, and zrcTileCacheContourVerts copies its vertices
+type:-::dtTileCacheContourSet	BOUND	ZrcTileCacheContourSet, produced by zrcTileCacheContourSetCreate
+type:-::dtTileCacheLayer	BOUND	ZrcTileCacheLayer, produced by zrcTileCacheLayerDecompress and released by zrcTileCacheLayerDestroy
+type:-::dtTileCacheLayerHeader	BOUND	ZrcTileCacheLayerHeader, which zrcTileCacheLayerBuild takes and zrcTileCacheLayerHeaderOf reads back; zrcTileCacheTileInfo reports the same fields for a layer already in a cache
+type:-::dtTileCacheMeshProcess	BOUND	ZrcTileCacheMeshProcess, taken by zrcTileCacheCreate; narrowed to ZrcTileCacheBuildParams rather than the mutable dtNavMeshCreateParams upstream passes, because that tile reaches the navmesh without any of zrcNavMeshAddTile's checks
+type:-::dtTileCacheObstacle	BOUND	ZrcObstacleInfo copies one out by value, resolved through zrcTileCacheObstacleInfo
+type:-::dtTileCacheParams	BOUND	ZrcTileCacheParams, taken by zrcTileCacheCreate and read back by zrcTileCacheParams
+type:-::dtTileCachePolyMesh	BOUND	ZrcTileCachePolyMesh, produced by zrcTileCachePolyMeshCreate
+type:-::dtTileFlags	BOUND	ZRC_TILE_FREE_DATA is its only enumerator, and ZrcTileInfo.flags is where it is read
+type:-::dtTileRef	BOUND	ZrcTileRef is exactly dtTileRef (static_assert SameType in zrecast_abi.cpp)
+type:-::rcAllocFunc	BOUND	ZrcAllocator.allocate - the function a host installs, called with a size and a hint
+type:-::rcAllocHint	BOUND	ZrcAllocHint
+type:-::rcAssertFailFunc	BOUND	ZrcAssertFailFunc, which carries a host pointer upstream's own signature has nowhere to put
+type:-::rcBuildContoursFlags	BOUND	ZrcContourFlags mirrors it, taken by zrcContourSetCreate's flags parameter
+type:-::rcCompactCell	BOUND	ZrcCompactCell, copied by zrcCompactHeightfieldCells
+type:-::rcCompactHeightfield	BOUND	ZrcCompactHeightfield is the opaque handle zrcCompactHeightfieldCreate returns and zrcCompactHeightfieldDestroy releases
+type:-::rcCompactSpan	BOUND	ZrcCompactSpan, copied and written back whole by zrcCompactHeightfieldSpans and zrcCompactHeightfieldSetSpans
+type:-::rcConfig	BOUND	ZrcBakeConfig carries every field but bmin/bmax/width/height, which zrcHeightfieldCreate takes directly and zrcCalcBounds/zrcCalcGridSize produce
+type:-::rcContext	BOUND	ZrcBuildContext is the same object as a POD: a user pointer, the six hooks, and the log_enabled/timers_enabled flags
+type:-::rcContour	BOUND	ZrcContourInfo for its scalars, and zrcContourVerts/zrcContourRawVerts for its vertex arrays
+type:-::rcContourSet	BOUND	ZrcContourSet is the opaque handle zrcContourSetCreate returns and zrcContourSetDestroy releases
+type:-::rcFreeFunc	BOUND	ZrcAllocator.deallocate - the matching free a host installs
+type:-::rcHeightfield	BOUND	ZrcHeightfield is the opaque handle zrcHeightfieldCreate returns and zrcHeightfieldDestroy releases
+type:-::rcHeightfieldLayer	BOUND	ZrcHeightfieldLayer carries its twelve scalars by value, and zrcHeightfieldLayerHeights, zrcHeightfieldLayerAreas and zrcHeightfieldLayerCons copy its three arrays
+type:-::rcHeightfieldLayerSet	BOUND	ZrcHeightfieldLayerSet, allocated and filled together by zrcHeightfieldLayerSetCreate so a container that could only be re-run into never exists
+type:-::rcIntArray	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+type:-::rcLogCategory	BOUND	ZrcLogCategory mirrors it exactly, taken by zrcBuildContextLog
+type:-::rcNewTag	LANGUAGE	@ptrCast - storage becomes a typed pointer and is assigned directly; Zig's placement construction needs no overload-disambiguation tag the way C++'s placement new does
+type:-::rcPermVector	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+type:-::rcPolyMesh	BOUND	ZrcPolyMesh is the same opaque handle zrcPolyMeshBake and zrcPolyMeshCreate both produce
+type:-::rcPolyMeshDetail	BOUND	the detail half of the same ZrcPolyMesh handle; zrcPolyMeshBuildDetail fills it and zrcPolyMeshDetailMeshes/zrcPolyMeshDetailVerts/zrcPolyMeshDetailTris read it, since there is no separate opaque handle for it
+type:-::rcScopedDelete	LANGUAGE	defer, which releases at end of scope the way this guard's destructor does
+type:-::rcScopedTimer	LANGUAGE	defer, paired with zrcBuildContextStartTimer to reproduce the guard: start immediately, defer the matching stop
+type:-::rcSizeType	LANGUAGE	isize - rcSizeType is intptr_t, and Zig slices carry their own length, so nothing takes it as a parameter
+type:-::rcSpan	BOUND	ZrcSpan, copied out one column at a time by zrcHeightfieldColumn
+type:-::rcSpanPool	BOUND	the chain zrcHeightfieldStorage walks through its own next field to produce ZrcHeightfieldStorage.pool_count; its items array is not itself exposed
+type:-::rcTempVector	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+type:-::rcTimerLabel	BOUND	ZrcTimerLabel mirrors it, enumerator for enumerator; zrcBuildContextStartTimer, zrcBuildContextStopTimer and zrcBuildContextAccumulatedTime all take it
+type:-::rcVectorBase	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+type:rcVectorBase::size_type	LANGUAGE	isize - rcSizeType is intptr_t, and Zig slices carry their own length, so nothing takes it as a parameter
+type:rcVectorBase::value_type	LANGUAGE	the element type parameter itself; Zig slices carry it

@@ -1,0 +1,334 @@
+Recast	const:-::RC_AREA_BORDER	BOUND	ZRC_AREA_BORDER mirrors it exactly: the flag zrcContourVerts and zrcContourRawVerts set above ZRC_CONTOUR_REG_MASK when a vertex sits on an area boundary
+Recast	const:-::RC_BORDER_REG	BOUND	ZRC_BORDER_REG mirrors it exactly: the region id zrcCompactHeightfieldSpans and zrcCompactHeightfieldSetSpans read and write in ZrcCompactSpan.reg for a border span
+Recast	const:-::RC_BORDER_VERTEX	BOUND	ZRC_BORDER_VERTEX mirrors it exactly: the flag zrcContourVerts and zrcContourRawVerts set above ZRC_CONTOUR_REG_MASK when a vertex sits on a tile border
+Recast	const:-::RC_CONTOUR_REG_MASK	BOUND	ZRC_CONTOUR_REG_MASK mirrors it exactly, the mask zrcContourVerts and zrcContourRawVerts document for isolating the region id from a vertex's fourth component
+Recast	const:-::RC_MESH_NULL_IDX	BOUND	ZRC_MESH_NULL_IDX mirrors it exactly, the value zrcPolyMeshPolys reports where a polygon has no further corner and no neighbour
+Recast	const:-::RC_MULTIPLE_REGS	BOUND	ZRC_MULTIPLE_REGS mirrors it exactly, the region id zrcPolyMeshRegions reports for a polygon merged from more than one region
+Recast	const:-::RC_NOT_CONNECTED	BOUND	ZRC_NOT_CONNECTED mirrors it exactly, the value ZrcCompactSpan.con packs into each direction with no neighbour
+Recast	const:-::RC_NULL_AREA	BOUND	ZRC_AREA_NULL - the area id Recast gives an unwalkable surface, same value
+Recast	const:-::RC_PI	LANGUAGE	std.math.pi, which rounds to this float exactly; Recast reaches for its copy only to turn a slope limit into a cosine, and zrc::CosDegrees does that from degrees so nothing crosses the boundary in radians
+Recast	const:-::RC_SPANS_PER_POOL	BOUND	ZRC_SPANS_PER_POOL mirrors it exactly; zrcHeightfieldStorage reports it back verbatim as ZrcHeightfieldStorage.spans_per_pool
+Recast	const:-::RC_SPAN_HEIGHT_BITS	BOUND	ZRC_SPAN_HEIGHT_BITS mirrors it exactly, the bit width zrcHeightfieldAddSpan and the rasterisation entry points bound span_min/span_max against
+Recast	const:-::RC_SPAN_MAX_HEIGHT	BOUND	ZRC_SPAN_MAX_HEIGHT mirrors it exactly, the ceiling zrcHeightfieldAddSpan's span_max and ZrcSpan.smax are checked against
+Recast	const:-::RC_WALKABLE_AREA	BOUND	ZRC_AREA_WALKABLE - the area id zrcPolyMeshBake gives a walkable surface, same value
+Recast	enum:rcAllocHint::RC_ALLOC_PERM	BOUND	ZRC_ALLOC_PERM - passed through verbatim to the host allocate callback
+Recast	enum:rcAllocHint::RC_ALLOC_TEMP	BOUND	ZRC_ALLOC_TEMP - passed through verbatim to the host allocate callback
+Recast	enum:rcBuildContoursFlags::RC_CONTOUR_TESS_AREA_EDGES	BOUND	ZRC_CONTOUR_TESS_AREA_EDGES mirrors the bit exactly, one of the flags zrcContourSetCreate's flags parameter takes
+Recast	enum:rcBuildContoursFlags::RC_CONTOUR_TESS_WALL_EDGES	BOUND	ZRC_CONTOUR_TESS_WALL_EDGES mirrors the bit exactly, one of the flags zrcContourSetCreate's flags parameter takes
+Recast	enum:rcLogCategory::RC_LOG_ERROR	BOUND	ZRC_LOG_ERROR mirrors it exactly, the category zrcBuildContextLog takes and ZrcBuildContext.log receives from an erroring stage
+Recast	enum:rcLogCategory::RC_LOG_PROGRESS	BOUND	ZRC_LOG_PROGRESS mirrors it exactly, the category zrcBuildContextLog takes and ZrcBuildContext.log receives from a progress message
+Recast	enum:rcLogCategory::RC_LOG_WARNING	BOUND	ZRC_LOG_WARNING mirrors it exactly, the category zrcBuildContextLog takes and ZrcBuildContext.log receives from a warning
+Recast	enum:rcTimerLabel::RC_MAX_TIMERS	BOUND	ZRC_MAX_TIMERS mirrors it exactly: not a phase to time but the length of the label table, one past ZRC_TIMER_MERGE_POLYMESHDETAIL
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_COMPACTHEIGHTFIELD	BOUND	ZRC_TIMER_BUILD_COMPACTHEIGHTFIELD mirrors it exactly, the label zrcCompactHeightfieldCreate starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_CONTOURS	BOUND	ZRC_TIMER_BUILD_CONTOURS mirrors it exactly, the label zrcContourSetCreate starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_CONTOURS_SIMPLIFY	BOUND	ZRC_TIMER_BUILD_CONTOURS_SIMPLIFY mirrors it exactly, one of the finer-grained labels zrcContourSetCreate starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_CONTOURS_TRACE	BOUND	ZRC_TIMER_BUILD_CONTOURS_TRACE mirrors it exactly, one of the finer-grained labels zrcContourSetCreate starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_DISTANCEFIELD	BOUND	ZRC_TIMER_BUILD_DISTANCEFIELD mirrors it exactly, the label zrcCompactHeightfieldBuildDistanceField starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_DISTANCEFIELD_BLUR	BOUND	ZRC_TIMER_BUILD_DISTANCEFIELD_BLUR mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildDistanceField starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_DISTANCEFIELD_DIST	BOUND	ZRC_TIMER_BUILD_DISTANCEFIELD_DIST mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildDistanceField starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_LAYERS	BOUND	ZRC_TIMER_BUILD_LAYERS mirrors it exactly, the label zrcCompactHeightfieldBuildRegions starts and stops around ZRC_PARTITION_LAYERS; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_POLYMESH	BOUND	ZRC_TIMER_BUILD_POLYMESH mirrors it exactly, the label zrcPolyMeshBuild starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_POLYMESHDETAIL	BOUND	ZRC_TIMER_BUILD_POLYMESHDETAIL mirrors it exactly, the label zrcPolyMeshBuildDetail starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS	BOUND	ZRC_TIMER_BUILD_REGIONS mirrors it exactly, the label zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS_EXPAND	BOUND	ZRC_TIMER_BUILD_REGIONS_EXPAND mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS_FILTER	BOUND	ZRC_TIMER_BUILD_REGIONS_FILTER mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS_FLOOD	BOUND	ZRC_TIMER_BUILD_REGIONS_FLOOD mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_BUILD_REGIONS_WATERSHED	BOUND	ZRC_TIMER_BUILD_REGIONS_WATERSHED mirrors it exactly, one of the finer-grained labels zrcCompactHeightfieldBuildRegions starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_ERODE_AREA	BOUND	ZRC_TIMER_ERODE_AREA mirrors it exactly, the label zrcCompactHeightfieldErode starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_FILTER_BORDER	BOUND	ZRC_TIMER_FILTER_BORDER mirrors it exactly, one of the labels the heightfield filter entry points start and stop around themselves; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_FILTER_LOW_OBSTACLES	BOUND	ZRC_TIMER_FILTER_LOW_OBSTACLES mirrors it exactly, the label zrcHeightfieldFilterLowHangingObstacles starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_FILTER_WALKABLE	BOUND	ZRC_TIMER_FILTER_WALKABLE mirrors it exactly, the label zrcHeightfieldFilterWalkableLowHeightSpans starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_MARK_BOX_AREA	BOUND	ZRC_TIMER_MARK_BOX_AREA mirrors it exactly, the label zrcCompactHeightfieldMarkAreas starts and stops around a ZRC_VOLUME_BOX volume; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_MARK_CONVEXPOLY_AREA	BOUND	ZRC_TIMER_MARK_CONVEXPOLY_AREA mirrors it exactly, the label zrcCompactHeightfieldMarkAreas starts and stops around a ZRC_VOLUME_CONVEX volume; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_MARK_CYLINDER_AREA	BOUND	ZRC_TIMER_MARK_CYLINDER_AREA mirrors it exactly, the label zrcCompactHeightfieldMarkAreas starts and stops around a ZRC_VOLUME_CYLINDER volume; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_MEDIAN_AREA	BOUND	ZRC_TIMER_MEDIAN_AREA mirrors it exactly, the label zrcCompactHeightfieldMedianFilter starts and stops around itself; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_MERGE_POLYMESH	BOUND	ZRC_TIMER_MERGE_POLYMESH mirrors it exactly, the label zrcPolyMeshMerge starts and stops around its polygon half; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_MERGE_POLYMESHDETAIL	BOUND	ZRC_TIMER_MERGE_POLYMESHDETAIL mirrors it exactly, the label zrcPolyMeshMerge starts and stops around its detail half; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_RASTERIZE_TRIANGLES	BOUND	ZRC_TIMER_RASTERIZE_TRIANGLES mirrors it exactly, the label the rasterisation entry points start and stop around themselves; zrcBuildContextAccumulatedTime reads what it measured
+Recast	enum:rcTimerLabel::RC_TIMER_TEMP	BOUND	ZRC_TIMER_TEMP mirrors it exactly; Recast never starts this one either, so it is also the host's own to start and stop with zrcBuildContextStartTimer/zrcBuildContextStopTimer for whatever it wants to measure
+Recast	enum:rcTimerLabel::RC_TIMER_TOTAL	BOUND	ZRC_TIMER_TOTAL mirrors it exactly; Recast never starts this one, so it is the host's own to start and stop with zrcBuildContextStartTimer/zrcBuildContextStopTimer for the whole build
+Recast	field:rcCompactCell::count	BOUND	ZrcCompactCell.count, copied by zrcCompactHeightfieldCells
+Recast	field:rcCompactCell::index	BOUND	ZrcCompactCell.index, copied by zrcCompactHeightfieldCells
+Recast	field:rcCompactHeightfield::areas	BOUND	zrcCompactHeightfieldAreas reads it and zrcCompactHeightfieldSetAreas writes it back, one byte per span
+Recast	field:rcCompactHeightfield::bmax	BOUND	ZrcCompactHeightfieldInfo.bmax
+Recast	field:rcCompactHeightfield::bmin	BOUND	ZrcCompactHeightfieldInfo.bmin
+Recast	field:rcCompactHeightfield::borderSize	BOUND	ZrcCompactHeightfieldInfo.border_size
+Recast	field:rcCompactHeightfield::cells	BOUND	zrcCompactHeightfieldCells copies it, width * height cells in row-major order
+Recast	field:rcCompactHeightfield::ch	BOUND	ZrcCompactHeightfieldInfo.cell_height
+Recast	field:rcCompactHeightfield::cs	BOUND	ZrcCompactHeightfieldInfo.cell_size
+Recast	field:rcCompactHeightfield::dist	BOUND	zrcCompactHeightfieldDistances copies it once zrcCompactHeightfieldBuildDistanceField has run; ZrcCompactHeightfieldInfo.has_distance_field reports whether it exists yet
+Recast	field:rcCompactHeightfield::height	BOUND	ZrcCompactHeightfieldInfo.height
+Recast	field:rcCompactHeightfield::maxDistance	BOUND	ZrcCompactHeightfieldInfo.max_distance
+Recast	field:rcCompactHeightfield::maxRegions	BOUND	ZrcCompactHeightfieldInfo.max_regions
+Recast	field:rcCompactHeightfield::spanCount	BOUND	ZrcCompactHeightfieldInfo.span_count
+Recast	field:rcCompactHeightfield::spans	BOUND	zrcCompactHeightfieldSpans reads it and zrcCompactHeightfieldSetSpans writes it back
+Recast	field:rcCompactHeightfield::walkableClimb	BOUND	ZrcCompactHeightfieldInfo.walkable_climb
+Recast	field:rcCompactHeightfield::walkableHeight	BOUND	ZrcCompactHeightfieldInfo.walkable_height
+Recast	field:rcCompactHeightfield::width	BOUND	ZrcCompactHeightfieldInfo.width
+Recast	field:rcCompactSpan::con	BOUND	ZrcCompactSpan.con, copied whole by zrcCompactHeightfieldSpans and written back whole by zrcCompactHeightfieldSetSpans; decoding the four packed neighbour indices is a separate concern from reading the field itself
+Recast	field:rcCompactSpan::h	BOUND	ZrcCompactSpan.h, copied by zrcCompactHeightfieldSpans and written back by zrcCompactHeightfieldSetSpans
+Recast	field:rcCompactSpan::reg	BOUND	ZrcCompactSpan.reg, copied by zrcCompactHeightfieldSpans and written back by zrcCompactHeightfieldSetSpans
+Recast	field:rcCompactSpan::y	BOUND	ZrcCompactSpan.y, copied by zrcCompactHeightfieldSpans and written back by zrcCompactHeightfieldSetSpans
+Recast	field:rcConfig::bmax	BOUND	the bmax zrcHeightfieldCreate takes directly, and zrcCalcBounds's out_bmax produces from a mesh
+Recast	field:rcConfig::bmin	BOUND	the bmin zrcHeightfieldCreate takes directly, and zrcCalcBounds's out_bmin produces from a mesh
+Recast	field:rcConfig::borderSize	BOUND	ZrcBakeConfig.border_size - negative derives the value Recast's own tiled build uses
+Recast	field:rcConfig::ch	BOUND	ZrcBakeConfig.cell_height
+Recast	field:rcConfig::cs	BOUND	ZrcBakeConfig.cell_size
+Recast	field:rcConfig::detailSampleDist	BOUND	ZrcBakeConfig.detail_sample_dist
+Recast	field:rcConfig::detailSampleMaxError	BOUND	ZrcBakeConfig.detail_sample_max_error
+Recast	field:rcConfig::height	BOUND	the height zrcHeightfieldCreate takes directly, and zrcCalcGridSize's out_height produces from bounds and cell size
+Recast	field:rcConfig::maxEdgeLen	BOUND	ZrcBakeConfig.edge_max_len - world units, converted to voxels by the bake
+Recast	field:rcConfig::maxSimplificationError	BOUND	ZrcBakeConfig.edge_max_error
+Recast	field:rcConfig::maxVertsPerPoly	BOUND	ZrcBakeConfig.verts_per_poly
+Recast	field:rcConfig::mergeRegionArea	BOUND	ZrcBakeConfig.region_merge_size - squared into a voxel area by the bake
+Recast	field:rcConfig::minRegionArea	BOUND	ZrcBakeConfig.region_min_size - squared into a voxel area by the bake
+Recast	field:rcConfig::tileSize	BOUND	ZrcBakeConfig.tile_size - voxels, the unit that makes the grid divide exactly
+Recast	field:rcConfig::walkableClimb	BOUND	ZrcBakeConfig.agent_max_climb - world units, converted to voxels by the bake
+Recast	field:rcConfig::walkableHeight	BOUND	ZrcBakeConfig.agent_height - world units, converted to voxels by the bake
+Recast	field:rcConfig::walkableRadius	BOUND	ZrcBakeConfig.agent_radius - world units, converted to voxels by the bake
+Recast	field:rcConfig::walkableSlopeAngle	BOUND	ZrcBakeConfig.agent_max_slope
+Recast	field:rcConfig::width	BOUND	the width zrcHeightfieldCreate takes directly, and zrcCalcGridSize's out_width produces from bounds and cell size
+Recast	field:rcContour::area	BOUND	ZrcContourInfo.area
+Recast	field:rcContour::nrverts	BOUND	ZrcContourInfo.raw_vert_count
+Recast	field:rcContour::nverts	BOUND	ZrcContourInfo.vert_count
+Recast	field:rcContour::reg	BOUND	ZrcContourInfo.region
+Recast	field:rcContour::rverts	BOUND	zrcContourRawVerts copies it, four ints per vertex
+Recast	field:rcContour::verts	BOUND	zrcContourVerts copies it, four ints per vertex
+Recast	field:rcContourSet::bmax	BOUND	ZrcContourSetInfo.bmax
+Recast	field:rcContourSet::bmin	BOUND	ZrcContourSetInfo.bmin
+Recast	field:rcContourSet::borderSize	BOUND	ZrcContourSetInfo.border_size
+Recast	field:rcContourSet::ch	BOUND	ZrcContourSetInfo.cell_height
+Recast	field:rcContourSet::conts	BOUND	zrcContourAt indexes it directly by contour index, and zrcContourVerts/zrcContourRawVerts read the same element's vertex arrays
+Recast	field:rcContourSet::cs	BOUND	ZrcContourSetInfo.cell_size
+Recast	field:rcContourSet::height	BOUND	ZrcContourSetInfo.height
+Recast	field:rcContourSet::maxError	BOUND	ZrcContourSetInfo.max_error
+Recast	field:rcContourSet::nconts	BOUND	ZrcContourSetInfo.contour_count
+Recast	field:rcContourSet::width	BOUND	ZrcContourSetInfo.width
+Recast	field:rcHeightfield::bmax	BOUND	ZrcHeightfieldInfo.bmax
+Recast	field:rcHeightfield::bmin	BOUND	ZrcHeightfieldInfo.bmin
+Recast	field:rcHeightfield::ch	BOUND	ZrcHeightfieldInfo.cell_height
+Recast	field:rcHeightfield::cs	BOUND	ZrcHeightfieldInfo.cell_size
+Recast	field:rcHeightfield::freelist	BOUND	ZrcHeightfieldStorage.free_count is this list's length, counted by walking it; which spans are on it is not reported, only how many
+Recast	field:rcHeightfield::height	BOUND	ZrcHeightfieldInfo.height
+Recast	field:rcHeightfield::pools	BOUND	ZrcHeightfieldStorage.pool_count is this list's length, counted by walking it; the pools themselves are not reported, only how many
+Recast	field:rcHeightfield::spans	BOUND	zrcHeightfieldColumn indexes it directly per column, and zrcHeightfieldSpanCount walks the whole array
+Recast	field:rcHeightfield::width	BOUND	ZrcHeightfieldInfo.width
+Recast	field:rcHeightfieldLayer::areas	BOUND	zrcHeightfieldLayerAreas copies it, one byte per cell
+Recast	field:rcHeightfieldLayer::bmax	BOUND	ZrcHeightfieldLayer.bmax
+Recast	field:rcHeightfieldLayer::bmin	BOUND	ZrcHeightfieldLayer.bmin
+Recast	field:rcHeightfieldLayer::ch	BOUND	ZrcHeightfieldLayer.cell_height
+Recast	field:rcHeightfieldLayer::cons	BOUND	zrcHeightfieldLayerCons copies it; src/tilecache.zig:layerCon and layerPortal split the two nibbles it packs
+Recast	field:rcHeightfieldLayer::cs	BOUND	ZrcHeightfieldLayer.cell_size
+Recast	field:rcHeightfieldLayer::height	BOUND	ZrcHeightfieldLayer.height
+Recast	field:rcHeightfieldLayer::heights	BOUND	zrcHeightfieldLayerHeights copies it, one byte per cell
+Recast	field:rcHeightfieldLayer::hmax	BOUND	ZrcHeightfieldLayer.height_max
+Recast	field:rcHeightfieldLayer::hmin	BOUND	ZrcHeightfieldLayer.height_min
+Recast	field:rcHeightfieldLayer::maxx	BOUND	ZrcHeightfieldLayer.max_x
+Recast	field:rcHeightfieldLayer::maxy	BOUND	ZrcHeightfieldLayer.max_z, upstream's maxy, which is the z axis
+Recast	field:rcHeightfieldLayer::minx	BOUND	ZrcHeightfieldLayer.min_x
+Recast	field:rcHeightfieldLayer::miny	BOUND	ZrcHeightfieldLayer.min_z - upstream spells the z axis with a y here, the same wart rcGetDirOffsetY carries
+Recast	field:rcHeightfieldLayer::width	BOUND	ZrcHeightfieldLayer.width, which with height is the length of all three arrays
+Recast	field:rcHeightfieldLayerSet::layers	BOUND	zrcHeightfieldLayerAt indexes it, bounded by the count zrcHeightfieldLayerSetCount reports
+Recast	field:rcHeightfieldLayerSet::nlayers	BOUND	zrcHeightfieldLayerSetCount
+Recast	field:rcPolyMesh::areas	BOUND	zrcPolyMeshPolyAreas reads it and zrcPolyMeshSetPolyAreas writes it back, one area id per polygon
+Recast	field:rcPolyMesh::bmax	BOUND	ZrcPolyMeshInfo.bmax
+Recast	field:rcPolyMesh::bmin	BOUND	ZrcPolyMeshInfo.bmin
+Recast	field:rcPolyMesh::borderSize	BOUND	ZrcPolyMeshInfo.border_size
+Recast	field:rcPolyMesh::ch	BOUND	ZrcPolyMeshInfo.cell_height
+Recast	field:rcPolyMesh::cs	BOUND	ZrcPolyMeshInfo.cell_size
+Recast	field:rcPolyMesh::flags	BOUND	zrcPolyMeshPolyFlags reads it and zrcPolyMeshSetPolyFlags writes it back, one flag word per polygon
+Recast	field:rcPolyMesh::maxEdgeError	BOUND	ZrcPolyMeshInfo.max_edge_error
+Recast	field:rcPolyMesh::maxpolys	BOUND	ZrcPolyMeshInfo.max_polys, which is what indexes the polys/regs/areas/flags arrays rather than npolys
+Recast	field:rcPolyMesh::npolys	BOUND	ZrcPolyMeshInfo.poly_count
+Recast	field:rcPolyMesh::nverts	BOUND	ZrcPolyMeshInfo.vert_count
+Recast	field:rcPolyMesh::nvp	BOUND	ZrcPolyMeshInfo.verts_per_poly, which is also the stride zrcPolyMeshPolys writes: 2 * verts_per_poly entries per polygon
+Recast	field:rcPolyMesh::polys	BOUND	zrcPolyMeshPolys copies it, 2 * verts_per_poly entries per polygon
+Recast	field:rcPolyMesh::regs	BOUND	zrcPolyMeshRegions copies it, one region id per polygon
+Recast	field:rcPolyMesh::verts	BOUND	zrcPolyMeshVerts copies it, three uint16_t per vertex
+Recast	field:rcPolyMeshDetail::meshes	BOUND	zrcPolyMeshDetailMeshes copies it, four uint32_t per sub-mesh
+Recast	field:rcPolyMeshDetail::nmeshes	BOUND	ZrcPolyMeshInfo.detail_mesh_count
+Recast	field:rcPolyMeshDetail::ntris	BOUND	ZrcPolyMeshInfo.detail_tri_count
+Recast	field:rcPolyMeshDetail::nverts	BOUND	ZrcPolyMeshInfo.detail_vert_count
+Recast	field:rcPolyMeshDetail::tris	BOUND	zrcPolyMeshDetailTris copies it, four bytes per detail triangle
+Recast	field:rcPolyMeshDetail::verts	BOUND	zrcPolyMeshDetailVerts copies it, three floats per detail vertex
+Recast	field:rcSpan::area	BOUND	ZrcSpan.area, copied by zrcHeightfieldColumn
+Recast	field:rcSpan::next	BOUND	the ordering zrcHeightfieldColumn writes spans in: lowest first, following this chain
+Recast	field:rcSpan::smax	BOUND	ZrcSpan.smax, copied by zrcHeightfieldColumn
+Recast	field:rcSpan::smin	BOUND	ZrcSpan.smin, copied by zrcHeightfieldColumn
+Recast	field:rcSpanPool::items	BOUND	ZrcHeightfieldStorage.spans_per_pool is this array's length, and every span in it is either live, reported in its column's order by zrcHeightfieldColumn, or free, counted by ZrcHeightfieldStorage.free_count; nothing indexes a pool directly because a slot carries no way to tell the two apart
+Recast	field:rcSpanPool::next	BOUND	the chain zrcHeightfieldStorage walks to produce ZrcHeightfieldStorage.pool_count
+Recast	func:-::rcAbs/1	ZIG	src/vec.zig:scalar.abs - written as upstream's comparison rather than the builtin, which differs at negative zero: upstream returns it unchanged
+Recast	func:-::rcAddSpan/8	BOUND	zrcHeightfieldAddSpan calls it directly, after checking x/z against the heightfield's own extent and span_min/span_max/area against the limits it packs into
+Recast	func:-::rcAlloc/2	BOUND	every zrcHeightfieldCreate/zrcCompactHeightfieldCreate/zrcContourSetCreate/zrcPolyMeshCreate container allocation calls it directly with RC_ALLOC_PERM before constructing the container in place; zrcSetAllocator installs the callback it reaches
+Recast	func:-::rcAllocCompactHeightfield/0	BOUND	zrcCompactHeightfieldCreate allocates the container the same way this does, fused with the rcBuildCompactHeightfield call that populates it in the same step
+Recast	func:-::rcAllocContourSet/0	BOUND	zrcContourSetCreate allocates the container the same way this does, fused with the rcBuildContours call that populates it in the same step
+Recast	func:-::rcAllocHeightfield/0	BOUND	zrcHeightfieldCreate allocates the container the same way this does, fused with the rcCreateHeightfield call that populates it in the same step
+Recast	func:-::rcAllocHeightfieldLayerSet/0	BOUND	zrcHeightfieldLayerSetCreate allocates the container the same way, through rcAlloc with RC_ALLOC_PERM, fused with the build that fills it
+Recast	func:-::rcAllocPolyMesh/0	BOUND	zrcPolyMeshCreate allocates an empty container the same way this does; zrcPolyMeshBuild fills it in a later call
+Recast	func:-::rcAllocPolyMeshDetail/0	BOUND	zrcPolyMeshCreate allocates an empty container the same way this does, alongside the polygon half; zrcPolyMeshBuildDetail fills it in a later call
+Recast	func:-::rcAllocSetCustom/2	BOUND	zrcSetAllocator
+Recast	func:-::rcAssertFailGetCustom/0	BOUND	zrcAssertHandler
+Recast	func:-::rcAssertFailSetCustom/1	BOUND	zrcSetAssertHandler installs it, and zrcAssertsEnabled says whether this build kept the assertions that would call it
+Recast	func:-::rcBuildCompactHeightfield/5	BOUND	zrcCompactHeightfieldCreate calls it directly
+Recast	func:-::rcBuildContours/6	BOUND	zrcContourSetCreate calls it directly
+Recast	func:-::rcBuildDistanceField/2	BOUND	zrcCompactHeightfieldBuildDistanceField calls it directly
+Recast	func:-::rcBuildHeightfieldLayers/5	BOUND	zrcHeightfieldLayerSetCreate, which also refuses a border wider than half the field: upstream computes the layer dimensions as width minus twice the border and never checks the two against each other
+Recast	func:-::rcBuildLayerRegions/4	BOUND	zrcCompactHeightfieldBuildRegions calls it directly for ZRC_PARTITION_LAYERS
+Recast	func:-::rcBuildPolyMesh/4	BOUND	zrcPolyMeshBuild calls it directly
+Recast	func:-::rcBuildPolyMeshDetail/6	BOUND	zrcPolyMeshBuildDetail calls it directly
+Recast	func:-::rcBuildRegions/5	BOUND	zrcCompactHeightfieldBuildRegions calls it directly for ZRC_PARTITION_WATERSHED
+Recast	func:-::rcBuildRegionsMonotone/5	BOUND	zrcCompactHeightfieldBuildRegions calls it directly for ZRC_PARTITION_MONOTONE
+Recast	func:-::rcCalcBounds/4	BOUND	zrcCalcBounds calls it directly
+Recast	func:-::rcCalcGridSize/5	BOUND	zrcCalcGridSize calls it directly
+Recast	func:-::rcClamp/3	ZIG	src/vec.zig:scalar.clamp - written as upstream's nested comparisons, which pass a NaN through where a min-of-max spelling would replace it with a bound
+Recast	func:-::rcClearUnwalkableTriangles/7	BOUND	zrcClearUnwalkableTriangles clears to ZRC_AREA_NULL by the same slope test, through a bit-exact reimplementation rather than a direct call, so the cosine threshold does not depend on the host's libm
+Recast	func:-::rcCopyPolyMesh/3	BOUND	zrcPolyMeshCopy calls it directly
+Recast	func:-::rcCreateHeightfield/8	BOUND	zrcHeightfieldCreate calls it directly
+Recast	func:-::rcErodeWalkableArea/3	BOUND	zrcCompactHeightfieldErode calls it directly
+Recast	func:-::rcFilterLedgeSpans/4	BOUND	zrcHeightfieldFilterLedgeSpans calls it directly
+Recast	func:-::rcFilterLowHangingWalkableObstacles/3	BOUND	zrcHeightfieldFilterLowHangingObstacles calls it directly
+Recast	func:-::rcFilterWalkableLowHeightSpans/3	BOUND	zrcHeightfieldFilterWalkableLowHeightSpans calls it directly
+Recast	func:-::rcFree/1	BOUND	every zrcHeightfieldDestroy/zrcCompactHeightfieldDestroy/zrcContourSetDestroy/zrcPolyMeshDestroy reaches it, through the matching upstream free function which calls it right after the destructor; zrcSetAllocator installs the callback it reaches
+Recast	func:-::rcFreeCompactHeightfield/1	BOUND	zrcCompactHeightfieldDestroy calls it directly
+Recast	func:-::rcFreeContourSet/1	BOUND	zrcContourSetDestroy calls it directly
+Recast	func:-::rcFreeHeightField/1	BOUND	zrcHeightfieldDestroy calls it directly
+Recast	func:-::rcFreeHeightfieldLayerSet/1	BOUND	zrcHeightfieldLayerSetDestroy calls it, through zrc::RcFree's overload for this type
+Recast	func:-::rcFreePolyMesh/1	BOUND	zrcPolyMeshDestroy calls it directly
+Recast	func:-::rcFreePolyMeshDetail/1	BOUND	zrcPolyMeshDestroy calls it directly; rcPolyMeshDetail has no destructor of its own, so this is the only thing that releases its three buffers
+Recast	func:-::rcGetCon/2	ZIG	src/pipeline.zig:getCon - the same shift-and-mask upstream writes, over the ZrcCompactSpan.con field zrcCompactHeightfieldSpans reports
+Recast	func:-::rcGetDirForOffset/2	ZIG	src/pipeline.zig:dirForOffset - upstream's five-entry table, with the derived index bounded rather than read out of range for a diagonal
+Recast	func:-::rcGetDirOffsetX/1	ZIG	src/pipeline.zig:dirOffsetX - upstream's four-entry table, indexed with upstream's own two-bit mask so any input answers
+Recast	func:-::rcGetDirOffsetY/1	ZIG	src/pipeline.zig:dirOffsetY - upstream's four-entry table under upstream's own name, which steps along z despite the Y its own TODO complains about
+Recast	func:-::rcGetHeightFieldSpanCount/2	BOUND	zrcHeightfieldSpanCount calls it directly
+Recast	func:-::rcIgnoreUnused/1	LANGUAGE	the discard, `_ = value;` - upstream's body is empty
+Recast	func:-::rcMarkBoxArea/5	BOUND	ZrcAreaVolume with shape ZRC_VOLUME_BOX, applied by zrcPolyMeshBake between erosion and region building
+Recast	func:-::rcMarkConvexPolyArea/7	BOUND	ZrcAreaVolume with shape ZRC_VOLUME_CONVEX, applied by zrcPolyMeshBake between erosion and region building
+Recast	func:-::rcMarkCylinderArea/6	BOUND	ZrcAreaVolume with shape ZRC_VOLUME_CYLINDER, applied by zrcPolyMeshBake between erosion and region building
+Recast	func:-::rcMarkWalkableTriangles/7	BOUND	zrcMarkWalkableTriangles writes ZRC_AREA_WALKABLE by the same slope test, through a bit-exact reimplementation rather than a direct call, so the cosine threshold does not depend on the host's libm
+Recast	func:-::rcMax/2	ZIG	src/vec.zig:scalar.max - written as upstream's comparison rather than the builtin, because a NaN operand makes that comparison false and the result is asymmetric in a way the builtin does not promise
+Recast	func:-::rcMedianFilterWalkableArea/2	BOUND	zrcCompactHeightfieldMedianFilter calls it directly
+Recast	func:-::rcMergePolyMeshDetails/4	BOUND	zrcPolyMeshMerge calls it directly when every input's detail half is filled
+Recast	func:-::rcMergePolyMeshes/4	BOUND	zrcPolyMeshMerge calls it directly
+Recast	func:-::rcMin/2	ZIG	src/vec.zig:scalar.min - written as upstream's comparison rather than the builtin, because a NaN operand makes that comparison false and the result is asymmetric in a way the builtin does not promise
+Recast	func:-::rcOffsetPoly/5	BOUND	zrcOffsetPoly, with upstream's did-not-fit return of zero named as ZRC_ERR_BUFFER_TOO_SMALL
+Recast	func:-::rcRasterizeTriangle/7	BOUND	zrcHeightfieldRasterizeTriangle calls it directly
+Recast	func:-::rcRasterizeTriangles/6	BOUND	zrcHeightfieldRasterizeTriangleSoup calls this triangle-soup overload directly
+Recast	func:-::rcRasterizeTriangles/8(rcContext*,const float*,int,const int*,const unsigned char*,int,rcHeightfield&,int)	BOUND	zrcHeightfieldRasterizeTriangles calls this 32-bit-index overload directly
+Recast	func:-::rcRasterizeTriangles/8(rcContext*,const float*,int,const unsigned short*,const unsigned char*,int,rcHeightfield&,int)	BOUND	zrcHeightfieldRasterizeTrianglesU16 calls this 16-bit-index overload directly
+Recast	func:-::rcSetCon/3	ZIG	src/pipeline.zig:setCon - upstream's own clear-then-or expression, and zrcCompactHeightfieldSetSpans is how the result goes back into the field
+Recast	func:-::rcSqr/1	ZIG	src/vec.zig:scalar.sqr
+Recast	func:-::rcSqrt/1	LANGUAGE	@sqrt - a plain sqrtf, which IEEE-754 requires to be correctly rounded, so the two agree bit for bit
+Recast	func:-::rcSwap/2	LANGUAGE	std.mem.swap
+Recast	func:-::rcVadd/3	ZIG	src/vec.zig:add - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:-::rcVcopy/2	ZIG	src/vec.zig:Vec3 is [3]f32 and every operation takes and returns one by value, so a set is the array literal and a copy is assignment
+Recast	func:-::rcVcross/3	ZIG	src/vec.zig:cross - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:-::rcVdist/2	ZIG	src/vec.zig:dist - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:-::rcVdistSqr/2	ZIG	src/vec.zig:distSqr - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:-::rcVdot/2	ZIG	src/vec.zig:dot - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:-::rcVmad/4	ZIG	src/vec.zig:mad - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:-::rcVmax/2	ZIG	src/vec.zig:max - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:-::rcVmin/2	ZIG	src/vec.zig:min - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:-::rcVnormalize/1	ZIG	src/vec.zig:normalize - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:-::rcVsub/3	ZIG	src/vec.zig:sub - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+Recast	func:rcCompactHeightfield::rcCompactHeightfield/0	BOUND	zrcCompactHeightfieldCreate constructs it in place while allocating the container
+Recast	func:rcCompactHeightfield::~rcCompactHeightfield/0	BOUND	zrcCompactHeightfieldDestroy triggers it, through rcFreeCompactHeightfield
+Recast	func:rcContext::enableLog/1	BOUND	ZrcBuildContext.log_enabled
+Recast	func:rcContext::enableTimer/1	BOUND	ZrcBuildContext.timers_enabled
+Recast	func:rcContext::getAccumulatedTime/1	BOUND	zrcBuildContextAccumulatedTime
+Recast	func:rcContext::log/3	BOUND	zrcBuildContextLog
+Recast	func:rcContext::rcContext/1	BOUND	ZrcBuildContext.log_enabled and .timers_enabled, set to the same value, reproduce what the single-bool constructor sets both flags to
+Recast	func:rcContext::resetLog/0	BOUND	zrcBuildContextResetLog
+Recast	func:rcContext::resetTimers/0	BOUND	zrcBuildContextResetTimers
+Recast	func:rcContext::startTimer/1	BOUND	zrcBuildContextStartTimer
+Recast	func:rcContext::stopTimer/1	BOUND	zrcBuildContextStopTimer
+Recast	func:rcContext::~rcContext/0	BOUND	ZrcBuildContext is plain data the caller owns; the destructor releases nothing, so there is nothing to destroy
+Recast	func:rcContourSet::rcContourSet/0	BOUND	zrcContourSetCreate constructs it in place while allocating the container
+Recast	func:rcContourSet::~rcContourSet/0	BOUND	zrcContourSetDestroy triggers it, through rcFreeContourSet
+Recast	func:rcHeightfield::rcHeightfield/0	BOUND	zrcHeightfieldCreate constructs it in place while allocating the container
+Recast	func:rcHeightfield::~rcHeightfield/0	BOUND	zrcHeightfieldDestroy triggers it, through rcFreeHeightField
+Recast	func:rcHeightfieldLayerSet::rcHeightfieldLayerSet/0	BOUND	zrcHeightfieldLayerSetCreate constructs one
+Recast	func:rcHeightfieldLayerSet::~rcHeightfieldLayerSet/0	BOUND	zrcHeightfieldLayerSetDestroy reaches it through rcFreeHeightfieldLayerSet, which is what frees every layer's three arrays
+Recast	func:rcIntArray::clear/0	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+Recast	func:rcIntArray::pop/0	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+Recast	func:rcIntArray::push/1	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+Recast	func:rcIntArray::rcIntArray/0	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+Recast	func:rcIntArray::rcIntArray/1	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+Recast	func:rcIntArray::resize/1	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+Recast	func:rcIntArray::size/0	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+Recast	func:rcPermVector::rcPermVector/0	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+Recast	func:rcPermVector::rcPermVector/1(const rcPermVector<T>&)	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+Recast	func:rcPermVector::rcPermVector/1(rcSizeType)	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+Recast	func:rcPermVector::rcPermVector/2(const T*,const T*)	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+Recast	func:rcPermVector::rcPermVector/2(rcSizeType,const T&)	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+Recast	func:rcPolyMesh::rcPolyMesh/0	BOUND	zrcPolyMeshCreate constructs it in place while allocating the container
+Recast	func:rcPolyMesh::~rcPolyMesh/0	BOUND	zrcPolyMeshDestroy triggers it, through rcFreePolyMesh
+Recast	func:rcPolyMeshDetail::rcPolyMeshDetail/0	BOUND	zrcPolyMeshCreate constructs it in place while allocating the container, alongside the polygon half
+Recast	func:rcScopedDelete::rcScopedDelete/0	LANGUAGE	defer, which releases at end of scope the way this guard's destructor does
+Recast	func:rcScopedDelete::rcScopedDelete/1	LANGUAGE	defer, which releases at end of scope the way this guard's destructor does
+Recast	func:rcScopedDelete::~rcScopedDelete/0	LANGUAGE	defer, which releases at end of scope the way this guard's destructor does
+Recast	func:rcScopedTimer::rcScopedTimer/2	LANGUAGE	defer, paired with zrcBuildContextStartTimer to start the timer immediately and defer the matching stop
+Recast	func:rcScopedTimer::~rcScopedTimer/0	LANGUAGE	defer, paired with zrcBuildContextStartTimer to stop what it started at scope exit
+Recast	func:rcTempVector::rcTempVector/0	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+Recast	func:rcTempVector::rcTempVector/1(const rcTempVector<T>&)	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+Recast	func:rcTempVector::rcTempVector/1(rcSizeType)	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+Recast	func:rcTempVector::rcTempVector/2(const T*,const T*)	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+Recast	func:rcTempVector::rcTempVector/2(rcSizeType,const T&)	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+Recast	func:rcVectorBase::assign/2(const T*,const T*)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::assign/2(rcSizeType,const T&)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::back/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::back/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::begin/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::begin/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::capacity/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::clear/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::data/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::data/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::empty/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::end/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::end/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::front/0()	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::front/0()const	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::pop_back/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::push_back/1	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::rcVectorBase/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::rcVectorBase/1(const rcVectorBase<T, H>&)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::rcVectorBase/1(rcSizeType)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::rcVectorBase/2(const T*,const T*)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::rcVectorBase/2(rcSizeType,const T&)	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::reserve/1	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::resize/1	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::resize/2	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::size/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::swap/1	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	func:rcVectorBase::~rcVectorBase/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	type:-::rcAllocFunc	BOUND	ZrcAllocator.allocate - the function a host installs, called with a size and a hint
+Recast	type:-::rcAllocHint	BOUND	ZrcAllocHint
+Recast	type:-::rcAssertFailFunc	BOUND	ZrcAssertFailFunc, which carries a host pointer upstream's own signature has nowhere to put
+Recast	type:-::rcBuildContoursFlags	BOUND	ZrcContourFlags mirrors it, taken by zrcContourSetCreate's flags parameter
+Recast	type:-::rcCompactCell	BOUND	ZrcCompactCell, copied by zrcCompactHeightfieldCells
+Recast	type:-::rcCompactHeightfield	BOUND	ZrcCompactHeightfield is the opaque handle zrcCompactHeightfieldCreate returns and zrcCompactHeightfieldDestroy releases
+Recast	type:-::rcCompactSpan	BOUND	ZrcCompactSpan, copied and written back whole by zrcCompactHeightfieldSpans and zrcCompactHeightfieldSetSpans
+Recast	type:-::rcConfig	BOUND	ZrcBakeConfig carries every field but bmin/bmax/width/height, which zrcHeightfieldCreate takes directly and zrcCalcBounds/zrcCalcGridSize produce
+Recast	type:-::rcContext	BOUND	ZrcBuildContext is the same object as a POD: a user pointer, the six hooks, and the log_enabled/timers_enabled flags
+Recast	type:-::rcContour	BOUND	ZrcContourInfo for its scalars, and zrcContourVerts/zrcContourRawVerts for its vertex arrays
+Recast	type:-::rcContourSet	BOUND	ZrcContourSet is the opaque handle zrcContourSetCreate returns and zrcContourSetDestroy releases
+Recast	type:-::rcFreeFunc	BOUND	ZrcAllocator.deallocate - the matching free a host installs
+Recast	type:-::rcHeightfield	BOUND	ZrcHeightfield is the opaque handle zrcHeightfieldCreate returns and zrcHeightfieldDestroy releases
+Recast	type:-::rcHeightfieldLayer	BOUND	ZrcHeightfieldLayer carries its twelve scalars by value, and zrcHeightfieldLayerHeights, zrcHeightfieldLayerAreas and zrcHeightfieldLayerCons copy its three arrays
+Recast	type:-::rcHeightfieldLayerSet	BOUND	ZrcHeightfieldLayerSet, allocated and filled together by zrcHeightfieldLayerSetCreate so a container that could only be re-run into never exists
+Recast	type:-::rcIntArray	LANGUAGE	std.ArrayList of i32 - rcIntArray wraps rcTempVector<int> and appears only as a local inside static functions
+Recast	type:-::rcLogCategory	BOUND	ZrcLogCategory mirrors it exactly, taken by zrcBuildContextLog
+Recast	type:-::rcNewTag	LANGUAGE	@ptrCast - storage becomes a typed pointer and is assigned directly; Zig's placement construction needs no overload-disambiguation tag the way C++'s placement new does
+Recast	type:-::rcPermVector	LANGUAGE	std.ArrayList over a persistent allocator - rcPermVector is never instantiated anywhere in the vendored tree
+Recast	type:-::rcPolyMesh	BOUND	ZrcPolyMesh is the same opaque handle zrcPolyMeshBake and zrcPolyMeshCreate both produce
+Recast	type:-::rcPolyMeshDetail	BOUND	the detail half of the same ZrcPolyMesh handle; zrcPolyMeshBuildDetail fills it and zrcPolyMeshDetailMeshes/zrcPolyMeshDetailVerts/zrcPolyMeshDetailTris read it, since there is no separate opaque handle for it
+Recast	type:-::rcScopedDelete	LANGUAGE	defer, which releases at end of scope the way this guard's destructor does
+Recast	type:-::rcScopedTimer	LANGUAGE	defer, paired with zrcBuildContextStartTimer to reproduce the guard: start immediately, defer the matching stop
+Recast	type:-::rcSizeType	LANGUAGE	isize - rcSizeType is intptr_t, and Zig slices carry their own length, so nothing takes it as a parameter
+Recast	type:-::rcSpan	BOUND	ZrcSpan, copied out one column at a time by zrcHeightfieldColumn
+Recast	type:-::rcSpanPool	BOUND	the chain zrcHeightfieldStorage walks through its own next field to produce ZrcHeightfieldStorage.pool_count; its items array is not itself exposed
+Recast	type:-::rcTempVector	LANGUAGE	std.ArrayList over a scratch allocator - rcTempVector is rcVectorBase with the temporary hint, and no public function takes one
+Recast	type:-::rcTimerLabel	BOUND	ZrcTimerLabel mirrors it, enumerator for enumerator; zrcBuildContextStartTimer, zrcBuildContextStopTimer and zrcBuildContextAccumulatedTime all take it
+Recast	type:-::rcVectorBase	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
+Recast	type:rcVectorBase::size_type	LANGUAGE	isize - rcSizeType is intptr_t, and Zig slices carry their own length, so nothing takes it as a parameter
+Recast	type:rcVectorBase::value_type	LANGUAGE	the element type parameter itself; Zig slices carry it
