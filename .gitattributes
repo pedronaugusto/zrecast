@@ -1,0 +1,10 @@
+# One line-ending truth on every platform. A Windows checkout with
+# core.autocrlf=true otherwise rewrites the whole tree on the way in, which
+# turns `zig fmt --check` into a wall of failures and makes the vendored tree
+# differ from its upstream pin for a reason that is not a real change.
+# Checkout must not be a transform.
+* text=auto eol=lf
+
+# The vendored tree is compared byte-for-byte against its upstream pin by
+# ci/verify-vendor.sh, so git must never transform it at all.
+libs/** -text
