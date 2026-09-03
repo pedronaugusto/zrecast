@@ -713,5 +713,6 @@ there are no globs, so nothing starts compiling by accident.
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). Vendored recastnavigation is zlib-licensed,
-copyright Mikko Mononen and contributors.
+MIT, see [LICENSE](LICENSE), which covers this package's own code. Vendored
+recastnavigation is zlib-licensed, copyright Mikko Mononen and contributors;
+its licence text ships with the package at `libs/recastnavigation/License.txt`.
