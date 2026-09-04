@@ -68,7 +68,7 @@ extern "C" {
 
 #define ZRC_VERSION_MAJOR 0
 #define ZRC_VERSION_MINOR 1
-#define ZRC_VERSION_PATCH 0
+#define ZRC_VERSION_PATCH 1
 
 /// Version of the zrecast binding itself, packed as (major<<16)|(minor<<8)|patch.
 /// Compare against the ZRC_VERSION_* macros to detect a header/library skew.
