@@ -25,6 +25,12 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+# Every comparison below is a set difference between two sorted files, and comm
+# and uniq compare bytes whatever sort collated by. Pinning C order makes the
+# two agree, and matches the order tools/record.sh writes the record in.
+# Exported, so tools/coverage.sh and tools/classify.sh sort the same way.
+export LC_ALL=C
+
 LIST=0
 [ "${1:-}" = "--list" ] && LIST=1
 

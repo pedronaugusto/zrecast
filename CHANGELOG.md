@@ -4,6 +4,20 @@ Each entry says what the old shape could not express, so a port has the reason
 and not only the diff. Versions follow [semantic versioning](https://semver.org);
 before 1.0 the minor is the breaking one.
 
+## Unreleased
+
+- The allocator bridge can now tell one of its own blocks from a pointer into
+  the middle of one. Every private header carries a tag alongside the length,
+  and a free whose tag does not match is refused instead of acted on. Without
+  the tag a length read out of payload bytes was indistinguishable from a
+  recorded one, so the bridge handed its backing allocator a base pointer and
+  a size that allocator never issued, and the damage surfaced somewhere else
+  entirely. A refused block leaks, and any allocator that tracks leaks says so.
+- `free` no longer offers a serialised navmesh image as a legal argument. An
+  image arrives as `Serialized`, which owns its slice and releases it in
+  `deinit`; `free` takes exactly the slice `alloc` returned, never a sub-slice
+  of it.
+
 ## 0.1.0
 
 First release. Bindings for recastnavigation v1.6.0 — the bake, the staged

@@ -468,9 +468,12 @@ pub const NavMesh = struct {
 /// This is a type rather than a bare `[]u8` plus a `freeSerialized(bytes)`
 /// function for one reason: the buffer comes from the installed allocator
 /// behind a private header, so only its original base pointer can be freed.
-/// With a free function taking a slice, `freeSerialized(bytes[8..])` compiles,
-/// reads a header that is not there, and corrupts the heap. Owning the slice
-/// makes that spelling impossible instead of merely discouraged.
+/// With a free function taking a slice, `freeSerialized(bytes[8..])` compiles
+/// and hands the allocator a pointer it never issued. The Zig allocator
+/// bridge refuses such a pointer where it can recognise one, and upstream's
+/// malloc cannot; an image is also a thing callers index into, so the
+/// spelling should not exist at this seam at all. Owning the slice makes it
+/// impossible instead of merely discouraged.
 pub const Serialized = struct {
     /// The image. Borrow it freely; it lives until `deinit`.
     bytes: []u8,

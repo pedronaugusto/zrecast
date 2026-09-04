@@ -25,8 +25,8 @@
 //! the alignment in the header too and recompute the prefix from it. Neither
 //! `rcAlloc` nor `dtAlloc` has an alignment parameter — both are modelled on
 //! `malloc` — so there is exactly one alignment here, it is a compile-time
-//! constant, and storing it per block would be storing a constant. The header
-//! carries only the length.
+//! constant, and storing it per block would be storing a constant. So the
+//! header carries the length, and the tag `Header` explains.
 //!
 //! `alignment` is `ZRC_ALLOC_ALIGNMENT` from the C header, mirrored in
 //! `c.alloc_alignment` and checked against the compiled library by the ABI test.
@@ -47,11 +47,23 @@ const err = @import("error.zig");
 const alignment: std.mem.Alignment = .fromByteUnits(c.alloc_alignment);
 
 /// Recorded ahead of every block so `deallocate` can reconstruct the slice
-/// Zig's allocator needs.
+/// Zig's allocator needs — and tell such a block from a pointer into the
+/// middle of one.
 const Header = struct {
+    /// Written by `allocate`, checked by `deallocate`. A length on its own
+    /// cannot say whether it was read from a header at all: the bytes ahead
+    /// of a pointer into the middle of a block are payload, and payload
+    /// holding a plausible length is how a heap gets corrupted quietly. The
+    /// tag makes the question answerable.
+    tag: usize,
     /// Total bytes taken from the backing allocator, prefix included.
     total_len: usize,
 };
+
+/// The value every `Header.tag` holds. Arbitrary — its one job is to be a
+/// value payload bytes are unlikely to hold at exactly that offset — and
+/// truncated so its width follows `usize` instead of assuming a pointer size.
+const header_tag: usize = @truncate(@as(u64, 0x7A72_635F_6864_7200));
 
 /// Bytes reserved before the payload: enough for the header, rounded up so the
 /// payload keeps `alignment`.
@@ -79,7 +91,7 @@ fn allocate(user: ?*anyopaque, size: usize, hint: c.AllocHint) callconv(.c) ?*an
 
     const payload = base + prefix_size;
     const header: *Header = @ptrCast(@alignCast(payload - @sizeOf(Header)));
-    header.* = .{ .total_len = total };
+    header.* = .{ .tag = header_tag, .total_len = total };
     return @ptrCast(payload);
 }
 
@@ -88,9 +100,16 @@ fn deallocate(user: ?*anyopaque, block: ?*anyopaque) callconv(.c) void {
     const payload: [*]u8 = @ptrCast(block orelse return);
 
     const header: *const Header = @ptrCast(@alignCast(payload - @sizeOf(Header)));
-    const total_len = header.total_len;
+    // Only the pointer `allocate` returned can be freed. A pointer into the
+    // middle of a block — a sub-slice of a serialised image, classically —
+    // has payload where the header should be, so freeing on that basis would
+    // hand the backing allocator a base and a length it never issued. A block
+    // that fails the tag is left alone instead: it leaks, an allocator that
+    // tracks leaks reports it, and the heap the rest of the process runs on
+    // stays intact.
+    if (header.tag != header_tag) return;
     const base = payload - prefix_size;
-    gpa.rawFree(base[0..total_len], alignment, @returnAddress());
+    gpa.rawFree(base[0..header.total_len], alignment, @returnAddress());
 }
 
 /// The allocator upstream is currently pointed at, kept alive for as long as it
@@ -138,12 +157,18 @@ pub fn alloc(size: usize, hint: AllocHint) err.Error![]u8 {
     return bytes[0..size];
 }
 
-/// Releases a block from `alloc`, or a serialised navmesh image, back to
-/// whichever allocator is installed.
+/// Releases a block from `alloc` back to whichever allocator is installed.
 ///
-/// A block from `alloc` must go back through `free` and nothing else: with a
-/// Zig allocator installed, the bridge keeps a private header immediately
-/// ahead of each block, and only this path knows to account for it.
+/// `block` must be the slice `alloc` returned and not a sub-slice of it: with
+/// a Zig allocator installed, the bridge keeps a private header immediately
+/// ahead of each block, and only the pointer `alloc` handed back sits where
+/// that header can be found. The bridge refuses a pointer it did not issue
+/// rather than free it, so the cost of that mistake is a leaked block — but
+/// upstream's own malloc, in use when `setAllocator` was never called, has no
+/// such guard.
+///
+/// A serialised navmesh image does not come back through here: those arrive
+/// as `navmesh.Serialized`, which owns its slice and releases it in `deinit`.
 pub fn free(block: []u8) void {
     c.zrcFree(block.ptr);
 }
@@ -198,4 +223,67 @@ test "alloc and free round-trip through the installed allocator" {
     try std.testing.expectEqual(@as(usize, 128), block.len);
     @memset(block, 0xCD);
     free(block);
+}
+
+test "the bridge refuses a pointer it did not hand out" {
+    // `block[8..]` is the mistake: payload sits where the header would be, so
+    // freeing on that basis asks the backing allocator for a region it never
+    // issued. The recorder stands in for that allocator, which makes the
+    // attempt observable instead of destructive.
+    const Recorder = struct {
+        buffer: [512]u8 align(c.alloc_alignment) = undefined,
+        used: usize = 0,
+        frees: usize = 0,
+        last: []u8 = &.{},
+
+        fn rawAlloc(ctx: *anyopaque, len: usize, a: std.mem.Alignment, _: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            const start = a.forward(self.used);
+            if (start + len > self.buffer.len) return null;
+            self.used = start + len;
+            return self.buffer[start..].ptr;
+        }
+
+        fn rawResize(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) bool {
+            return false;
+        }
+
+        fn rawRemap(_: *anyopaque, _: []u8, _: std.mem.Alignment, _: usize, _: usize) ?[*]u8 {
+            return null;
+        }
+
+        fn rawFree(ctx: *anyopaque, memory: []u8, _: std.mem.Alignment, _: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            self.frees += 1;
+            self.last = memory;
+        }
+
+        const vtable: std.mem.Allocator.VTable = .{
+            .alloc = rawAlloc,
+            .resize = rawResize,
+            .remap = rawRemap,
+            .free = rawFree,
+        };
+    };
+
+    var recorder: Recorder = .{};
+    try setAllocator(.{ .ptr = &recorder, .vtable = &Recorder.vtable });
+    defer resetAllocator();
+
+    const size = 64;
+    const block = allocate(@ptrCast(&installed), size, .perm) orelse {
+        return error.TestUnexpectedResult;
+    };
+    const bytes: [*]u8 = @ptrCast(block);
+    // Zeroed payload, so the shifted read below cannot find the tag by luck.
+    @memset(bytes[0..size], 0);
+
+    deallocate(@ptrCast(&installed), bytes + 8);
+    try std.testing.expectEqual(@as(usize, 0), recorder.frees);
+
+    // The pointer `allocate` returned still frees, and frees the whole block.
+    deallocate(@ptrCast(&installed), block);
+    try std.testing.expectEqual(@as(usize, 1), recorder.frees);
+    try std.testing.expectEqual(bytes - prefix_size, recorder.last.ptr);
+    try std.testing.expectEqual(prefix_size + size, recorder.last.len);
 }

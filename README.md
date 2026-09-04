@@ -546,11 +546,11 @@ file is the authority on whether those runs have actually happened and passed.**
 | **945** | of them reachable through the C boundary (`BOUND`) |
 | **91** | C++-only surface a C boundary cannot carry (`LANGUAGE`), each with the reason |
 | **53** | reimplemented on the Zig side (`ZIG`), each naming its mirror |
-| **152** | Zig tests `zig build test` executes |
+| **153** | Zig tests `zig build test` executes |
 | **975** | assertions in the standalone C smoke test |
 | **26** | vendored recastnavigation translation units `build.zig` compiles |
 | **18165** | C boundary lines (`ffi/`) |
-| **17653** | Zig source lines (`src/`) |
+| **17744** | Zig source lines (`src/`) |
 | **93** | invariants `ci/probe.sh` mutates, each with the test that must notice |
 | **32** | steps `ci/run.sh` runs |
 | **8** | further targets `ci/run.sh` cross-compiles |
