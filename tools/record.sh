@@ -24,6 +24,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The record is a checked-in file, so the order of its lines is part of it.
+# sort collates by locale, and ':' '~' and letter case rank differently under a
+# UTF-8 locale than under C, so an unpinned sort makes the same three inputs
+# generate a different file on a different machine. C order is the recorded
+# one. Exported, so tools/coverage.sh sorts the harvest the same way.
+export LC_ALL=C
+
 CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
