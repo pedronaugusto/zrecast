@@ -4,7 +4,7 @@ Each entry says what the old shape could not express, so a port has the reason
 and not only the diff. Versions follow [semantic versioning](https://semver.org);
 before 1.0 the minor is the breaking one.
 
-## Unreleased
+## 0.1.1
 
 - The allocator bridge can now tell one of its own blocks from a pointer into
   the middle of one. Every private header carries a tag alongside the length,

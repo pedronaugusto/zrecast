@@ -539,7 +539,7 @@ file is the authority on whether those runs have actually happened and passed.**
 <!-- BEGIN GENERATED ci/measurements.sh --markdown -->
 | | |
 |---:|---|
-| **0.1.0** | version (one home: `build.zig.zon`) |
+| **0.1.1** | version (one home: `build.zig.zon`) |
 | **313** | C entry points (`ZRC_API` in `ffi/*.h`) |
 | **313** | Zig externs (`pub extern fn` in `src/`) |
 | **1089** | public Recast/Detour names, each carrying a verdict in `tools/` |
