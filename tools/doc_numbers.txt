@@ -9,10 +9,6 @@
 
 # README.md
 170	measured 2026-09-02: the ReleaseFast size gap between a query-only C program (462 KB) and the same with one bake call (634 KB), zig c++ -O2, x86_64-windows; stated as an approximation
-31	field count of dtNavMeshCreateParams at the pinned commit (DetourNavMeshBuilder.h)
-12	count of dtStatus detail bits declared static const unsigned int at the pinned commit (DetourStatus.h)
-24	constants in the six enums whose names carry no rc/dt prefix at the pinned commit (DetourCrowd.h, DetourTileCache.h)
-421	the retired coverage script's own answer, quoted as history
 
 # UPSTREAM.md
 855	size of upstream's excluded Tests/ tree, summed file bytes at the pinned commit
