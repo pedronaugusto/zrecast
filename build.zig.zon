@@ -22,5 +22,7 @@
         "BINDING.md",
         "CHANGELOG.md",
         "examples",
+        // README links into docs/, so a fetched copy has to carry it.
+        "docs",
     },
 }
