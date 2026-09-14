@@ -1134,6 +1134,18 @@ pub const AbiLayout = extern struct {
 
     agent_ref_size: u32,
     path_request_ref_size: u32,
+
+    debug_draw_size: u32,
+    debug_draw_align: u32,
+    debug_draw_field_count: u32,
+    debug_draw_offsets: [abi_max_fields]u32,
+
+    file_io_size: u32,
+    file_io_align: u32,
+    file_io_field_count: u32,
+    file_io_offsets: [abi_max_fields]u32,
+
+    debug_draw_primitive_count: u32,
 };
 
 //=============================================================================

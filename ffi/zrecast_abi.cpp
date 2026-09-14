@@ -30,6 +30,34 @@ struct SameType<A, A> {
 };
 
 //===----------------------------------------------------------------------===//
+// DebugUtils
+//
+// The primitive enum and the navmesh draw flags are mirrored into zrecast.h and
+// cast straight across in zrecast_debugdraw.cpp, so a re-vendor that renumbers
+// either would change what a host's renderer is asked to draw with nothing to
+// say so.
+//===----------------------------------------------------------------------===//
+
+static_assert(static_cast<int>(DU_DRAW_POINTS) == ZRC_DEBUG_DRAW_POINTS,
+              "DU_DRAW_POINTS moved");
+static_assert(static_cast<int>(DU_DRAW_LINES) == ZRC_DEBUG_DRAW_LINES,
+              "DU_DRAW_LINES moved");
+static_assert(static_cast<int>(DU_DRAW_TRIS) == ZRC_DEBUG_DRAW_TRIS,
+              "DU_DRAW_TRIS moved");
+static_assert(static_cast<int>(DU_DRAW_QUADS) == ZRC_DEBUG_DRAW_QUADS,
+              "DU_DRAW_QUADS moved");
+
+static_assert(static_cast<int>(DU_DRAWNAVMESH_OFFMESHCONS) ==
+                  ZRC_DRAWNAVMESH_OFFMESHCONS,
+              "DU_DRAWNAVMESH_OFFMESHCONS moved");
+static_assert(static_cast<int>(DU_DRAWNAVMESH_CLOSEDLIST) ==
+                  ZRC_DRAWNAVMESH_CLOSEDLIST,
+              "DU_DRAWNAVMESH_CLOSEDLIST moved");
+static_assert(static_cast<int>(DU_DRAWNAVMESH_COLOR_TILES) ==
+                  ZRC_DRAWNAVMESH_COLOR_TILES,
+              "DU_DRAWNAVMESH_COLOR_TILES moved");
+
+//===----------------------------------------------------------------------===//
 // Polygon references
 //
 // zrecast_query.cpp passes ZrcPolyRef and ZrcPolyRef arrays straight to Detour
@@ -1415,6 +1443,50 @@ void zrcAbiLayout(ZrcAbiLayout* out) {
   out->agent_ref_size = static_cast<uint32_t>(sizeof(ZrcAgentRef));
   out->path_request_ref_size =
       static_cast<uint32_t>(sizeof(ZrcPathRequestRef));
+
+  out->debug_draw_size = static_cast<uint32_t>(sizeof(ZrcDebugDraw));
+  out->debug_draw_align = static_cast<uint32_t>(alignof(ZrcDebugDraw));
+  {
+    const uint32_t offsets[] = {
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, user)),
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, depth_mask)),
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, texture)),
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, begin)),
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, vertex)),
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, vertex_xyz)),
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, vertex_uv)),
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, vertex_xyz_uv)),
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, end)),
+        static_cast<uint32_t>(offsetof(ZrcDebugDraw, area_to_col)),
+    };
+    const uint32_t count =
+        static_cast<uint32_t>(sizeof(offsets) / sizeof(offsets[0]));
+    out->debug_draw_field_count = count;
+    for (uint32_t i = 0; i < ZRC_ABI_MAX_FIELDS; ++i) {
+      out->debug_draw_offsets[i] = i < count ? offsets[i] : 0u;
+    }
+  }
+
+  out->file_io_size = static_cast<uint32_t>(sizeof(ZrcFileIO));
+  out->file_io_align = static_cast<uint32_t>(alignof(ZrcFileIO));
+  {
+    const uint32_t offsets[] = {
+        static_cast<uint32_t>(offsetof(ZrcFileIO, user)),
+        static_cast<uint32_t>(offsetof(ZrcFileIO, is_writing)),
+        static_cast<uint32_t>(offsetof(ZrcFileIO, is_reading)),
+        static_cast<uint32_t>(offsetof(ZrcFileIO, write)),
+        static_cast<uint32_t>(offsetof(ZrcFileIO, read)),
+    };
+    const uint32_t count =
+        static_cast<uint32_t>(sizeof(offsets) / sizeof(offsets[0]));
+    out->file_io_field_count = count;
+    for (uint32_t i = 0; i < ZRC_ABI_MAX_FIELDS; ++i) {
+      out->file_io_offsets[i] = i < count ? offsets[i] : 0u;
+    }
+  }
+
+  out->debug_draw_primitive_count =
+      static_cast<uint32_t>(ZRC_DEBUG_DRAW_QUADS) + 1u;
 }
 
 }  // extern "C"

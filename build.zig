@@ -2,10 +2,8 @@ const std = @import("std");
 
 /// Recast — the navmesh baker.
 ///
-/// This list is explicit rather than a directory glob for two reasons: a glob
-/// would silently start compiling whatever a future re-vendor drops in, and the
-/// vendored tree contains one further library (DebugUtils) that this package
-/// deliberately does not build.
+/// This list is explicit rather than a directory glob: a glob would silently
+/// start compiling whatever a future re-vendor drops in.
 const recast_sources = [_][]const u8{
     "libs/recastnavigation/Recast/Source/Recast.cpp",
     "libs/recastnavigation/Recast/Source/RecastAlloc.cpp",
@@ -50,6 +48,16 @@ const detour_crowd_sources = [_][]const u8{
     "libs/recastnavigation/DetourCrowd/Source/DetourProximityGrid.cpp",
 };
 
+/// DebugUtils — what a bake produced, drawn through a host's renderer, and
+/// dumped to a host's bytes. Depends on Recast's, Detour's and the tile
+/// cache's headers.
+const debug_utils_sources = [_][]const u8{
+    "libs/recastnavigation/DebugUtils/Source/DebugDraw.cpp",
+    "libs/recastnavigation/DebugUtils/Source/DetourDebugDraw.cpp",
+    "libs/recastnavigation/DebugUtils/Source/RecastDebugDraw.cpp",
+    "libs/recastnavigation/DebugUtils/Source/RecastDump.cpp",
+};
+
 /// The zrecast C boundary. One translation unit per concern — deliberately not
 /// a single monolithic binding file. The bake/navmesh/query split is the same
 /// split the two lifecycles have: baking is a cook step, querying is a frame.
@@ -67,6 +75,8 @@ const zrecast_ffi_sources = [_][]const u8{
     "ffi/zrecast_crowd.cpp",
     "ffi/zrecast_steering.cpp",
     "ffi/zrecast_corridor.cpp",
+    "ffi/zrecast_debugdraw.cpp",
+    "ffi/zrecast_dump.cpp",
     "ffi/zrecast_abi.cpp",
 };
 
@@ -125,6 +135,7 @@ pub fn build(b: *std.Build) void {
     lib.root_module.addIncludePath(b.path("libs/recastnavigation/Detour/Include"));
     lib.root_module.addIncludePath(b.path("libs/recastnavigation/DetourTileCache/Include"));
     lib.root_module.addIncludePath(b.path("libs/recastnavigation/DetourCrowd/Include"));
+    lib.root_module.addIncludePath(b.path("libs/recastnavigation/DebugUtils/Include"));
     lib.root_module.addIncludePath(b.path("ffi"));
 
     if (!options.enable_asserts) lib.root_module.addCMacro("NDEBUG", "");
@@ -211,6 +222,10 @@ pub fn build(b: *std.Build) void {
     });
     lib.root_module.addCSourceFiles(.{
         .files = &detour_crowd_sources,
+        .flags = cxx_flags,
+    });
+    lib.root_module.addCSourceFiles(.{
+        .files = &debug_utils_sources,
         .flags = cxx_flags,
     });
     lib.root_module.addCSourceFiles(.{

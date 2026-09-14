@@ -4967,6 +4967,496 @@ ZRC_API ZrcResult zrcPathQueueNavMeshQuery(const ZrcPathQueue* queue,
                                            const ZrcNavMeshQuery** out);
 
 //===----------------------------------------------------------------------===//
+// DebugUtils — drawing what a bake produced, and dumping it to a file
+//
+// Upstream's fifth directory. Every entry point in it renders through one
+// abstract class, duDebugDraw, whose implementation a host supplies: the
+// library decides what a heightfield, a region or a navmesh looks like as
+// points, lines, triangles and quads, and the host decides what to do with
+// them. ZrcDebugDraw below is that class as a table of function pointers, and
+// the shim wears it as the C++ subclass upstream expects.
+//
+// Nothing here is part of a cook. These calls read a container and emit
+// primitives; none of them allocates, mutates what it is given, or affects a
+// navmesh a query will see. The two read entry points are the exception and
+// say so.
+//
+// RecastDump.h's duFileIO is the same shape for bytes rather than primitives:
+// four hooks a host fills, so a dump reaches whatever a host calls a file.
+//===----------------------------------------------------------------------===//
+
+/// Recast's own pi, the one duDebugDrawTriMeshSlope converts degrees with
+/// (DU_PI). Restated so a host drawing its own arcs uses the same constant the
+/// library does rather than a more precise one.
+#define ZRC_DEBUG_PI 3.14159265f
+
+/// What a `begin`/`end` pair between them describes. One vertex per point,
+/// two per line, three per triangle, four per quad.
+typedef enum ZrcDebugDrawPrimitive {
+  ZRC_DEBUG_DRAW_POINTS = 0,
+  ZRC_DEBUG_DRAW_LINES = 1,
+  ZRC_DEBUG_DRAW_TRIS = 2,
+  ZRC_DEBUG_DRAW_QUADS = 3
+} ZrcDebugDrawPrimitive;
+
+/// What zrcDebugDrawNavMesh should include, beyond the polygons themselves.
+#define ZRC_DRAWNAVMESH_OFFMESHCONS 0x01
+#define ZRC_DRAWNAVMESH_CLOSEDLIST 0x02
+#define ZRC_DRAWNAVMESH_COLOR_TILES 0x04
+
+/// The renderer a host supplies. Every field but `area_to_col` is required.
+///
+/// This is upstream's duDebugDraw, which declares four `vertex` overloads and
+/// makes all four pure: a caller of one draw function cannot know which the
+/// library will reach for, and this package does not guess on a host's behalf.
+/// `vertex_uv` and `vertex_xyz_uv` carry texture coordinates and are used only
+/// by the two triangle-soup entry points; the other two carry none. A renderer
+/// with nothing to do with texture coordinates implements them by discarding
+/// the pair and calling its own untextured path.
+///
+/// Colours are 0xAABBGGRR, which is what zrcDebugRgba packs and what every
+/// colour argument in this section expects.
+///
+/// A hook is called synchronously, from the draw call on the calling thread,
+/// and may not call back into this section against the same container.
+typedef struct ZrcDebugDraw {
+  void* user;
+  /// Whether primitives that follow should write depth. Upstream turns it off
+  /// around the overlays it wants visible through geometry.
+  void (*depth_mask)(void* user, ZrcBool state);
+  /// Whether the primitives that follow carry texture coordinates.
+  void (*texture)(void* user, ZrcBool state);
+  /// Opens a run of primitives. `size` is a point size or a line width, in
+  /// whatever unit the renderer measures those in, and is ignored for
+  /// triangles and quads.
+  void (*begin)(void* user, ZrcDebugDrawPrimitive prim, float size);
+  /// One vertex, position as three floats.
+  void (*vertex)(void* user, const float* pos, uint32_t color);
+  /// The same, with the position spelled out.
+  void (*vertex_xyz)(void* user, float x, float y, float z, uint32_t color);
+  /// One vertex carrying a texture coordinate pair, `uv` two floats.
+  void (*vertex_uv)(void* user, const float* pos, uint32_t color,
+                    const float* uv);
+  /// The same, with both spelled out.
+  void (*vertex_xyz_uv)(void* user, float x, float y, float z, uint32_t color,
+                        float u, float v);
+  /// Closes the run `begin` opened.
+  void (*end)(void* user);
+  /// The colour for one area id. NULL selects upstream's own table, which is
+  /// what every screenshot of Recast's demo shows.
+  uint32_t (*area_to_col)(void* user, uint32_t area);
+} ZrcDebugDraw;
+
+/// Packs four 0-255 channels into the 0xAABBGGRR word every colour argument
+/// here takes. Each channel is truncated to its low byte, upstream's own
+/// behaviour for an out-of-range component.
+ZRC_API uint32_t zrcDebugRgba(int32_t r, int32_t g, int32_t b, int32_t a);
+
+/// The same from four 0..1 floats, each multiplied by 255 and truncated.
+ZRC_API uint32_t zrcDebugRgbaFloat(float r, float g, float b, float a);
+
+/// A repeatable colour for an integer: six bits of `i` become three channels,
+/// so the table repeats every 64 values.
+ZRC_API uint32_t zrcDebugIntToCol(int32_t i, int32_t a);
+
+/// Upstream's other overload of the same name, written into `out[0..3]` as
+/// 0..1 floats. It is not the float form of the one above: it assigns the six
+/// bits to different channels and inverts them, so the two produce different
+/// colours for the same `i`.
+ZRC_API ZrcResult zrcDebugIntToColFloat(int32_t i, float* out);
+
+/// Scales every colour channel by `d`/256, leaving alpha alone.
+ZRC_API uint32_t zrcDebugMultCol(uint32_t col, uint32_t d);
+
+/// Halves every colour channel, leaving alpha alone.
+ZRC_API uint32_t zrcDebugDarkenCol(uint32_t col);
+
+/// Blends two colours, `u` running 0 (all `a`) to 255 (all `b`).
+ZRC_API uint32_t zrcDebugLerpCol(uint32_t a, uint32_t b, uint32_t u);
+
+/// Replaces a colour's alpha.
+ZRC_API uint32_t zrcDebugTransCol(uint32_t c, uint32_t a);
+
+/// The six face colours of a box, written into `out[0..6]`: the top colour,
+/// the side colour, and the four darkened variants zrcDebugDrawBox wants.
+ZRC_API ZrcResult zrcDebugCalcBoxColors(uint32_t* out, uint32_t top,
+                                        uint32_t side);
+
+//===----------------------------------------------------------------------===//
+// Primitives
+//
+// Each `Draw` form opens and closes its own run, so it can be called on its
+// own. Each `Append` form emits vertices into a run the caller opened, so
+// several shapes can share one, which is the only way to draw many of them
+// without a state change between each.
+//===----------------------------------------------------------------------===//
+
+ZRC_API ZrcResult zrcDebugDrawBoxWire(const ZrcDebugDraw* dd, float minx,
+                                      float miny, float minz, float maxx,
+                                      float maxy, float maxz, uint32_t col,
+                                      float line_width);
+
+ZRC_API ZrcResult zrcDebugDrawCylinderWire(const ZrcDebugDraw* dd, float minx,
+                                           float miny, float minz, float maxx,
+                                           float maxy, float maxz, uint32_t col,
+                                           float line_width);
+
+/// An arc from (x0,y0,z0) to (x1,y1,z1), bulging `h` times its own length
+/// upwards. `as0` and `as1` are arrowhead sizes at each end, 0 for none.
+ZRC_API ZrcResult zrcDebugDrawArc(const ZrcDebugDraw* dd, float x0, float y0,
+                                  float z0, float x1, float y1, float z1,
+                                  float h, float as0, float as1, uint32_t col,
+                                  float line_width);
+
+ZRC_API ZrcResult zrcDebugDrawArrow(const ZrcDebugDraw* dd, float x0, float y0,
+                                    float z0, float x1, float y1, float z1,
+                                    float as0, float as1, uint32_t col,
+                                    float line_width);
+
+/// A circle in the xz plane, centred on (x,y,z).
+ZRC_API ZrcResult zrcDebugDrawCircle(const ZrcDebugDraw* dd, float x, float y,
+                                     float z, float r, uint32_t col,
+                                     float line_width);
+
+/// Three axis-aligned segments through (x,y,z), each `size` long each way.
+ZRC_API ZrcResult zrcDebugDrawCross(const ZrcDebugDraw* dd, float x, float y,
+                                    float z, float size, uint32_t col,
+                                    float line_width);
+
+/// A solid box. `fcol` is six colours, one per face, as zrcDebugCalcBoxColors
+/// writes them.
+ZRC_API ZrcResult zrcDebugDrawBox(const ZrcDebugDraw* dd, float minx,
+                                  float miny, float minz, float maxx,
+                                  float maxy, float maxz, const uint32_t* fcol);
+
+ZRC_API ZrcResult zrcDebugDrawCylinder(const ZrcDebugDraw* dd, float minx,
+                                       float miny, float minz, float maxx,
+                                       float maxy, float maxz, uint32_t col);
+
+/// A `w` by `h` grid of `size`-wide cells in the xz plane, its corner at
+/// (ox,oy,oz). [Limit: 0 <= w, 0 <= h]
+ZRC_API ZrcResult zrcDebugDrawGridXZ(const ZrcDebugDraw* dd, float ox, float oy,
+                                     float oz, int32_t w, int32_t h, float size,
+                                     uint32_t col, float line_width);
+
+ZRC_API ZrcResult zrcDebugAppendBoxWire(const ZrcDebugDraw* dd, float minx,
+                                        float miny, float minz, float maxx,
+                                        float maxy, float maxz, uint32_t col);
+
+/// The top and bottom outlines of the box, four segments each — sixteen
+/// vertices, with every corner emitted twice. Named for points upstream, and
+/// emitted as segment endpoints.
+ZRC_API ZrcResult zrcDebugAppendBoxPoints(const ZrcDebugDraw* dd, float minx,
+                                          float miny, float minz, float maxx,
+                                          float maxy, float maxz, uint32_t col);
+
+ZRC_API ZrcResult zrcDebugAppendCylinderWire(const ZrcDebugDraw* dd, float minx,
+                                             float miny, float minz, float maxx,
+                                             float maxy, float maxz,
+                                             uint32_t col);
+
+ZRC_API ZrcResult zrcDebugAppendArc(const ZrcDebugDraw* dd, float x0, float y0,
+                                    float z0, float x1, float y1, float z1,
+                                    float h, float as0, float as1,
+                                    uint32_t col);
+
+ZRC_API ZrcResult zrcDebugAppendArrow(const ZrcDebugDraw* dd, float x0,
+                                      float y0, float z0, float x1, float y1,
+                                      float z1, float as0, float as1,
+                                      uint32_t col);
+
+ZRC_API ZrcResult zrcDebugAppendCircle(const ZrcDebugDraw* dd, float x, float y,
+                                       float z, float r, uint32_t col);
+
+ZRC_API ZrcResult zrcDebugAppendCross(const ZrcDebugDraw* dd, float x, float y,
+                                      float z, float size, uint32_t col);
+
+ZRC_API ZrcResult zrcDebugAppendBox(const ZrcDebugDraw* dd, float minx,
+                                    float miny, float minz, float maxx,
+                                    float maxy, float maxz,
+                                    const uint32_t* fcol);
+
+ZRC_API ZrcResult zrcDebugAppendCylinder(const ZrcDebugDraw* dd, float minx,
+                                         float miny, float minz, float maxx,
+                                         float maxy, float maxz, uint32_t col);
+
+//===----------------------------------------------------------------------===//
+// The display list — primitives recorded once and replayed
+//===----------------------------------------------------------------------===//
+
+/// One recorded run of primitives: the type, the size, the depth-mask state,
+/// and every vertex with its colour.
+///
+/// Upstream's duDisplayList records a single run — `begin` clears whatever was
+/// there — so a list holds the last run submitted to it and nothing earlier.
+///
+/// It is a concrete class upstream, but an abstract one: it overrides five of
+/// duDebugDraw's nine virtuals and leaves `texture` and the two textured
+/// `vertex` forms pure, so it cannot be instantiated as written. The shim
+/// completes it — `texture` does nothing, and a textured vertex is recorded
+/// without its texture coordinates, which is what replaying through
+/// duDisplayList::draw would do with them anyway.
+///
+/// Its vertex arrays come from `new[]`, not from the allocator zrcSetAllocator
+/// installs: upstream's own code, and not reachable from here. See UPSTREAM.md.
+typedef struct ZrcDisplayList ZrcDisplayList;
+
+/// Creates a list with room for `capacity` vertices, growing as needed.
+/// [Limit: 0 <= capacity <= 0x10000000; upstream raises anything under 8 to 8]
+ZRC_API ZrcResult zrcDisplayListCreate(int32_t capacity, ZrcDisplayList** out);
+
+ZRC_API void zrcDisplayListDestroy(ZrcDisplayList* list);
+
+/// The list wearing the renderer interface, so a draw call can record into it.
+/// The table points at `list` and is only valid while the list is.
+ZRC_API ZrcResult zrcDisplayListRecorder(ZrcDisplayList* list,
+                                         ZrcDebugDraw* out);
+
+ZRC_API ZrcResult zrcDisplayListDepthMask(ZrcDisplayList* list, ZrcBool state);
+
+/// Opens a run, discarding whatever the list already held.
+ZRC_API ZrcResult zrcDisplayListBegin(ZrcDisplayList* list,
+                                      ZrcDebugDrawPrimitive prim, float size);
+
+ZRC_API ZrcResult zrcDisplayListVertex(ZrcDisplayList* list, const float* pos,
+                                       uint32_t color);
+
+ZRC_API ZrcResult zrcDisplayListVertexXYZ(ZrcDisplayList* list, float x,
+                                          float y, float z, uint32_t color);
+
+ZRC_API ZrcResult zrcDisplayListEnd(ZrcDisplayList* list);
+
+/// Drops every recorded vertex, keeping the primitive type and size.
+ZRC_API ZrcResult zrcDisplayListClear(ZrcDisplayList* list);
+
+/// Replays the recorded run into `dd`. An empty list draws nothing at all,
+/// not even the `begin`/`end` pair.
+ZRC_API ZrcResult zrcDisplayListDraw(const ZrcDisplayList* list,
+                                     const ZrcDebugDraw* dd);
+
+/// How many vertices the list currently holds. Not upstream surface: the
+/// vertex count is private there, and a caller replaying a list has no other
+/// way to know whether it recorded anything.
+ZRC_API ZrcResult zrcDisplayListVertexCount(const ZrcDisplayList* list,
+                                            int32_t* out);
+
+//===----------------------------------------------------------------------===//
+// Drawing what Recast built
+//===----------------------------------------------------------------------===//
+
+/// The input soup, shaded by face normal and by walkability.
+///
+/// `normals` is three floats per triangle and is required — upstream returns
+/// without drawing anything when it is NULL. `flags` is one byte per triangle,
+/// zero for a triangle to be tinted unwalkable, or NULL to tint none.
+/// `tex_scale` multiplies the world coordinates the texture hooks receive.
+ZRC_API ZrcResult zrcDebugDrawTriMesh(const ZrcDebugDraw* dd,
+                                      const ZrcTriMesh* mesh,
+                                      const float* normals,
+                                      const uint8_t* flags, float tex_scale);
+
+/// The same, tinting by slope against `walkable_slope_angle` in degrees
+/// rather than by a caller's flags.
+ZRC_API ZrcResult zrcDebugDrawTriMeshSlope(const ZrcDebugDraw* dd,
+                                           const ZrcTriMesh* mesh,
+                                           const float* normals,
+                                           float walkable_slope_angle,
+                                           float tex_scale);
+
+/// Every span in the heightfield as a box.
+ZRC_API ZrcResult zrcDebugDrawHeightfieldSolid(const ZrcDebugDraw* dd,
+                                               const ZrcHeightfield* hf);
+
+/// The same, colouring a span by the area id it carries.
+ZRC_API ZrcResult zrcDebugDrawHeightfieldWalkable(const ZrcDebugDraw* dd,
+                                                  const ZrcHeightfield* hf);
+
+ZRC_API ZrcResult zrcDebugDrawCompactHeightfieldSolid(
+    const ZrcDebugDraw* dd, const ZrcCompactHeightfield* chf);
+
+/// Each span coloured by its region id. Spans in no region are grey.
+ZRC_API ZrcResult zrcDebugDrawCompactHeightfieldRegions(
+    const ZrcDebugDraw* dd, const ZrcCompactHeightfield* chf);
+
+/// Each span coloured by its distance to the nearest border, which is only
+/// non-zero after zrcCompactHeightfieldBuildDistanceField.
+ZRC_API ZrcResult zrcDebugDrawCompactHeightfieldDistance(
+    const ZrcDebugDraw* dd, const ZrcCompactHeightfield* chf);
+
+/// One sheet of a layered heightfield, coloured by the layer's index.
+/// [Limit: 0 <= index < zrcHeightfieldLayerSetCount]
+ZRC_API ZrcResult zrcDebugDrawHeightfieldLayer(
+    const ZrcDebugDraw* dd, const ZrcHeightfieldLayerSet* layers,
+    int32_t index);
+
+/// Every sheet, each in its own colour.
+///
+/// RecastDebugDraw.h declares a third form, duDebugDrawHeightfieldLayersRegions,
+/// which the vendored tree never defines and which would have no region data
+/// to draw: rcHeightfieldLayer carries heights, areas and connections, and no
+/// region ids. There is no entry point for it here. See UPSTREAM.md.
+ZRC_API ZrcResult zrcDebugDrawHeightfieldLayers(
+    const ZrcDebugDraw* dd, const ZrcHeightfieldLayerSet* layers);
+
+/// Arcs joining each contour vertex to the region it borders, which is what
+/// makes a mis-merged region visible. `alpha` runs 0..1.
+ZRC_API ZrcResult zrcDebugDrawRegionConnections(const ZrcDebugDraw* dd,
+                                                const ZrcContourSet* cset,
+                                                float alpha);
+
+/// The traced outlines, before simplification.
+ZRC_API ZrcResult zrcDebugDrawRawContours(const ZrcDebugDraw* dd,
+                                          const ZrcContourSet* cset,
+                                          float alpha);
+
+/// The simplified outlines, which are what the polygon mesh is built from.
+ZRC_API ZrcResult zrcDebugDrawContours(const ZrcDebugDraw* dd,
+                                       const ZrcContourSet* cset, float alpha);
+
+/// The polygon mesh: filled polygons, their internal and boundary edges, and
+/// their vertices.
+ZRC_API ZrcResult zrcDebugDrawPolyMesh(const ZrcDebugDraw* dd,
+                                       const ZrcPolyMesh* mesh);
+
+/// The detail mesh that restores the height Recast quantised away. A mesh
+/// that has not been through zrcPolyMeshBuildDetail draws nothing, which is
+/// an empty answer rather than an error.
+ZRC_API ZrcResult zrcDebugDrawPolyMeshDetail(const ZrcDebugDraw* dd,
+                                             const ZrcPolyMesh* mesh);
+
+//===----------------------------------------------------------------------===//
+// Drawing what Detour loaded
+//===----------------------------------------------------------------------===//
+
+/// Every tile's polygons, plus whatever `flags` asks for: off-mesh
+/// connections, a colour per tile, or the closed-list shading that needs a
+/// query and is therefore only honoured by the WithClosedList form.
+ZRC_API ZrcResult zrcDebugDrawNavMesh(const ZrcDebugDraw* dd,
+                                      const ZrcNavMesh* mesh, uint8_t flags);
+
+/// The same, shading each polygon the last search on `query` closed.
+ZRC_API ZrcResult zrcDebugDrawNavMeshWithClosedList(const ZrcDebugDraw* dd,
+                                                    const ZrcNavMesh* mesh,
+                                                    const ZrcNavMeshQuery* query,
+                                                    uint8_t flags);
+
+/// The search's node pool: one point per node, and a line to its parent.
+ZRC_API ZrcResult zrcDebugDrawNavMeshNodes(const ZrcDebugDraw* dd,
+                                           const ZrcNavMeshQuery* query);
+
+/// Every tile's bounding-volume tree as nested boxes. A tile built without
+/// one contributes nothing.
+ZRC_API ZrcResult zrcDebugDrawNavMeshBVTree(const ZrcDebugDraw* dd,
+                                            const ZrcNavMesh* mesh);
+
+/// The portal edges tiles join across, which is what a path crosses a tile
+/// boundary through.
+ZRC_API ZrcResult zrcDebugDrawNavMeshPortals(const ZrcDebugDraw* dd,
+                                             const ZrcNavMesh* mesh);
+
+/// Every polygon sharing a bit with `poly_flags`, in one colour. Zero matches
+/// nothing, the same rule a query filter follows.
+ZRC_API ZrcResult zrcDebugDrawNavMeshPolysWithFlags(const ZrcDebugDraw* dd,
+                                                    const ZrcNavMesh* mesh,
+                                                    uint16_t poly_flags,
+                                                    uint32_t col);
+
+/// One polygon. A reference that names no resident polygon draws nothing and
+/// is not an error, upstream's own behaviour.
+ZRC_API ZrcResult zrcDebugDrawNavMeshPoly(const ZrcDebugDraw* dd,
+                                          const ZrcNavMesh* mesh,
+                                          ZrcPolyRef ref, uint32_t col);
+
+/// A decompressed tile-cache layer, each cell coloured by its area id.
+ZRC_API ZrcResult zrcDebugDrawTileCacheLayerAreas(const ZrcDebugDraw* dd,
+                                                  const ZrcTileCacheLayer* layer,
+                                                  float cs, float ch);
+
+/// The same, coloured by region id. A layer that has not been through
+/// zrcTileCacheLayerBuildRegions carries an all-zero region grid, which draws
+/// as one region.
+ZRC_API ZrcResult zrcDebugDrawTileCacheLayerRegions(
+    const ZrcDebugDraw* dd, const ZrcTileCacheLayer* layer, float cs, float ch);
+
+/// The outlines a tile-cache rebuild traced, `origin` the layer's own minimum
+/// corner.
+ZRC_API ZrcResult zrcDebugDrawTileCacheContours(const ZrcDebugDraw* dd,
+                                                const ZrcTileCacheContourSet* cset,
+                                                const float* origin, float cs,
+                                                float ch);
+
+/// The polygon mesh a tile-cache rebuild produced, before it becomes a tile.
+ZRC_API ZrcResult zrcDebugDrawTileCachePolyMesh(const ZrcDebugDraw* dd,
+                                                const ZrcTileCachePolyMesh* mesh,
+                                                const float* origin, float cs,
+                                                float ch);
+
+//===----------------------------------------------------------------------===//
+// Dumping a build to a file
+//
+// duFileIO is upstream's seam for bytes: four hooks, and no file is opened or
+// named here. A host points them at whatever it calls a file.
+//
+// The two read entry points are the only calls in this section that build
+// something. They consume exactly what their dump counterpart wrote, in this
+// build, on this target: the format is upstream's own struct layout copied to
+// the stream, so it is neither endian- nor padding-portable, and it carries no
+// length a reader could check a count against. Feed them only bytes this
+// package produced. See UPSTREAM.md.
+//===----------------------------------------------------------------------===//
+
+/// The byte sink or source a dump reads and writes through. Every field is
+/// required. A hook returning ZRC_FALSE aborts the dump that called it.
+///
+/// `is_writing` and `is_reading` are asked once, before anything is
+/// transferred, and a stream that answers neither is refused here rather than
+/// inside upstream, which prints to stdout and returns false.
+typedef struct ZrcFileIO {
+  void* user;
+  ZrcBool (*is_writing)(void* user);
+  ZrcBool (*is_reading)(void* user);
+  ZrcBool (*write)(void* user, const void* ptr, size_t size);
+  ZrcBool (*read)(void* user, void* ptr, size_t size);
+} ZrcFileIO;
+
+/// Writes the polygon mesh as a Wavefront OBJ: one `v` line per vertex, one
+/// `f` line per triangle of each polygon's fan.
+ZRC_API ZrcResult zrcDumpPolyMeshToObj(const ZrcPolyMesh* mesh,
+                                       const ZrcFileIO* io);
+
+/// The same for the detail mesh. One that has not been built writes the two
+/// header lines and no geometry.
+ZRC_API ZrcResult zrcDumpPolyMeshDetailToObj(const ZrcPolyMesh* mesh,
+                                             const ZrcFileIO* io);
+
+/// Writes a contour set in upstream's own binary form.
+ZRC_API ZrcResult zrcDumpContourSet(const ZrcContourSet* cset,
+                                    const ZrcFileIO* io);
+
+/// Reads one back into a contour set the caller owns and destroys with
+/// zrcContourSetDestroy.
+ZRC_API ZrcResult zrcReadContourSet(const ZrcFileIO* io, ZrcContourSet** out);
+
+/// Writes a compact heightfield in upstream's own binary form. Whichever of
+/// the cell, span, distance and area arrays exist are written; the rest are
+/// recorded as absent.
+ZRC_API ZrcResult zrcDumpCompactHeightfield(const ZrcCompactHeightfield* chf,
+                                            const ZrcFileIO* io);
+
+/// Reads one back into a field the caller owns and destroys with
+/// zrcCompactHeightfieldDestroy.
+ZRC_API ZrcResult zrcReadCompactHeightfield(const ZrcFileIO* io,
+                                            ZrcCompactHeightfield** out);
+
+/// Logs each build phase's accumulated time and its share of `total_usec`
+/// through the context's own log hook, as ZRC_LOG_PROGRESS lines.
+///
+/// The context needs logging enabled and a log hook, or upstream formats
+/// twenty-six lines and discards every one. [Limit: 0 < total_usec]
+ZRC_API ZrcResult zrcLogBuildTimes(const ZrcBuildContext* context,
+                                   int32_t total_usec);
+
+//===----------------------------------------------------------------------===//
 // ABI layout guard
 //
 // The Zig wrapper hand-declares `extern struct`s mirroring the POD types above.
@@ -5398,6 +5888,26 @@ typedef struct ZrcAbiLayout {
 
   uint32_t agent_ref_size;
   uint32_t path_request_ref_size;
+
+  /// DebugUtils' two host-supplied interfaces. Each is a user pointer
+  /// followed by a run of function pointers of one width — nine of them for
+  /// the renderer — which is the worst case for a spot check: any two trading
+  /// places leaves size, alignment and every sampled offset identical, and a
+  /// draw call's vertices then arrive at the hook that ends a run. Every
+  /// offset is reported for that reason.
+  uint32_t debug_draw_size;
+  uint32_t debug_draw_align;
+  uint32_t debug_draw_field_count;
+  uint32_t debug_draw_offsets[ZRC_ABI_MAX_FIELDS];
+
+  uint32_t file_io_size;
+  uint32_t file_io_align;
+  uint32_t file_io_field_count;
+  uint32_t file_io_offsets[ZRC_ABI_MAX_FIELDS];
+
+  /// Number of enumerators in ZrcDebugDrawPrimitive, so a consumer can assert
+  /// its own primitive table is the right length.
+  uint32_t debug_draw_primitive_count;
 } ZrcAbiLayout;
 
 /// Fills `out` with the layout the library was compiled with. Never fails.

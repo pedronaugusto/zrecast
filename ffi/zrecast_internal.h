@@ -26,9 +26,13 @@
 #include "DetourTileCache.h"
 #include "DetourTileCacheBuilder.h"
 #include "DetourStatus.h"
+#include "DebugDraw.h"
+#include "DetourDebugDraw.h"
 #include "Recast.h"
 #include "RecastAlloc.h"
 #include "RecastAssert.h"
+#include "RecastDebugDraw.h"
+#include "RecastDump.h"
 #include "zrecast.h"
 
 namespace zrc {
@@ -707,6 +711,119 @@ class HostContext : public rcContext {
   const ZrcBuildContext* hooks_;
 };
 
+//===----------------------------------------------------------------------===//
+// DebugUtils' two host-supplied interfaces
+//
+// Upstream takes each as an abstract class, the same shape the tile cache's
+// compressor and mesh-process hooks arrive in. Each of these wraps the POD the
+// C ABI carries and is built on the stack for the duration of one call, so a
+// host that swaps a hook between calls is obeyed.
+//===----------------------------------------------------------------------===//
+
+/// A caller's ZrcDebugDraw, wearing the renderer interface every DebugUtils
+/// entry point takes.
+///
+/// Every hook but `area_to_col` is required, so none is null-checked per
+/// call: the entry point that accepts a ZrcDebugDraw rejects an incomplete
+/// one. `area_to_col` left null falls through to duDebugDraw's own table, so
+/// areaToCol is overridden rather than replaced.
+class HostDebugDraw : public duDebugDraw {
+ public:
+  explicit HostDebugDraw(const ZrcDebugDraw& hooks);
+
+  void depthMask(bool state) override;
+  void texture(bool state) override;
+  void begin(duDebugDrawPrimitives prim, float size = 1.0f) override;
+  void vertex(const float* pos, unsigned int color) override;
+  void vertex(const float x, const float y, const float z,
+              unsigned int color) override;
+  void vertex(const float* pos, unsigned int color, const float* uv) override;
+  void vertex(const float x, const float y, const float z, unsigned int color,
+              const float u, const float v) override;
+  void end() override;
+  unsigned int areaToCol(unsigned int area) override;
+
+ private:
+  ZrcDebugDraw hooks_;
+};
+
+/// A caller's ZrcFileIO, wearing the byte interface RecastDump.h takes.
+///
+/// All four hooks are required and checked at the entry point, for the same
+/// reason the compressor's three are: a stream that could answer `isWriting`
+/// and not `write` would fail halfway through a dump with half a file on
+/// disk.
+class HostFileIO : public duFileIO {
+ public:
+  explicit HostFileIO(const ZrcFileIO& hooks);
+
+  bool isWriting() const override;
+  bool isReading() const override;
+  bool write(const void* ptr, const size_t size) override;
+  bool read(void* ptr, const size_t size) override;
+
+ private:
+  ZrcFileIO hooks_;
+};
+
+/// duDisplayList made concrete, and counting what it holds.
+///
+/// Upstream's class overrides five of duDebugDraw's nine pure virtuals and
+/// leaves `texture` and the two textured `vertex` forms untouched, so
+/// `duDisplayList` as declared cannot be instantiated. These three fill the
+/// gap: a texture state change is nothing to record, and a textured vertex is
+/// recorded without its coordinates — which is what duDisplayList::draw would
+/// do with them, since it replays every vertex through the untextured form.
+///
+/// The vertex count is kept here rather than read out of the object because
+/// duDisplayList keeps its own privately and offers no accessor. Every route
+/// into the list passes through one of the two overrides below:
+/// duDisplayList::vertex(pos, color) forwards to the virtual (x, y, z) form,
+/// and begin() is where a run is discarded.
+class ConcreteDisplayList : public duDisplayList {
+ public:
+  explicit ConcreteDisplayList(int cap) : duDisplayList(cap), count_(0) {}
+
+  void texture(bool state) override { (void)state; }
+
+  void begin(duDebugDrawPrimitives prim, float size = 1.0f) override {
+    count_ = 0;
+    duDisplayList::begin(prim, size);
+  }
+
+  void vertex(const float x, const float y, const float z,
+              unsigned int color) override {
+    duDisplayList::vertex(x, y, z, color);
+    ++count_;
+  }
+
+  void vertex(const float* pos, unsigned int color, const float* uv) override {
+    (void)uv;
+    vertex(pos[0], pos[1], pos[2], color);
+  }
+
+  void vertex(const float x, const float y, const float z, unsigned int color,
+              const float u, const float v) override {
+    (void)u;
+    (void)v;
+    vertex(x, y, z, color);
+  }
+
+  /// Brought back into scope: declaring the overloads above hides every
+  /// inherited `vertex`, including the (pos, color) form the base class calls.
+  using duDisplayList::vertex;
+
+  void clearRecorded() {
+    count_ = 0;
+    clear();
+  }
+
+  int32_t recorded() const { return count_; }
+
+ private:
+  int32_t count_;
+};
+
 /// Bounds a `(first, count)` window against an array of `length` entries.
 ///
 /// A window outside the array is an error rather than a short read, so a caller
@@ -1126,6 +1243,11 @@ struct ZrcPathQueue {
   /// keep-alive window can be reclaimed.
   dtQueryFilter filters[zrc::kPathQueueSlots];
   ZrcPathRequestRef filter_owner[zrc::kPathQueueSlots];
+};
+
+/// A recorded run of primitives.
+struct ZrcDisplayList {
+  zrc::ConcreteDisplayList* impl;
 };
 
 struct ZrcNavMeshQuery {
