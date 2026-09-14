@@ -28,18 +28,10 @@ Taken: `Recast/`, `Detour/`, `DetourCrowd/`, `DetourTileCache/`, `DebugUtils/`,
 | `Docs/` | 584 KB | Doxygen inputs, a CSS theme and images. |
 | `CMakeLists.txt` (all) | — | Superseded by `build.zig`. |
 
-Of what was taken, `Recast/`, `Detour/`, `DetourTileCache/` and `DetourCrowd/`
-are compiled. `DebugUtils/` is on disk and unbuilt: every function in it takes
-a `duDebugDraw*` renderer callback, a drawing interface rather than a
-navigation capability, and this ABI hosts none. It is kept because it is cheap
-to keep — it depends on nothing but the Recast and Detour headers already here
-— and `tools/coverage.sh` claims the directory as deliberately empty, so the
-coverage gate sees it as accounted for rather than as a directory nobody looked
-at.
-
-Which translation units actually compile is decided explicitly in `build.zig`
-(`recast_sources`, `detour_sources`, `detour_tile_cache_sources`,
-`detour_crowd_sources`), never by a directory glob.
+All five of the taken directories are compiled. Which translation units do so
+is decided explicitly in `build.zig` (`recast_sources`, `detour_sources`,
+`detour_tile_cache_sources`, `detour_crowd_sources`, `debug_utils_sources`),
+never by a directory glob.
 
 ## What the cook's determinism rests on
 
@@ -756,6 +748,57 @@ border wider than half the field makes both negative, and the allocation size
 `lw*lh` is then a positive, meaningless product while every write loop, bounded
 by the same negative values, writes nothing. Not memory-unsafe, but a layer set
 that reports dimensions no geometry has. Refused at the boundary.
+
+**`duDebugDrawHeightfieldLayersRegions` is declared and never defined.**
+`RecastDebugDraw.h:34` declares it beside the two layer draws that do exist,
+and no source in the vendored tree defines it, so a host that calls it fails to
+link. There is also nothing for it to draw: `rcHeightfieldLayer` carries
+heights, areas and connections and no region ids. No entry point here, and the
+coverage record carries it as `UNDEFINED` — a verdict `ci/check-coverage.sh`
+recomputes, so a re-vendor that supplies the definition fails the gate until it
+is bound.
+
+**`duDisplayList` is a concrete class that cannot be instantiated.** It
+overrides five of `duDebugDraw`'s nine pure virtuals and leaves `texture` and
+the two textured `vertex` forms alone (`DebugDraw.h:195-222`), so the class as
+declared is abstract. `zrc::ConcreteDisplayList` supplies the three: a texture
+state change is nothing to record, and a textured vertex is recorded without
+its coordinates — which is what `duDisplayList::draw` would do with them
+anyway, since it replays every vertex through the untextured form.
+
+**`duDisplayList` allocates outside the allocator seam.** Its vertex and colour
+arrays are `new float[]` and `new unsigned int[]` (`DebugDraw.cpp:547-562`),
+not `rcAlloc`, so `zrcSetAllocator` never sees them and an allocation failure
+there is a `std::bad_alloc` in a library compiled with `-fno-exceptions`, which
+terminates. Stated rather than worked around: the arrays are private and the
+class owns them. The handle itself goes through the seam.
+
+**`RecastDump.h`'s six entry points diagnose by printing to stdout.** A null or
+wrong-mode `duFileIO` makes each of them `printf` a line and return false
+(`RecastDump.cpp:45-53` and the same shape in the other five), and
+`duReadContourSet` and `duReadCompactHeightfield` do it again for a bad magic
+or version. Every argument case is refused at the boundary before upstream sees
+it, so only the two magic/version lines remain reachable — from a read fed
+bytes that are not a dump, which the suite does exercise.
+
+**`duReadContourSet` and `duReadCompactHeightfield` trust the stream.** Both
+read a count out of the bytes and allocate from it with no bound
+(`RecastDump.cpp:197-201`, `:340-393`), and `ioprintf` writes through a fixed
+256-byte line buffer and ignores what `write` returns
+(`RecastDump.cpp:32-40`). The format is upstream's own struct layout copied to
+the stream: neither endian- nor padding-portable, and carrying no length a
+reader could check a count against. Not defensible from outside — the reads
+happen inside upstream, one field at a time, against a stream only the host can
+interpret. `zrcReadContourSet` and `zrcReadCompactHeightfield` therefore create
+the container rather than filling a caller's, so a failed read destroys a
+half-built one instead of handing it back, and the header says to feed them
+only bytes this package wrote.
+
+**`duLogBuildTimes` divides into the total it is given.** `const float pc =
+100.0f / totalTimeUsec` (`RecastDump.cpp:437`) with an `int` total, so zero
+produces an infinity that reaches the host's log formatted as a percentage and
+a negative total produces percentages of the wrong sign. Bounded at the
+boundary.
 
 ### What the sanitizer found: nothing
 

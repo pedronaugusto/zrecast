@@ -7,8 +7,8 @@ from the vendored headers so a name cannot go missing quietly.
 
 ## The verdicts
 
-Every public name in `Recast/`, `Detour/`, `DetourCrowd/` and
-`DetourTileCache/` carries exactly one:
+Every public name in `Recast/`, `Detour/`, `DetourCrowd/`, `DetourTileCache/`
+and `DebugUtils/` carries exactly one:
 
 - **`BOUND`** — reachable through the C boundary. The evidence names the `zrc`
   symbol that carries it, and the gate checks that symbol is declared in
@@ -22,12 +22,12 @@ Every public name in `Recast/`, `Detour/`, `DetourCrowd/` and
   and the scalar helpers around them. The evidence names the mirror in
   `src/vec.zig`, and that file's bit-identity test against linkable shims over
   upstream's own `inline` definitions is what makes a mirror true.
-
-`DebugUtils/` is not bound. Every entry point in it takes a `duDebugDraw*`
-renderer callback, which is a drawing interface rather than a navigation
-capability, and this ABI hosts none. `tools/coverage.sh` claims the directory
-as deliberately empty so the gate's directory guard sees it as accounted for
-rather than as a directory nobody looked at.
+- **`UNDEFINED`** — a header declares it and no vendored source defines it, so
+  there is no symbol for any host to call. The evidence names the header and
+  line, and the gate rechecks both halves against the tree: a re-vendor that
+  supplies the definition fails until the name is bound. One name carries it,
+  `duDebugDrawHeightfieldLayersRegions`, which would also have nothing to draw
+  — `rcHeightfieldLayer` carries no region ids.
 
 ## The commands
 
@@ -69,7 +69,8 @@ parameter type; and prints what it could not parse.
 
 `DetourNavMeshQuery` is pulled out of `Detour` as its own area rather than
 folded in: `dtNavMeshQuery` is the pathfinding engine, large enough to want its
-own line rather than being buried next to `DetourAlloc`.
+own line rather than being buried next to `DetourAlloc`. `DebugUtils` is one
+area covering its four headers.
 
 Its blind spots are printed with the summary: preprocessor macros are not names
 here (`rcLikely`, the assert macros), and operator overloads carry no name a C

@@ -110,17 +110,19 @@ Everything is re-exported from the root module.
 | `pipeline.zig` | The same bake taken apart, one stage per call, every intermediate a handle a host owns. |
 | `tilecache.zig` | Dynamic obstacles: compressed layers rebuilt as obstacles appear and go away. |
 | `crowd.zig` | Agents: corridor, local boundary, proximity grid, obstacle avoidance, path queue. |
+| `debugdraw.zig` | DebugUtils: every container drawn through a renderer a Zig type implements, the display list, and the OBJ and binary dumps. |
 | `geom.zig`, `vec.zig` | Detour's computational geometry, callable directly, and the `dtV`/`rcV` families in Zig. |
 | `memory.zig`, `asserts.zig`, `error.zig` | The allocator seam, the assertion handler, the error set. |
 
-Every public name in Recast, Detour, DetourCrowd and DetourTileCache at the
-vendored version carries one verdict, and `ci/check-coverage.sh` re-derives the
-name list from the headers and checks each verdict against the tree: bound
-through the C boundary, reimplemented in Zig, or C++-only — upstream's own
-containers (`rcVectorBase`, `rcIntArray`, `dtNodeQueue`), its libm wrappers and
-its `dtSwapEndian` overloads. Nothing is left over. Upstream's fifth directory,
-`DebugUtils`, is not bound: every entry point in it takes a renderer callback.
-[docs/surface.md](docs/surface.md) lists the bound surface capability by
+Every public name in Recast, Detour, DetourCrowd, DetourTileCache and
+DebugUtils at the vendored version carries one verdict, and
+`ci/check-coverage.sh` re-derives the name list from the headers and checks
+each verdict against the tree: bound through the C boundary, reimplemented in
+Zig, or C++-only — upstream's own containers (`rcVectorBase`, `rcIntArray`,
+`dtNodeQueue`), its libm wrappers and its `dtSwapEndian` overloads. One name is
+declared upstream and defined nowhere, so nothing can call it; that has a
+verdict of its own, rechecked against the vendored sources. Nothing is left
+over. [docs/surface.md](docs/surface.md) lists the bound surface capability by
 capability and [docs/coverage.md](docs/coverage.md) how it is measured.
 
 ## Design
@@ -170,6 +172,17 @@ is undiagnosable by construction. `rcBuildPolyMesh` succeeding with zero
 polygons is not an error upstream, but it produces a navmesh that answers every
 query with "nowhere to go", so here it is `EmptyResult`, with an explanation of
 the two things that usually cause it.
+
+### Drawing is a renderer the host supplies
+
+`DebugUtils` decides what a heightfield, a region, a contour set or a navmesh
+looks like as points, lines, triangles and quads; what those become is the
+host's. `DebugDraw` is that seam as a Zig struct, built from a renderer type's
+own methods at compile time, so a renderer is a Zig struct rather than a table
+of C callbacks — and the four hooks of `FileIO` are the same for bytes, so a
+dump reaches whatever a host calls a file. Nothing in that half allocates,
+mutates a container, or affects a navmesh a query will see. The two read
+entry points are the exception and say so.
 
 ### Validation at the boundary
 
@@ -229,7 +242,6 @@ should record its inputs.
 
 ## Scope
 
-- `DebugUtils` is not bound; there are no drawing helpers.
 - The tile cache carries no compressor and invents no container format. The
   codec is the host's, and so is the callback that decides each rebuilt
   polygon's flags.
@@ -276,18 +288,19 @@ are shipped. `ci/run.sh` is the same matrix as `.github/workflows/ci.yml`, and
 | | |
 |---:|---|
 | **0.1.1** | version (one home: `build.zig.zon`) |
-| **313** | C entry points (`ZRC_API` in `ffi/*.h`) |
-| **313** | Zig externs (`pub extern fn` in `src/`) |
-| **1089** | public Recast/Detour names, each carrying a verdict in `tools/` |
-| **945** | of them reachable through the C boundary (`BOUND`) |
+| **383** | C entry points (`ZRC_API` in `ffi/*.h`) |
+| **383** | Zig externs (`pub extern fn` in `src/`) |
+| **1186** | public Recast/Detour names, each carrying a verdict in `tools/` |
+| **1041** | of them reachable through the C boundary (`BOUND`) |
 | **91** | C++-only surface a C boundary cannot carry (`LANGUAGE`), each with the reason |
 | **53** | reimplemented on the Zig side (`ZIG`), each naming its mirror |
-| **153** | Zig tests `zig build test` executes |
-| **975** | assertions in the standalone C smoke test |
-| **26** | vendored recastnavigation translation units `build.zig` compiles |
-| **18165** | C boundary lines (`ffi/`) |
-| **17744** | Zig source lines (`src/`) |
-| **93** | invariants `ci/probe.sh` mutates, each with the test that must notice |
+| **1** | declared upstream and defined nowhere (`UNDEFINED`), so no host can call it |
+| **166** | Zig tests `zig build test` executes |
+| **1145** | assertions in the standalone C smoke test |
+| **30** | vendored recastnavigation translation units `build.zig` compiles |
+| **19911** | C boundary lines (`ffi/`) |
+| **20432** | Zig source lines (`src/`) |
+| **96** | invariants `ci/probe.sh` mutates, each with the test that must notice |
 | **32** | steps `ci/run.sh` runs |
 | **8** | further targets `ci/run.sh` cross-compiles |
 <!-- END GENERATED -->

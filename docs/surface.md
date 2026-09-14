@@ -88,6 +88,25 @@ verdicts mean.
   fields it is for because the tile it produces reaches the navmesh without the
   validation an added tile gets. The suite carves an obstacle into the fixture's
   only gap, watches the route close, removes it, and watches it open.
+- **Drawing** — every container a bake or a load produces, rendered through a
+  renderer the host supplies: the input soup shaded by slope, the heightfield,
+  the compact heightfield solid, by region and by distance, the layered
+  heightfield, the traced and simplified contours, the polygon and detail
+  meshes, a navmesh's polygons, bounding-volume tree, portals and off-mesh
+  connections, a search's node pool and closed list, and a tile cache's layers,
+  contours and rebuilt mesh. Plus the shapes upstream draws them out of —
+  boxes, cylinders, arcs, arrows, circles, crosses and a grid — each in a form
+  that opens its own run and a form that appends to one the caller opened. The
+  renderer is a Zig struct whose methods are read at compile time; a display
+  list records one run of primitives and replays it into any other renderer.
+- **Dumping a build** — the polygon mesh and the detail mesh as Wavefront OBJ,
+  and the contour set and compact heightfield as upstream's own binary form,
+  written through four hooks a host fills rather than to a file this package
+  opens. Both binary forms read back into a container this package creates, so
+  a failed read destroys a half-built one rather than handing it over. The
+  format is upstream's struct layout copied to the stream, so it is neither
+  endian- nor padding-portable and carries no length to check a count against:
+  feed a read only bytes this package wrote.
 - **Crowds** — many agents steering around each other and the world: a local
   re-plan per agent per frame, neighbours from a proximity grid, walls from a
   cached local boundary, a velocity chosen by an obstacle-avoidance sampler, and

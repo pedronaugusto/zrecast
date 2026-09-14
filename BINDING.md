@@ -51,6 +51,9 @@ so a name cannot be missing quietly:
 - **`ZIG`** — reimplemented on the Zig side (vector math, small inline
   helpers); the evidence names the mirror, and `src/vec.zig`'s bit-identity
   test is what makes a mirror honest.
+- **`UNDEFINED`** — a header declares it and no vendored source defines it, so
+  there is no symbol to call; the evidence names the header and line, and the
+  gate rechecks both halves against the tree.
 
 A new binding therefore edits `tools/bindings.tsv`, runs `tools/record.sh` to
 regenerate `tools/unbound_*.txt`, and leaves `ci/check-coverage.sh` green.

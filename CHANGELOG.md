@@ -4,6 +4,35 @@ Each entry says what the old shape could not express, so a port has the reason
 and not only the diff. Versions follow [semantic versioning](https://semver.org);
 before 1.0 the minor is the breaking one.
 
+## Unreleased
+
+- `DebugUtils` is bound. Upstream's fifth directory is compiled and every
+  public name in it carries a verdict, so the whole vendored tree is now
+  accounted for rather than four fifths of it. A host can draw the heightfield,
+  the compact heightfield, the layered heightfield, the contours, the polygon
+  and detail meshes, a navmesh's polygons, bounding-volume tree, portals and
+  off-mesh connections, a search's node pool and closed list, and a tile
+  cache's layers, contours and rebuilt mesh — through `DebugDraw`, a renderer
+  built from a Zig type's own methods at compile time. Before this there was no
+  way to see what a cook produced: a bake that came out wrong could only be
+  inspected by reading arrays back a range at a time and drawing them by hand.
+- `DisplayList` records one run of primitives and replays it into any
+  renderer, so a static overlay is built once instead of re-emitted per frame.
+  Upstream's class is abstract as declared — it leaves three of `duDebugDraw`'s
+  pure virtuals unoverridden — and the shim completes it.
+- `RecastDump` is bound: the polygon mesh and the detail mesh dump to Wavefront
+  OBJ, and the contour set and the compact heightfield to upstream's binary
+  form and back, through `FileIO` — four hooks a host fills. No file is opened
+  or named here, and the two reads create their container rather than filling a
+  caller's, so a failed read destroys a half-built one instead of handing it
+  over. `logBuildTimes` sends a build's twenty-five phase timings to a build
+  context's log hook.
+- One upstream name is declared and defined nowhere:
+  `duDebugDrawHeightfieldLayersRegions`. The coverage record gained a verdict
+  for exactly that, rechecked against the vendored sources, so a re-vendor that
+  supplies the definition fails the gate until it is bound rather than passing
+  with the name quietly excused.
+
 ## 0.1.1
 
 - The allocator bridge can now tell one of its own blocks from a pointer into
