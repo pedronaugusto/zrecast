@@ -1,0 +1,97 @@
+DebugUtils	const:-::DU_PI	BOUND	ZRC_DEBUG_PI restates it for a host drawing its own arcs against the same constant the library converts degrees with
+DebugUtils	enum:DrawNavMeshFlags::DU_DRAWNAVMESH_CLOSEDLIST	BOUND	ZRC_DRAWNAVMESH_CLOSEDLIST, pinned to it by a static_assert in ffi/zrecast_abi.cpp; only zrcDebugDrawNavMeshWithClosedList has a search to read
+DebugUtils	enum:DrawNavMeshFlags::DU_DRAWNAVMESH_COLOR_TILES	BOUND	ZRC_DRAWNAVMESH_COLOR_TILES, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DebugUtils	enum:DrawNavMeshFlags::DU_DRAWNAVMESH_OFFMESHCONS	BOUND	ZRC_DRAWNAVMESH_OFFMESHCONS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DebugUtils	enum:duDebugDrawPrimitives::DU_DRAW_LINES	BOUND	ZRC_DEBUG_DRAW_LINES, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DebugUtils	enum:duDebugDrawPrimitives::DU_DRAW_POINTS	BOUND	ZRC_DEBUG_DRAW_POINTS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DebugUtils	enum:duDebugDrawPrimitives::DU_DRAW_QUADS	BOUND	ZRC_DEBUG_DRAW_QUADS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DebugUtils	enum:duDebugDrawPrimitives::DU_DRAW_TRIS	BOUND	ZRC_DEBUG_DRAW_TRIS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+DebugUtils	func:-::duAppendArc/11	BOUND	zrcDebugAppendArc
+DebugUtils	func:-::duAppendArrow/10	BOUND	zrcDebugAppendArrow
+DebugUtils	func:-::duAppendBox/8	BOUND	zrcDebugAppendBox, with the six face colours zrcDebugCalcBoxColors writes
+DebugUtils	func:-::duAppendBoxPoints/8	BOUND	zrcDebugAppendBoxPoints
+DebugUtils	func:-::duAppendBoxWire/8	BOUND	zrcDebugAppendBoxWire
+DebugUtils	func:-::duAppendCircle/6	BOUND	zrcDebugAppendCircle
+DebugUtils	func:-::duAppendCross/6	BOUND	zrcDebugAppendCross
+DebugUtils	func:-::duAppendCylinder/8	BOUND	zrcDebugAppendCylinder
+DebugUtils	func:-::duAppendCylinderWire/8	BOUND	zrcDebugAppendCylinderWire
+DebugUtils	func:-::duCalcBoxColors/3	BOUND	zrcDebugCalcBoxColors, which bounds the six-entry output array upstream leaves to the caller
+DebugUtils	func:-::duDarkenCol/1	BOUND	zrcDebugDarkenCol - inline upstream, so it crosses as an entry point rather than as a second implementation here
+DebugUtils	func:-::duDebugDrawArc/12	BOUND	zrcDebugDrawArc
+DebugUtils	func:-::duDebugDrawArrow/11	BOUND	zrcDebugDrawArrow
+DebugUtils	func:-::duDebugDrawBox/8	BOUND	zrcDebugDrawBox
+DebugUtils	func:-::duDebugDrawBoxWire/9	BOUND	zrcDebugDrawBoxWire
+DebugUtils	func:-::duDebugDrawCircle/7	BOUND	zrcDebugDrawCircle
+DebugUtils	func:-::duDebugDrawCompactHeightfieldDistance/2	BOUND	zrcDebugDrawCompactHeightfieldDistance, which returns ZRC_ERR_EMPTY_RESULT rather than letting upstream read the distance array before it is built
+DebugUtils	func:-::duDebugDrawCompactHeightfieldRegions/2	BOUND	zrcDebugDrawCompactHeightfieldRegions
+DebugUtils	func:-::duDebugDrawCompactHeightfieldSolid/2	BOUND	zrcDebugDrawCompactHeightfieldSolid, the one draw that consults ZrcDebugDraw.area_to_col
+DebugUtils	func:-::duDebugDrawContours/3	BOUND	zrcDebugDrawContours
+DebugUtils	func:-::duDebugDrawCross/7	BOUND	zrcDebugDrawCross
+DebugUtils	func:-::duDebugDrawCylinder/8	BOUND	zrcDebugDrawCylinder
+DebugUtils	func:-::duDebugDrawCylinderWire/9	BOUND	zrcDebugDrawCylinderWire
+DebugUtils	func:-::duDebugDrawGridXZ/9	BOUND	zrcDebugDrawGridXZ, with the negative grid extents upstream would loop over refused
+DebugUtils	func:-::duDebugDrawHeightfieldLayer/3	BOUND	zrcDebugDrawHeightfieldLayer, which bounds the sheet index against the set rather than indexing it blind
+DebugUtils	func:-::duDebugDrawHeightfieldLayers/2	BOUND	zrcDebugDrawHeightfieldLayers
+DebugUtils	func:-::duDebugDrawHeightfieldLayersRegions/2	UNDEFINED	RecastDebugDraw.h:34 declares it and no vendored source defines it; rcHeightfieldLayer carries heights, areas and connections and no region ids, so there would be nothing to draw
+DebugUtils	func:-::duDebugDrawHeightfieldSolid/2	BOUND	zrcDebugDrawHeightfieldSolid
+DebugUtils	func:-::duDebugDrawHeightfieldWalkable/2	BOUND	zrcDebugDrawHeightfieldWalkable
+DebugUtils	func:-::duDebugDrawNavMesh/3	BOUND	zrcDebugDrawNavMesh
+DebugUtils	func:-::duDebugDrawNavMeshBVTree/2	BOUND	zrcDebugDrawNavMeshBVTree
+DebugUtils	func:-::duDebugDrawNavMeshNodes/2	BOUND	zrcDebugDrawNavMeshNodes
+DebugUtils	func:-::duDebugDrawNavMeshPoly/4	BOUND	zrcDebugDrawNavMeshPoly
+DebugUtils	func:-::duDebugDrawNavMeshPolysWithFlags/4	BOUND	zrcDebugDrawNavMeshPolysWithFlags
+DebugUtils	func:-::duDebugDrawNavMeshPortals/2	BOUND	zrcDebugDrawNavMeshPortals
+DebugUtils	func:-::duDebugDrawNavMeshWithClosedList/4	BOUND	zrcDebugDrawNavMeshWithClosedList
+DebugUtils	func:-::duDebugDrawPolyMesh/2	BOUND	zrcDebugDrawPolyMesh
+DebugUtils	func:-::duDebugDrawPolyMeshDetail/2	BOUND	zrcDebugDrawPolyMeshDetail, which reaches the detail mesh ZrcPolyMesh keeps beside the polygon mesh
+DebugUtils	func:-::duDebugDrawRawContours/3	BOUND	zrcDebugDrawRawContours
+DebugUtils	func:-::duDebugDrawRegionConnections/3	BOUND	zrcDebugDrawRegionConnections
+DebugUtils	func:-::duDebugDrawTileCacheContours/5	BOUND	zrcDebugDrawTileCacheContours
+DebugUtils	func:-::duDebugDrawTileCacheLayerAreas/4	BOUND	zrcDebugDrawTileCacheLayerAreas
+DebugUtils	func:-::duDebugDrawTileCacheLayerRegions/4	BOUND	zrcDebugDrawTileCacheLayerRegions
+DebugUtils	func:-::duDebugDrawTileCachePolyMesh/5	BOUND	zrcDebugDrawTileCachePolyMesh
+DebugUtils	func:-::duDebugDrawTriMesh/8	BOUND	zrcDebugDrawTriMesh, taking the same ZrcTriMesh a bake does plus the per-triangle normals upstream silently refuses to draw without
+DebugUtils	func:-::duDebugDrawTriMeshSlope/8	BOUND	zrcDebugDrawTriMeshSlope, with the slope angle bounded to the degrees upstream can take a cosine of
+DebugUtils	func:-::duDumpCompactHeightfield/2	BOUND	zrcDumpCompactHeightfield, through the ZrcFileIO a host fills
+DebugUtils	func:-::duDumpContourSet/2	BOUND	zrcDumpContourSet, through the ZrcFileIO a host fills
+DebugUtils	func:-::duDumpPolyMeshDetailToObj/2	BOUND	zrcDumpPolyMeshDetailToObj
+DebugUtils	func:-::duDumpPolyMeshToObj/2	BOUND	zrcDumpPolyMeshToObj
+DebugUtils	func:-::duIntToCol/2(int,float*)	BOUND	zrcDebugIntToColFloat - a different bit assignment and an inversion, so it is a separate entry point rather than a float spelling of the packed one
+DebugUtils	func:-::duIntToCol/2(int,int)	BOUND	zrcDebugIntToCol
+DebugUtils	func:-::duLerpCol/3	BOUND	zrcDebugLerpCol - inline upstream, so it crosses as an entry point rather than as a second implementation here
+DebugUtils	func:-::duLogBuildTimes/2	BOUND	zrcLogBuildTimes, over the same ZrcBuildContext the staged pipeline logs and times through, with the zero total upstream divides by refused
+DebugUtils	func:-::duMultCol/2	BOUND	zrcDebugMultCol - inline upstream, so it crosses as an entry point rather than as a second implementation here
+DebugUtils	func:-::duRGBA/4	BOUND	zrcDebugRgba - inline upstream, so it crosses as an entry point rather than as a second implementation here
+DebugUtils	func:-::duRGBAf/4	BOUND	zrcDebugRgbaFloat - inline upstream, so it crosses as an entry point rather than as a second implementation here
+DebugUtils	func:-::duReadCompactHeightfield/2	BOUND	zrcReadCompactHeightfield, which creates the container rather than filling a caller's, so a half-read one is destroyed instead of handed back
+DebugUtils	func:-::duReadContourSet/2	BOUND	zrcReadContourSet, which creates the container rather than filling a caller's, so a half-read one is destroyed instead of handed back
+DebugUtils	func:-::duTransCol/2	BOUND	zrcDebugTransCol - inline upstream, so it crosses as an entry point rather than as a second implementation here
+DebugUtils	func:duDebugDraw::areaToCol/1	BOUND	ZrcDebugDraw.area_to_col, the one hook that may be NULL - upstream's own table is what NULL selects, because it has a default implementation rather than being pure
+DebugUtils	func:duDebugDraw::begin/2	BOUND	ZrcDebugDraw.begin
+DebugUtils	func:duDebugDraw::depthMask/1	BOUND	ZrcDebugDraw.depth_mask
+DebugUtils	func:duDebugDraw::end/0	BOUND	ZrcDebugDraw.end
+DebugUtils	func:duDebugDraw::texture/1	BOUND	ZrcDebugDraw.texture
+DebugUtils	func:duDebugDraw::vertex/2	BOUND	ZrcDebugDraw.vertex - position as three floats, no texture coordinates
+DebugUtils	func:duDebugDraw::vertex/3	BOUND	ZrcDebugDraw.vertex_uv - position as three floats, with a texture coordinate pair
+DebugUtils	func:duDebugDraw::vertex/4	BOUND	ZrcDebugDraw.vertex_xyz - position spelled out, no texture coordinates
+DebugUtils	func:duDebugDraw::vertex/6	BOUND	ZrcDebugDraw.vertex_xyz_uv - position and texture coordinates both spelled out
+DebugUtils	func:duDebugDraw::~duDebugDraw/0	BOUND	ZrcDebugDraw is plain data the caller owns; the destructor releases nothing, so there is nothing to destroy
+DebugUtils	func:duDisplayList::begin/2	BOUND	zrcDisplayListBegin, which refuses a primitive outside the four upstream records blind
+DebugUtils	func:duDisplayList::clear/0	BOUND	zrcDisplayListClear
+DebugUtils	func:duDisplayList::depthMask/1	BOUND	zrcDisplayListDepthMask
+DebugUtils	func:duDisplayList::draw/1	BOUND	zrcDisplayListDraw, replaying the recorded run into any ZrcDebugDraw
+DebugUtils	func:duDisplayList::duDisplayList/1	BOUND	zrcDisplayListCreate, which also bounds the capacity upstream multiplies by three before allocating
+DebugUtils	func:duDisplayList::end/0	BOUND	zrcDisplayListEnd
+DebugUtils	func:duDisplayList::vertex/2	BOUND	zrcDisplayListVertex
+DebugUtils	func:duDisplayList::vertex/4	BOUND	zrcDisplayListVertexXYZ
+DebugUtils	func:duDisplayList::~duDisplayList/0	BOUND	zrcDisplayListDestroy
+DebugUtils	func:duFileIO::isReading/0	BOUND	ZrcFileIO.is_reading, asked once before anything is transferred so a wrong-mode stream is refused here rather than inside upstream
+DebugUtils	func:duFileIO::isWriting/0	BOUND	ZrcFileIO.is_writing, asked once before anything is transferred so a wrong-mode stream is refused here rather than inside upstream
+DebugUtils	func:duFileIO::read/2	BOUND	ZrcFileIO.read
+DebugUtils	func:duFileIO::write/2	BOUND	ZrcFileIO.write
+DebugUtils	func:duFileIO::~duFileIO/0	BOUND	ZrcFileIO is plain data the caller owns; the destructor releases nothing, so there is nothing to destroy
+DebugUtils	type:-::DrawNavMeshFlags	BOUND	ZRC_DRAWNAVMESH_OFFMESHCONS and its two siblings, taken as the flags word of zrcDebugDrawNavMesh rather than as a named type, the same way every other Detour flag set crosses
+DebugUtils	type:-::duDebugDraw	BOUND	ZrcDebugDraw, a struct of function pointers rather than a class to subclass; the shim wears it as the C++ subclass upstream expects
+DebugUtils	type:-::duDebugDrawPrimitives	BOUND	ZrcDebugDrawPrimitive
+DebugUtils	type:-::duDisplayList	BOUND	ZrcDisplayList - a concrete class upstream, and an abstract one, since it leaves three of duDebugDraw's pure virtuals unoverridden; the shim completes it
+DebugUtils	type:-::duFileIO	BOUND	ZrcFileIO, a struct of function pointers rather than a class to subclass

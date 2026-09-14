@@ -62,6 +62,8 @@ emit verdict_language "$(ledger | awk -F'\t' '$3 == "LANGUAGE"' | grep -c .)" \
   'C++-only surface a C boundary cannot carry (`LANGUAGE`), each with the reason'
 emit verdict_zig "$(ledger | awk -F'\t' '$3 == "ZIG"' | grep -c .)" \
   'reimplemented on the Zig side (`ZIG`), each naming its mirror'
+emit verdict_undefined "$(ledger | awk -F'\t' '$3 == "UNDEFINED"' | grep -c .)" \
+  'declared upstream and defined nowhere (`UNDEFINED`), so no host can call it'
 
 # What the build reports, not what a grep for `test` finds: a test behind a
 # build option would be counted by the grep and never run.

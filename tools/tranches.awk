@@ -39,6 +39,7 @@ BEGIN {
   T6  = "tranche 6 - DetourCrowd"
   T7  = "tranche 7 - value math, geometry and containers"
   T8  = "tranche 8 - reading a loaded navmesh back"
+  T9  = "tranche 9 - DebugUtils"
   FS = "\t"; OFS = "\t"
 }
 
@@ -125,6 +126,7 @@ function tranche(area, owner, name, sym) {
 
   #--- Subsystems, whole.
 
+  if (area == "DebugUtils") return T9
   if (area == "DetourCrowd") return T6
   if (area == "DetourTileCache") return T5
   if (area == "DetourNavMeshQuery") return T4

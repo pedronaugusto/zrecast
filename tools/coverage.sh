@@ -44,13 +44,10 @@ else B=; D=; R=; G=; Y=; O=; fi
 # Areas. DetourNavMeshQuery is pulled out of Detour rather than folded in:
 # dtNavMeshQuery is the pathfinding engine, large enough to want its own line
 # rather than being buried next to DetourAlloc.
-#
-# DebugUtils is claimed and deliberately empty: every one of its functions
-# takes a duDebugDraw* renderer callback, which is a drawing interface rather
-# than a navigation capability, and this ABI does not host one. It is named
-# here so ci/check-coverage.sh's directory guard sees it as accounted for
-# rather than as a directory nobody looked at.
-areas() { printf '%s\n' Recast Detour DetourNavMeshQuery DetourCrowd DetourTileCache; }
+areas() {
+  printf '%s\n' Recast Detour DetourNavMeshQuery DetourCrowd DetourTileCache \
+    DebugUtils
+}
 
 area_files() {
   case "$1" in
@@ -61,6 +58,7 @@ area_files() {
     DetourNavMeshQuery) printf '%s\n' "$RECAST"/Detour/Include/DetourNavMeshQuery.h ;;
     DetourCrowd)        printf '%s\n' "$RECAST"/DetourCrowd/Include/*.h ;;
     DetourTileCache)    printf '%s\n' "$RECAST"/DetourTileCache/Include/*.h ;;
+    DebugUtils)         printf '%s\n' "$RECAST"/DebugUtils/Include/*.h ;;
   esac
 }
 
@@ -129,9 +127,10 @@ work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 cat tools/unbound_*.txt 2>/dev/null | grep -v '^#' | grep . > "$work/record" || true
 
 printf '%szrecast coverage of Recast and Detour%s\n\n' "$B" "$O"
-printf '  %-22s %6s %6s %6s %6s %6s %6s\n' area names bound ext lang internal GAP
+printf '  %-22s %6s %6s %6s %6s %6s %6s %6s\n' \
+  area names bound ext lang internal undef GAP
 
-tb=0; tn=0; te=0; tl=0; ti=0; tg=0; tu=0
+tb=0; tn=0; te=0; tl=0; ti=0; td=0; tg=0; tu=0
 for a in $(areas); do
   symbols_of "$a" > "$work/names"
   n=$(grep -c . "$work/names")
@@ -141,12 +140,15 @@ for a in $(areas); do
   e=$(awk -F'\t' '$2 == "EXTENSION"' "$work/verdicts" | wc -l | tr -d ' ')
   l=$(awk -F'\t' '$2 == "LANGUAGE" || $2 == "ZIG"' "$work/verdicts" | wc -l | tr -d ' ')
   i=$(awk -F'\t' '$2 == "INTERNAL"' "$work/verdicts" | wc -l | tr -d ' ')
+  d=$(awk -F'\t' '$2 == "UNDEFINED"' "$work/verdicts" | wc -l | tr -d ' ')
   g=$(awk -F'\t' '$2 == "GAP"' "$work/verdicts" | wc -l | tr -d ' ')
-  u=$(( n - b - e - l - i - g ))
+  u=$(( n - b - e - l - i - d - g ))
 
   colour=$Y; [ "$g" -eq 0 ] && [ "$u" -eq 0 ] && colour=$G
-  printf '  %-22s %6d %6d %6d %6d %6d %s%6d%s\n' "$a" "$n" "$b" "$e" "$l" "$i" "$colour" "$g" "$O"
-  tn=$((tn+n)); tb=$((tb+b)); te=$((te+e)); tl=$((tl+l)); ti=$((ti+i)); tg=$((tg+g)); tu=$((tu+u))
+  printf '  %-22s %6d %6d %6d %6d %6d %6d %s%6d%s\n' \
+    "$a" "$n" "$b" "$e" "$l" "$i" "$d" "$colour" "$g" "$O"
+  tn=$((tn+n)); tb=$((tb+b)); te=$((te+e)); tl=$((tl+l)); ti=$((ti+i))
+  td=$((td+d)); tg=$((tg+g)); tu=$((tu+u))
 
   if [ -n "$MODE" ] && printf '%s' "$a" | grep -qi "$MODE"; then
     join -t"$(printf '\t')" -a1 -e GAP -o '0,2.2' \
@@ -155,7 +157,8 @@ for a in $(areas); do
   fi
 done
 
-printf '  %-22s %6d %6d %6d %6d %6d %6d\n' TOTAL "$tn" "$tb" "$te" "$tl" "$ti" "$tg"
+printf '  %-22s %6d %6d %6d %6d %6d %6d %6d\n' \
+  TOTAL "$tn" "$tb" "$te" "$tl" "$ti" "$td" "$tg"
 if [ "$tu" -gt 0 ]; then
   printf '\n  %s%d name(s) with no verdict at all — run ci/check-coverage.sh%s\n' "$R" "$tu" "$O"
 fi
@@ -171,4 +174,3 @@ printf '    %spreprocessor macros are not names here (rcLikely, the assert macro
 printf '    %soperator overloads carry no name a C ABI can spell%s\n' "$D" "$O"
 printf '    %s%s symbol(s) cover more than one declaration — tools/coverage.sh --collapsed%s\n' "$D" "$collapsed" "$O"
 printf '    %s%s line(s) the harvester did not parse — tools/coverage.sh --audit%s\n' "$D" "$audit" "$O"
-printf '    %sDebugUtils is out of scope: every entry point there takes a renderer callback%s\n' "$D" "$O"

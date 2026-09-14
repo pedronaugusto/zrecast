@@ -51,7 +51,7 @@ awk -F'\t' -v OFS='\t' '
   NF != 3 {
     printf "tools/bindings.tsv:%d: not SYMBOL<TAB>VERDICT<TAB>EVIDENCE\n", FNR > "/dev/stderr"
     bad = 1; next }
-  $2 !~ /^(BOUND|EXTENSION|LANGUAGE|ZIG|INTERNAL)$/ {
+  $2 !~ /^(BOUND|EXTENSION|LANGUAGE|ZIG|INTERNAL|UNDEFINED)$/ {
     printf "tools/bindings.tsv:%d: %s is not a verdict a binding can carry\n", FNR, $2 > "/dev/stderr"
     bad = 1; next }
   !($1 in known) {

@@ -13,11 +13,14 @@
 #   LANGUAGE   Zig spells it directly; the evidence names the facility
 #   ZIG        src/FILE.zig:decl implements it
 #   INTERNAL   upstream marks it internal; tools/classify.sh must agree
+#   UNDEFINED  a header declares it and no vendored source defines it, so
+#              there is no symbol for any host to call
 #
 # Evidence is prose that has to survive a check: BOUND and EXTENSION name a
 # symbol ffi/*.h declares, LANGUAGE names a facility from a closed list, ZIG
-# names a declaration that exists, and INTERNAL must match what classify.sh
-# computes. Sorted by symbol.
+# names a declaration that exists, INTERNAL must match what classify.sh
+# computes, and UNDEFINED is rechecked against the vendored sources. Sorted by
+# symbol.
 const:-::DT_ALREADY_OCCUPIED	BOUND	ZRC_ERR_TILE_OCCUPIED - zrcNavMeshAddTile checks the slot itself so the condition has its own result rather than a generic failure
 const:-::DT_BUFFER_TOO_SMALL	BOUND	ZRC_ERR_BUFFER_TOO_SMALL maps this detail bit in zrc::ResultFromStatus, and it also drives the out_partial/out_truncated flags on success
 const:-::DT_CROWDAGENT_MAX_CORNERS	BOUND	ZRC_CROWD_MAX_CORNERS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
@@ -60,6 +63,7 @@ const:-::DT_TILE_BITS	BOUND	zrcDecodePolyRef and zrcEncodePolyRef, which split a
 const:-::DT_VERTS_PER_POLYGON	BOUND	ZRC_VERTS_PER_POLYGON mirrors this exactly (static_assert in zrecast_abi.cpp)
 const:-::DT_WRONG_MAGIC	BOUND	ZRC_ERR_BAD_FORMAT is returned by zrc::ResultFromStatus when this detail bit is set
 const:-::DT_WRONG_VERSION	BOUND	ZRC_ERR_UNSUPPORTED_VERSION is returned by zrc::ResultFromStatus when this detail bit is set
+const:-::DU_PI	BOUND	ZRC_DEBUG_PI restates it for a host drawing its own arcs against the same constant the library converts degrees with
 const:-::RC_AREA_BORDER	BOUND	ZRC_AREA_BORDER mirrors it exactly: the flag zrcContourVerts and zrcContourRawVerts set above ZRC_CONTOUR_REG_MASK when a vertex sits on an area boundary
 const:-::RC_BORDER_REG	BOUND	ZRC_BORDER_REG mirrors it exactly: the region id zrcCompactHeightfieldSpans and zrcCompactHeightfieldSetSpans read and write in ZrcCompactSpan.reg for a border span
 const:-::RC_BORDER_VERTEX	BOUND	ZRC_BORDER_VERTEX mirrors it exactly: the flag zrcContourVerts and zrcContourRawVerts set above ZRC_CONTOUR_REG_MASK when a vertex sits on a tile border
@@ -76,6 +80,9 @@ const:-::RC_WALKABLE_AREA	BOUND	ZRC_AREA_WALKABLE - the area id zrcPolyMeshBake 
 enum:CrowdAgentState::DT_CROWDAGENT_STATE_INVALID	BOUND	ZRC_CROWD_AGENT_INVALID, reported by ZrcCrowdAgent.state
 enum:CrowdAgentState::DT_CROWDAGENT_STATE_OFFMESH	BOUND	ZRC_CROWD_AGENT_OFFMESH, reported by ZrcCrowdAgent.state
 enum:CrowdAgentState::DT_CROWDAGENT_STATE_WALKING	BOUND	ZRC_CROWD_AGENT_WALKING, reported by ZrcCrowdAgent.state
+enum:DrawNavMeshFlags::DU_DRAWNAVMESH_CLOSEDLIST	BOUND	ZRC_DRAWNAVMESH_CLOSEDLIST, pinned to it by a static_assert in ffi/zrecast_abi.cpp; only zrcDebugDrawNavMeshWithClosedList has a search to read
+enum:DrawNavMeshFlags::DU_DRAWNAVMESH_COLOR_TILES	BOUND	ZRC_DRAWNAVMESH_COLOR_TILES, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+enum:DrawNavMeshFlags::DU_DRAWNAVMESH_OFFMESHCONS	BOUND	ZRC_DRAWNAVMESH_OFFMESHCONS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
 enum:MoveRequestState::DT_CROWDAGENT_TARGET_FAILED	BOUND	ZRC_CROWD_TARGET_FAILED, reported by ZrcCrowdAgent.target_state
 enum:MoveRequestState::DT_CROWDAGENT_TARGET_NONE	BOUND	ZRC_CROWD_TARGET_NONE, reported by ZrcCrowdAgent.target_state
 enum:MoveRequestState::DT_CROWDAGENT_TARGET_REQUESTING	BOUND	ZRC_CROWD_TARGET_REQUESTING, reported by ZrcCrowdAgent.target_state
@@ -112,6 +119,10 @@ enum:dtStraightPathFlags::DT_STRAIGHTPATH_START	BOUND	ZRC_STRAIGHTPATH_START, wr
 enum:dtStraightPathOptions::DT_STRAIGHTPATH_ALL_CROSSINGS	BOUND	ZRC_STRAIGHTPATH_ALL_CROSSINGS mirrors the bit exactly
 enum:dtStraightPathOptions::DT_STRAIGHTPATH_AREA_CROSSINGS	BOUND	ZRC_STRAIGHTPATH_AREA_CROSSINGS mirrors the bit exactly
 enum:dtTileFlags::DT_TILE_FREE_DATA	BOUND	ZRC_TILE_FREE_DATA mirrors it exactly, reported in ZrcTileInfo.flags
+enum:duDebugDrawPrimitives::DU_DRAW_LINES	BOUND	ZRC_DEBUG_DRAW_LINES, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+enum:duDebugDrawPrimitives::DU_DRAW_POINTS	BOUND	ZRC_DEBUG_DRAW_POINTS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+enum:duDebugDrawPrimitives::DU_DRAW_QUADS	BOUND	ZRC_DEBUG_DRAW_QUADS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
+enum:duDebugDrawPrimitives::DU_DRAW_TRIS	BOUND	ZRC_DEBUG_DRAW_TRIS, pinned to it by a static_assert in ffi/zrecast_abi.cpp
 enum:rcAllocHint::RC_ALLOC_PERM	BOUND	ZRC_ALLOC_PERM - passed through verbatim to the host allocate callback
 enum:rcAllocHint::RC_ALLOC_TEMP	BOUND	ZRC_ALLOC_TEMP - passed through verbatim to the host allocate callback
 enum:rcBuildContoursFlags::RC_CONTOUR_TESS_AREA_EDGES	BOUND	ZRC_CONTOUR_TESS_AREA_EDGES mirrors the bit exactly, one of the flags zrcContourSetCreate's flags parameter takes
@@ -616,6 +627,66 @@ func:-::dtVperp2D/2	ZIG	src/vec.zig:perp2D - a Vec3 is a value, so the destinati
 func:-::dtVscale/3	ZIG	src/vec.zig:scale - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
 func:-::dtVset/4	ZIG	src/vec.zig:Vec3 is [3]f32 and every operation takes and returns one by value, so a set is the array literal and a copy is assignment
 func:-::dtVsub/3	ZIG	src/vec.zig:sub - a Vec3 is a value, so the destination is the return value; a test asserts bit-equality against the C over zeros, negative zeros and denormals
+func:-::duAppendArc/11	BOUND	zrcDebugAppendArc
+func:-::duAppendArrow/10	BOUND	zrcDebugAppendArrow
+func:-::duAppendBox/8	BOUND	zrcDebugAppendBox, with the six face colours zrcDebugCalcBoxColors writes
+func:-::duAppendBoxPoints/8	BOUND	zrcDebugAppendBoxPoints
+func:-::duAppendBoxWire/8	BOUND	zrcDebugAppendBoxWire
+func:-::duAppendCircle/6	BOUND	zrcDebugAppendCircle
+func:-::duAppendCross/6	BOUND	zrcDebugAppendCross
+func:-::duAppendCylinder/8	BOUND	zrcDebugAppendCylinder
+func:-::duAppendCylinderWire/8	BOUND	zrcDebugAppendCylinderWire
+func:-::duCalcBoxColors/3	BOUND	zrcDebugCalcBoxColors, which bounds the six-entry output array upstream leaves to the caller
+func:-::duDarkenCol/1	BOUND	zrcDebugDarkenCol - inline upstream, so it crosses as an entry point rather than as a second implementation here
+func:-::duDebugDrawArc/12	BOUND	zrcDebugDrawArc
+func:-::duDebugDrawArrow/11	BOUND	zrcDebugDrawArrow
+func:-::duDebugDrawBox/8	BOUND	zrcDebugDrawBox
+func:-::duDebugDrawBoxWire/9	BOUND	zrcDebugDrawBoxWire
+func:-::duDebugDrawCircle/7	BOUND	zrcDebugDrawCircle
+func:-::duDebugDrawCompactHeightfieldDistance/2	BOUND	zrcDebugDrawCompactHeightfieldDistance, which returns ZRC_ERR_EMPTY_RESULT rather than letting upstream read the distance array before it is built
+func:-::duDebugDrawCompactHeightfieldRegions/2	BOUND	zrcDebugDrawCompactHeightfieldRegions
+func:-::duDebugDrawCompactHeightfieldSolid/2	BOUND	zrcDebugDrawCompactHeightfieldSolid, the one draw that consults ZrcDebugDraw.area_to_col
+func:-::duDebugDrawContours/3	BOUND	zrcDebugDrawContours
+func:-::duDebugDrawCross/7	BOUND	zrcDebugDrawCross
+func:-::duDebugDrawCylinder/8	BOUND	zrcDebugDrawCylinder
+func:-::duDebugDrawCylinderWire/9	BOUND	zrcDebugDrawCylinderWire
+func:-::duDebugDrawGridXZ/9	BOUND	zrcDebugDrawGridXZ, with the negative grid extents upstream would loop over refused
+func:-::duDebugDrawHeightfieldLayer/3	BOUND	zrcDebugDrawHeightfieldLayer, which bounds the sheet index against the set rather than indexing it blind
+func:-::duDebugDrawHeightfieldLayers/2	BOUND	zrcDebugDrawHeightfieldLayers
+func:-::duDebugDrawHeightfieldLayersRegions/2	UNDEFINED	RecastDebugDraw.h:34 declares it and no vendored source defines it; rcHeightfieldLayer carries heights, areas and connections and no region ids, so there would be nothing to draw
+func:-::duDebugDrawHeightfieldSolid/2	BOUND	zrcDebugDrawHeightfieldSolid
+func:-::duDebugDrawHeightfieldWalkable/2	BOUND	zrcDebugDrawHeightfieldWalkable
+func:-::duDebugDrawNavMesh/3	BOUND	zrcDebugDrawNavMesh
+func:-::duDebugDrawNavMeshBVTree/2	BOUND	zrcDebugDrawNavMeshBVTree
+func:-::duDebugDrawNavMeshNodes/2	BOUND	zrcDebugDrawNavMeshNodes
+func:-::duDebugDrawNavMeshPoly/4	BOUND	zrcDebugDrawNavMeshPoly
+func:-::duDebugDrawNavMeshPolysWithFlags/4	BOUND	zrcDebugDrawNavMeshPolysWithFlags
+func:-::duDebugDrawNavMeshPortals/2	BOUND	zrcDebugDrawNavMeshPortals
+func:-::duDebugDrawNavMeshWithClosedList/4	BOUND	zrcDebugDrawNavMeshWithClosedList
+func:-::duDebugDrawPolyMesh/2	BOUND	zrcDebugDrawPolyMesh
+func:-::duDebugDrawPolyMeshDetail/2	BOUND	zrcDebugDrawPolyMeshDetail, which reaches the detail mesh ZrcPolyMesh keeps beside the polygon mesh
+func:-::duDebugDrawRawContours/3	BOUND	zrcDebugDrawRawContours
+func:-::duDebugDrawRegionConnections/3	BOUND	zrcDebugDrawRegionConnections
+func:-::duDebugDrawTileCacheContours/5	BOUND	zrcDebugDrawTileCacheContours
+func:-::duDebugDrawTileCacheLayerAreas/4	BOUND	zrcDebugDrawTileCacheLayerAreas
+func:-::duDebugDrawTileCacheLayerRegions/4	BOUND	zrcDebugDrawTileCacheLayerRegions
+func:-::duDebugDrawTileCachePolyMesh/5	BOUND	zrcDebugDrawTileCachePolyMesh
+func:-::duDebugDrawTriMesh/8	BOUND	zrcDebugDrawTriMesh, taking the same ZrcTriMesh a bake does plus the per-triangle normals upstream silently refuses to draw without
+func:-::duDebugDrawTriMeshSlope/8	BOUND	zrcDebugDrawTriMeshSlope, with the slope angle bounded to the degrees upstream can take a cosine of
+func:-::duDumpCompactHeightfield/2	BOUND	zrcDumpCompactHeightfield, through the ZrcFileIO a host fills
+func:-::duDumpContourSet/2	BOUND	zrcDumpContourSet, through the ZrcFileIO a host fills
+func:-::duDumpPolyMeshDetailToObj/2	BOUND	zrcDumpPolyMeshDetailToObj
+func:-::duDumpPolyMeshToObj/2	BOUND	zrcDumpPolyMeshToObj
+func:-::duIntToCol/2(int,float*)	BOUND	zrcDebugIntToColFloat - a different bit assignment and an inversion, so it is a separate entry point rather than a float spelling of the packed one
+func:-::duIntToCol/2(int,int)	BOUND	zrcDebugIntToCol
+func:-::duLerpCol/3	BOUND	zrcDebugLerpCol - inline upstream, so it crosses as an entry point rather than as a second implementation here
+func:-::duLogBuildTimes/2	BOUND	zrcLogBuildTimes, over the same ZrcBuildContext the staged pipeline logs and times through, with the zero total upstream divides by refused
+func:-::duMultCol/2	BOUND	zrcDebugMultCol - inline upstream, so it crosses as an entry point rather than as a second implementation here
+func:-::duRGBA/4	BOUND	zrcDebugRgba - inline upstream, so it crosses as an entry point rather than as a second implementation here
+func:-::duRGBAf/4	BOUND	zrcDebugRgbaFloat - inline upstream, so it crosses as an entry point rather than as a second implementation here
+func:-::duReadCompactHeightfield/2	BOUND	zrcReadCompactHeightfield, which creates the container rather than filling a caller's, so a half-read one is destroyed instead of handed back
+func:-::duReadContourSet/2	BOUND	zrcReadContourSet, which creates the container rather than filling a caller's, so a half-read one is destroyed instead of handed back
+func:-::duTransCol/2	BOUND	zrcDebugTransCol - inline upstream, so it crosses as an entry point rather than as a second implementation here
 func:-::rcAbs/1	ZIG	src/vec.zig:scalar.abs - written as upstream's comparison rather than the builtin, which differs at negative zero: upstream returns it unchanged
 func:-::rcAddSpan/8	BOUND	zrcHeightfieldAddSpan calls it directly, after checking x/z against the heightfield's own extent and span_min/span_max/area against the limits it packs into
 func:-::rcAlloc/2	BOUND	every zrcHeightfieldCreate/zrcCompactHeightfieldCreate/zrcContourSetCreate/zrcPolyMeshCreate container allocation calls it directly with RC_ALLOC_PERM before constructing the container in place; zrcSetAllocator installs the callback it reaches
@@ -933,6 +1004,30 @@ func:dtTileCacheCompressor::maxCompressedSize/1	BOUND	ZrcTileCacheCompressor.max
 func:dtTileCacheCompressor::~dtTileCacheCompressor/0	BOUND	ZrcTileCacheCompressor is plain data the caller owns; the destructor releases nothing
 func:dtTileCacheMeshProcess::process/3	BOUND	ZrcTileCacheMeshProcess sees ZrcTileCacheBuildParams: the areas, the flags, the user id and the off-mesh connections, each validated on return and written into the tile by this package rather than by the callback
 func:dtTileCacheMeshProcess::~dtTileCacheMeshProcess/0	BOUND	ZrcTileCacheMeshProcess is a function pointer the caller owns; there is nothing to destroy
+func:duDebugDraw::areaToCol/1	BOUND	ZrcDebugDraw.area_to_col, the one hook that may be NULL - upstream's own table is what NULL selects, because it has a default implementation rather than being pure
+func:duDebugDraw::begin/2	BOUND	ZrcDebugDraw.begin
+func:duDebugDraw::depthMask/1	BOUND	ZrcDebugDraw.depth_mask
+func:duDebugDraw::end/0	BOUND	ZrcDebugDraw.end
+func:duDebugDraw::texture/1	BOUND	ZrcDebugDraw.texture
+func:duDebugDraw::vertex/2	BOUND	ZrcDebugDraw.vertex - position as three floats, no texture coordinates
+func:duDebugDraw::vertex/3	BOUND	ZrcDebugDraw.vertex_uv - position as three floats, with a texture coordinate pair
+func:duDebugDraw::vertex/4	BOUND	ZrcDebugDraw.vertex_xyz - position spelled out, no texture coordinates
+func:duDebugDraw::vertex/6	BOUND	ZrcDebugDraw.vertex_xyz_uv - position and texture coordinates both spelled out
+func:duDebugDraw::~duDebugDraw/0	BOUND	ZrcDebugDraw is plain data the caller owns; the destructor releases nothing, so there is nothing to destroy
+func:duDisplayList::begin/2	BOUND	zrcDisplayListBegin, which refuses a primitive outside the four upstream records blind
+func:duDisplayList::clear/0	BOUND	zrcDisplayListClear
+func:duDisplayList::depthMask/1	BOUND	zrcDisplayListDepthMask
+func:duDisplayList::draw/1	BOUND	zrcDisplayListDraw, replaying the recorded run into any ZrcDebugDraw
+func:duDisplayList::duDisplayList/1	BOUND	zrcDisplayListCreate, which also bounds the capacity upstream multiplies by three before allocating
+func:duDisplayList::end/0	BOUND	zrcDisplayListEnd
+func:duDisplayList::vertex/2	BOUND	zrcDisplayListVertex
+func:duDisplayList::vertex/4	BOUND	zrcDisplayListVertexXYZ
+func:duDisplayList::~duDisplayList/0	BOUND	zrcDisplayListDestroy
+func:duFileIO::isReading/0	BOUND	ZrcFileIO.is_reading, asked once before anything is transferred so a wrong-mode stream is refused here rather than inside upstream
+func:duFileIO::isWriting/0	BOUND	ZrcFileIO.is_writing, asked once before anything is transferred so a wrong-mode stream is refused here rather than inside upstream
+func:duFileIO::read/2	BOUND	ZrcFileIO.read
+func:duFileIO::write/2	BOUND	ZrcFileIO.write
+func:duFileIO::~duFileIO/0	BOUND	ZrcFileIO is plain data the caller owns; the destructor releases nothing, so there is nothing to destroy
 func:rcCompactHeightfield::rcCompactHeightfield/0	BOUND	zrcCompactHeightfieldCreate constructs it in place while allocating the container
 func:rcCompactHeightfield::~rcCompactHeightfield/0	BOUND	zrcCompactHeightfieldDestroy triggers it, through rcFreeCompactHeightfield
 func:rcContext::enableLog/1	BOUND	ZrcBuildContext.log_enabled
@@ -1005,6 +1100,7 @@ func:rcVectorBase::size/0	LANGUAGE	std.ArrayList is the same container; no publi
 func:rcVectorBase::swap/1	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
 func:rcVectorBase::~rcVectorBase/0	LANGUAGE	std.ArrayList is the same container; no public Recast function takes or returns one, and every use in the vendored tree is a local inside a static function
 type:-::CrowdAgentState	BOUND	ZrcCrowdAgentState
+type:-::DrawNavMeshFlags	BOUND	ZRC_DRAWNAVMESH_OFFMESHCONS and its two siblings, taken as the flags word of zrcDebugDrawNavMesh rather than as a named type, the same way every other Detour flag set crosses
 type:-::MoveRequestState	BOUND	ZrcCrowdTargetState
 type:-::ObstacleState	BOUND	ZrcObstacleState, enumerator for enumerator (static_asserts in zrecast_abi.cpp)
 type:-::ObstacleType	BOUND	ZrcObstacleShape, enumerator for enumerator (static_asserts in zrecast_abi.cpp)
@@ -1076,6 +1172,10 @@ type:-::dtTileCacheParams	BOUND	ZrcTileCacheParams, taken by zrcTileCacheCreate 
 type:-::dtTileCachePolyMesh	BOUND	ZrcTileCachePolyMesh, produced by zrcTileCachePolyMeshCreate
 type:-::dtTileFlags	BOUND	ZRC_TILE_FREE_DATA is its only enumerator, and ZrcTileInfo.flags is where it is read
 type:-::dtTileRef	BOUND	ZrcTileRef is exactly dtTileRef (static_assert SameType in zrecast_abi.cpp)
+type:-::duDebugDraw	BOUND	ZrcDebugDraw, a struct of function pointers rather than a class to subclass; the shim wears it as the C++ subclass upstream expects
+type:-::duDebugDrawPrimitives	BOUND	ZrcDebugDrawPrimitive
+type:-::duDisplayList	BOUND	ZrcDisplayList - a concrete class upstream, and an abstract one, since it leaves three of duDebugDraw's pure virtuals unoverridden; the shim completes it
+type:-::duFileIO	BOUND	ZrcFileIO, a struct of function pointers rather than a class to subclass
 type:-::rcAllocFunc	BOUND	ZrcAllocator.allocate - the function a host installs, called with a size and a hint
 type:-::rcAllocHint	BOUND	ZrcAllocHint
 type:-::rcAssertFailFunc	BOUND	ZrcAssertFailFunc, which carries a host pointer upstream's own signature has nowhere to put

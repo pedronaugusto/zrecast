@@ -73,11 +73,11 @@ for f in tools/unbound_*.txt; do
   awk -F'\t' -v F="$f" '
     /^#/ || !NF { next }
     NF != 4 { printf "%s:%d: not four tab-separated fields\n", F, FNR > "/dev/stderr"; next }
-    $3 !~ /^(BOUND|EXTENSION|LANGUAGE|ZIG|INTERNAL|GAP)$/ {
+    $3 !~ /^(BOUND|EXTENSION|LANGUAGE|ZIG|INTERNAL|UNDEFINED|GAP)$/ {
       printf "%s:%d: unknown verdict %s\n", F, FNR, $3 > "/dev/stderr"; next }
     $3 != "GAP" && length($4) < 8 {
       printf "%s:%d: %s has no evidence\n", F, FNR, $2 > "/dev/stderr"; next }
-    $3 == "GAP" && $4 !~ /^tranche [1-8][ab]? - .../ {
+    $3 == "GAP" && $4 !~ /^tranche [1-9][ab]? - .../ {
       printf "%s:%d: %s is a GAP not assigned to a tranche\n", F, FNR, $2 > "/dev/stderr"; next }
     { print $1 "\t" $2 "\t" $3 "\t" $4 }
   ' "$f" 2>>"$work/shape" >> "$work/rows"
@@ -201,6 +201,17 @@ awk -F'\t' '
     next
   }
 
+  # UNDEFINED claims upstream declares a name and defines it nowhere. That is
+  # recomputed below against the vendored sources rather than believed, and the
+  # evidence has to name the header and line the declaration sits on.
+  verdict == "UNDEFINED" {
+    if (match(evidence, /^[A-Za-z0-9_]+\.h:[0-9]+ /))
+      print "UNDEFINED\t" name "\t" substr(evidence, RSTART, RLENGTH - 1)
+    else
+      printf "  %s: UNDEFINED evidence does not open with HEADER.h:LINE\n", name > "/dev/stderr"
+    next
+  }
+
   verdict == "INTERNAL" {
     if (!(name in prov))
       printf "  %s: INTERNAL, but tools/classify.sh cannot justify it\n", name > "/dev/stderr"
@@ -229,6 +240,30 @@ done
 if [ -s "$work/refmiss" ]; then
   cat "$work/refmiss" >&2
   fail "$(grep -c . "$work/refmiss") member reference(s) pointing at nothing"
+fi
+
+# UNDEFINED evidence: the header really declares it at that line, and no
+# vendored source defines it. A re-vendor that supplies the definition turns
+# this into a binding that has to be written, and fails here until it is.
+: > "$work/undefmiss"
+grep '^UNDEFINED' "$work/refs" 2>/dev/null | while IFS="$TAB" read -r _ name where; do
+  bare=${name##*::}; bare=${bare%%/*}
+  header=libs/recastnavigation/DebugUtils/Include/${where%%:*}
+  line=${where##*:}
+  if [ ! -f "$header" ]; then
+    printf '  %s: %s does not exist\n' "$name" "$header" >> "$work/undefmiss"
+    continue
+  fi
+  sed -n "${line}p" "$header" | grep -q "[^A-Za-z0-9_]${bare}(" ||
+    printf '  %s: %s:%s does not declare it\n' "$name" "$header" "$line" >> "$work/undefmiss"
+  if grep -qE "(^|[^A-Za-z0-9_])${bare}[[:space:]]*\\(" \
+       libs/recastnavigation/*/Source/*.cpp; then
+    printf '  %s: a vendored source defines it after all; bind it\n' "$name" >> "$work/undefmiss"
+  fi
+done
+if [ -s "$work/undefmiss" ]; then
+  cat "$work/undefmiss" >&2
+  fail "$(grep -c . "$work/undefmiss") UNDEFINED line(s) that do not hold"
 fi
 
 # ZIG evidence: the declaration has to exist.
