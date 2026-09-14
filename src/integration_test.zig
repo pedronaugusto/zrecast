@@ -6975,3 +6975,1105 @@ test "a crowd's borrowed pieces are the ones it is driving" {
 
     _ = try crowd.pathQueue();
 }
+
+//=============================================================================
+// DebugUtils: drawing what a bake produced, and dumping it to a host's bytes
+//=============================================================================
+
+/// A renderer that counts instead of drawing.
+///
+/// The point of the counts is that they are exact: upstream decides how many
+/// primitives a container becomes, so a number here changing means a
+/// re-vendor changed what a host would see on screen, and the suite says so
+/// rather than the next person noticing a different picture.
+///
+/// `runs` also proves the protocol: every `begin` is closed by an `end`, and
+/// no vertex arrives outside a run.
+const DrawRecorder = struct {
+    /// One counter per `DebugDrawPrimitive`, indexed by its tag value.
+    begins: [4]u32 = .{ 0, 0, 0, 0 },
+    verts: [4]u32 = .{ 0, 0, 0, 0 },
+    /// Vertices carrying texture coordinates, which only the two
+    /// triangle-soup draws emit.
+    textured: u32 = 0,
+    ends: u32 = 0,
+    depth_masks: u32 = 0,
+    textures: u32 = 0,
+    area_colors: u32 = 0,
+    /// The run currently open, and whether the protocol was ever broken.
+    open: ?zrecast.DebugDrawPrimitive = null,
+    misordered: bool = false,
+
+    fn index(prim: zrecast.DebugDrawPrimitive) usize {
+        return @intCast(@intFromEnum(prim));
+    }
+
+    pub fn depthMask(self: *DrawRecorder, state: bool) void {
+        _ = state;
+        self.depth_masks += 1;
+    }
+
+    pub fn texture(self: *DrawRecorder, state: bool) void {
+        _ = state;
+        self.textures += 1;
+    }
+
+    pub fn begin(self: *DrawRecorder, prim: zrecast.DebugDrawPrimitive, size: f32) void {
+        _ = size;
+        if (self.open != null) self.misordered = true;
+        self.open = prim;
+        self.begins[index(prim)] += 1;
+    }
+
+    pub fn vertex(self: *DrawRecorder, pos: [3]f32, color: u32) void {
+        _ = color;
+        for (pos) |component| {
+            if (std.math.isNan(component)) self.misordered = true;
+        }
+        const prim = self.open orelse {
+            self.misordered = true;
+            return;
+        };
+        self.verts[index(prim)] += 1;
+    }
+
+    pub fn vertexUv(self: *DrawRecorder, pos: [3]f32, color: u32, uv: [2]f32) void {
+        _ = uv;
+        self.textured += 1;
+        self.vertex(pos, color);
+    }
+
+    pub fn end(self: *DrawRecorder) void {
+        if (self.open == null) self.misordered = true;
+        self.open = null;
+        self.ends += 1;
+    }
+
+    /// Every vertex, whatever it was drawn as.
+    fn total(self: DrawRecorder) u32 {
+        var n: u32 = 0;
+        for (self.verts) |count| n += count;
+        return n;
+    }
+
+    /// Every run opened, whatever it held.
+    fn runs(self: DrawRecorder) u32 {
+        var n: u32 = 0;
+        for (self.begins) |count| n += count;
+        return n;
+    }
+
+    fn reset(self: *DrawRecorder) void {
+        self.* = .{};
+    }
+
+    /// The exact shape of what was drawn: runs opened, then vertices by
+    /// primitive in `DebugDrawPrimitive` order.
+    fn expectCounts(self: DrawRecorder, run_count: u32, verts: [4]u32) !void {
+        try self.expectWellFormed();
+        try std.testing.expectEqual(run_count, self.runs());
+        try std.testing.expectEqual(verts, self.verts);
+    }
+
+    /// Every run was closed, nothing arrived outside one, and something was
+    /// actually drawn.
+    fn expectWellFormed(self: DrawRecorder) !void {
+        try std.testing.expect(!self.misordered);
+        try std.testing.expectEqual(self.runs(), self.ends);
+        try std.testing.expect(self.open == null);
+        try std.testing.expect(self.total() > 0);
+    }
+};
+
+/// The staged cook's intermediates, kept alive so each can be drawn.
+///
+/// `stagedCook` above discards everything but the polygon mesh; every draw
+/// call in this section needs one of the stages it threw away, so this is the
+/// same sequence with the handles retained.
+const DrawStages = struct {
+    field: zrecast.Heightfield,
+    compact: zrecast.CompactHeightfield,
+    contours: zrecast.ContourSet,
+    mesh: zrecast.PolyMesh,
+
+    fn init(gpa: std.mem.Allocator) !DrawStages {
+        const config = zrecast.defaultConfig();
+        const geometry = fixtureMesh();
+        const cells = try zrecast.buildCells(config);
+        const bounds = try zrecast.calcBounds(geometry);
+        const grid = try zrecast.calcGridSize(bounds[0], bounds[1], config.cell_size);
+
+        const field = try zrecast.Heightfield.init(
+            null,
+            grid.width,
+            grid.height,
+            bounds[0],
+            bounds[1],
+            config.cell_size,
+            config.cell_height,
+        );
+        errdefer field.deinit();
+
+        const tri_areas = try gpa.alloc(u8, geometry.tris.len / 3);
+        defer gpa.free(tri_areas);
+        @memset(tri_areas, zrecast.area_null);
+        try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas);
+        try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb);
+        try field.filterLowHangingObstacles(null, cells.walkable_climb);
+        try field.filterLedgeSpans(null, cells.walkable_height, cells.walkable_climb);
+        try field.filterWalkableLowHeightSpans(null, cells.walkable_height);
+
+        const compact = try zrecast.CompactHeightfield.init(
+            null,
+            cells.walkable_height,
+            cells.walkable_climb,
+            field,
+        );
+        errdefer compact.deinit();
+        try compact.erode(null, cells.walkable_radius);
+        try compact.buildDistanceField(null);
+        try compact.buildRegions(
+            null,
+            .watershed,
+            cells.border_size,
+            cells.min_region_area,
+            cells.merge_region_area,
+        );
+
+        const contours = try zrecast.ContourSet.init(
+            null,
+            compact,
+            cells.max_simplification_error,
+            cells.max_edge_len,
+            .{},
+        );
+        errdefer contours.deinit();
+
+        const mesh = try zrecast.PolyMesh.initEmpty();
+        errdefer mesh.deinit();
+        try zrecast.polyMeshBuild(null, contours, cells.verts_per_poly, mesh);
+        try zrecast.polyMeshBuildDetail(
+            null,
+            mesh,
+            compact,
+            cells.detail_sample_dist,
+            cells.detail_sample_max_error,
+        );
+
+        return .{ .field = field, .compact = compact, .contours = contours, .mesh = mesh };
+    }
+
+    fn deinit(self: DrawStages) void {
+        self.mesh.deinit();
+        self.contours.deinit();
+        self.compact.deinit();
+        self.field.deinit();
+    }
+};
+
+/// One outward-facing normal per triangle, which is what the two triangle-soup
+/// draws shade by and refuse to run without.
+fn fixtureNormals(gpa: std.mem.Allocator, mesh: zrecast.TriMesh) ![]f32 {
+    const tri_count = mesh.tris.len / 3;
+    const normals = try gpa.alloc(f32, tri_count * 3);
+    errdefer gpa.free(normals);
+    for (0..tri_count) |i| {
+        const a: usize = @intCast(mesh.tris[i * 3 + 0]);
+        const b: usize = @intCast(mesh.tris[i * 3 + 1]);
+        const c_index: usize = @intCast(mesh.tris[i * 3 + 2]);
+        const va = mesh.verts[a * 3 ..][0..3].*;
+        const vb = mesh.verts[b * 3 ..][0..3].*;
+        const vc = mesh.verts[c_index * 3 ..][0..3].*;
+        const e0 = zrecast.vec.sub(vb, va);
+        const e1 = zrecast.vec.sub(vc, va);
+        const n = zrecast.vec.normalize(zrecast.vec.cross(e0, e1));
+        normals[i * 3 + 0] = n[0];
+        normals[i * 3 + 1] = n[1];
+        normals[i * 3 + 2] = n[2];
+    }
+    return normals;
+}
+
+test "every Recast container draws into a Zig renderer, and the counts hold" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const stages = try DrawStages.init(gpa);
+    defer stages.deinit();
+
+    var recorder = DrawRecorder{};
+    const draw = zrecast.DebugDraw.of(&recorder);
+
+    // Each count below is what upstream emits for this fixture at the default
+    // configuration. They are asserted exactly, rather than merely required to
+    // be non-zero, because a re-vendor that changes how a container is
+    // tessellated changes what a host sees on screen and nothing else in the
+    // suite would notice. They hold across optimize modes because the cook
+    // they are taken over is byte-identical across them.
+    // One quad per span, four vertices each, in a single run. The walkable
+    // form draws the same geometry and differs only in the colour it picks.
+    try draw.heightfieldSolid(stages.field);
+    try recorder.expectCounts(1, .{ 0, 0, 0, 120120 });
+    recorder.reset();
+
+    try draw.heightfieldWalkable(stages.field);
+    try recorder.expectCounts(1, .{ 0, 0, 0, 120120 });
+    recorder.reset();
+
+    // The compact heightfield is the open surface rather than every span, so
+    // it is an order of magnitude smaller. All three colourings of it walk
+    // the same spans.
+    try draw.compactHeightfieldSolid(stages.compact);
+    try recorder.expectCounts(1, .{ 0, 0, 0, 18168 });
+    recorder.reset();
+
+    try draw.compactHeightfieldRegions(stages.compact);
+    try recorder.expectCounts(1, .{ 0, 0, 0, 18168 });
+    recorder.reset();
+
+    try draw.compactHeightfieldDistance(stages.compact);
+    try recorder.expectCounts(1, .{ 0, 0, 0, 18168 });
+    recorder.reset();
+
+    // A point per region centre, and a line per connection between two.
+    try draw.regionConnections(stages.contours, 1.0);
+    try recorder.expectCounts(2, .{ 4, 72, 0, 0 });
+    recorder.reset();
+
+    // Simplification is what the contour stage is for: the traced outline
+    // carries seventeen times the vertices of the one the polygon mesh is
+    // built from.
+    try draw.rawContours(stages.contours, 1.0);
+    try recorder.expectCounts(2, .{ 508, 1016, 0, 0 });
+    recorder.reset();
+
+    try draw.contours(stages.contours, 1.0);
+    try recorder.expectCounts(2, .{ 30, 60, 0, 0 });
+    recorder.reset();
+
+    // Filled polygons, their internal edges, their boundary edges and their
+    // vertices: four runs, and the detail mesh adds vertices to two of them.
+    try draw.polyMesh(stages.mesh);
+    try recorder.expectCounts(4, .{ 24, 92, 66, 0 });
+    recorder.reset();
+
+    try draw.polyMeshDetail(stages.mesh);
+    try recorder.expectCounts(4, .{ 46, 112, 66, 0 });
+    recorder.reset();
+
+    const geometry = fixtureMesh();
+    const normals = try fixtureNormals(gpa, geometry);
+    defer gpa.free(normals);
+    const flags = try gpa.alloc(u8, geometry.tris.len / 3);
+    defer gpa.free(flags);
+    @memset(flags, 1);
+
+    // The soup is drawn as triangles, three textured vertices each, between
+    // one texture-on and one texture-off.
+    try draw.triMesh(geometry, normals, flags, 1.0);
+    try recorder.expectCounts(1, .{ 0, 0, fixture.tri_count * 3, 0 });
+    try std.testing.expectEqual(@as(u32, fixture.tri_count * 3), recorder.textured);
+    try std.testing.expectEqual(@as(u32, 2), recorder.textures);
+    recorder.reset();
+
+    try draw.triMeshSlope(geometry, normals, 45.0, 1.0);
+    try recorder.expectCounts(1, .{ 0, 0, fixture.tri_count * 3, 0 });
+    try std.testing.expectEqual(@as(u32, fixture.tri_count * 3), recorder.textured);
+    recorder.reset();
+}
+
+test "a draw call refuses a renderer with a hook missing" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const poly = try bakeFixture(null);
+    defer poly.deinit();
+
+    // Upstream declares every one of these pure and reaches whichever the
+    // shape it is drawing needs, so a half-filled table would work on some
+    // containers and fail on others. It is refused at the door instead.
+    var recorder = DrawRecorder{};
+    const complete = zrecast.DebugDraw.of(&recorder);
+    inline for (.{ "depth_mask", "texture", "begin", "vertex", "vertex_xyz", "vertex_uv", "vertex_xyz_uv", "end" }) |field| {
+        var holed = complete;
+        @field(holed, field) = null;
+        try std.testing.expectError(zrecast.Error.InvalidArgument, holed.polyMesh(poly));
+    }
+
+    // area_to_col is the one upstream gives a default for, so a table without
+    // it is complete.
+    var without_colors = complete;
+    without_colors.area_to_col = null;
+    try without_colors.polyMesh(poly);
+    try recorder.expectWellFormed();
+}
+
+test "a renderer's own area colours are used when it supplies them" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const stages = try DrawStages.init(gpa);
+    defer stages.deinit();
+
+    const Colored = struct {
+        inner: DrawRecorder = .{},
+        asked: u32 = 0,
+
+        pub fn depthMask(self: *@This(), state: bool) void {
+            self.inner.depthMask(state);
+        }
+        pub fn texture(self: *@This(), state: bool) void {
+            self.inner.texture(state);
+        }
+        pub fn begin(self: *@This(), prim: zrecast.DebugDrawPrimitive, size: f32) void {
+            self.inner.begin(prim, size);
+        }
+        pub fn vertex(self: *@This(), pos: [3]f32, color: u32) void {
+            self.inner.vertex(pos, color);
+        }
+        pub fn end(self: *@This()) void {
+            self.inner.end();
+        }
+        pub fn areaToCol(self: *@This(), area: u32) u32 {
+            self.asked += 1;
+            return zrecast.rgba(@intCast(area), 0, 0, 255);
+        }
+    };
+
+    var renderer = Colored{};
+    const draw = zrecast.DebugDraw.of(&renderer);
+
+    // Upstream colours the two area ids it knows itself — walkable and null —
+    // and asks the renderer about every other one, so a cook that paints its
+    // own ids is what reaches the hook.
+    try draw.compactHeightfieldSolid(stages.compact);
+    try renderer.inner.expectWellFormed();
+    try std.testing.expectEqual(@as(u32, 0), renderer.asked);
+    renderer.inner.reset();
+
+    const info = try stages.compact.info();
+    const span_count: usize = @intCast(info.span_count);
+    const areas = try gpa.alloc(u8, span_count);
+    defer gpa.free(areas);
+    try stages.compact.areas(0, areas);
+    var painted: u32 = 0;
+    for (areas) |*area| {
+        if (area.* == zrecast.area_walkable) {
+            area.* = 7;
+            painted += 1;
+        }
+    }
+    try std.testing.expect(painted > 0);
+    try stages.compact.setAreas(0, areas);
+
+    try draw.compactHeightfieldSolid(stages.compact);
+    try renderer.inner.expectWellFormed();
+    try std.testing.expectEqual(painted, renderer.asked);
+}
+
+test "every Detour container draws into a Zig renderer" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const poly = try bakeFixture(null);
+    defer poly.deinit();
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    defer mesh.deinit();
+    const query = try zrecast.NavMeshQuery.init(mesh, 2048);
+    defer query.deinit();
+
+    var recorder = DrawRecorder{};
+    const draw = zrecast.DebugDraw.of(&recorder);
+
+    try draw.navMesh(mesh, .{});
+    try recorder.expectWellFormed();
+    const plain = recorder.total();
+    recorder.reset();
+
+    // Colouring by tile changes no geometry, only the colour of it.
+    try draw.navMesh(mesh, .{ .color_tiles = true, .off_mesh_connections = true });
+    try recorder.expectWellFormed();
+    try std.testing.expectEqual(plain, recorder.total());
+    recorder.reset();
+
+    try draw.navMeshBvTree(mesh);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    // A single-tile mesh has no tile boundary to portal across, so this is a
+    // well-formed empty answer; the tiled mesh below is where the portals are.
+    try draw.navMeshPortals(mesh);
+    try std.testing.expectEqual(@as(u32, 0), recorder.total());
+    try std.testing.expect(!recorder.misordered);
+    recorder.reset();
+
+    const tiled = try TiledWorld.init();
+    defer tiled.deinit();
+    try draw.navMeshPortals(tiled.mesh);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    try draw.navMeshPolysWithFlags(mesh, zrecast.poly_flag_walkable, zrecast.rgba(0, 192, 255, 64));
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    // A flag word no polygon carries draws nothing at all, which is a
+    // well-formed empty answer rather than an error.
+    try draw.navMeshPolysWithFlags(mesh, 0x8000, zrecast.rgba(0, 192, 255, 64));
+    try std.testing.expectEqual(@as(u32, 0), recorder.total());
+    try std.testing.expect(!recorder.misordered);
+    recorder.reset();
+
+    const filter = zrecast.defaultFilter();
+    const from = try query.findNearestPoly(fixture.start, search_extents, &filter);
+    const to = try query.findNearestPoly(fixture.goal, search_extents, &filter);
+    try std.testing.expect(from.ref != null and to.ref != null);
+
+    try draw.navMeshPoly(mesh, from.ref.?, zrecast.rgba(255, 255, 255, 128));
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    // A reference naming no resident polygon draws nothing: upstream's own
+    // silence, not an error.
+    try draw.navMeshPoly(mesh, 0xffffffff, zrecast.rgba(255, 255, 255, 128));
+    try std.testing.expectEqual(@as(u32, 0), recorder.total());
+    recorder.reset();
+
+    // Before a search, the node pool is empty and the closed-list shading has
+    // nothing to shade; after one, both have something to say.
+    try draw.navMeshNodes(query);
+    try std.testing.expectEqual(@as(u32, 0), recorder.total());
+    recorder.reset();
+
+    var corridor: [256]zrecast.PolyRef = undefined;
+    const path = try query.findPath(
+        from.ref.?,
+        to.ref.?,
+        from.point,
+        to.point,
+        &filter,
+        &corridor,
+    );
+    try std.testing.expect(path.len > 1);
+
+    try draw.navMeshNodes(query);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    try draw.navMeshWithClosedList(mesh, query, .{ .closed_list = true });
+    try recorder.expectWellFormed();
+    recorder.reset();
+}
+
+test "the layered heightfield and a tile cache rebuild draw into a Zig renderer" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const stages = try DrawStages.init(gpa);
+    defer stages.deinit();
+
+    const config = zrecast.defaultConfig();
+    const cells = try zrecast.buildCells(config);
+    const layers = try zrecast.HeightfieldLayerSet.init(
+        null,
+        stages.compact,
+        cells.border_size,
+        cells.walkable_height,
+    );
+    defer layers.deinit();
+    const layer_count = try layers.count();
+    try std.testing.expect(layer_count > 0);
+
+    var recorder = DrawRecorder{};
+    const draw = zrecast.DebugDraw.of(&recorder);
+
+    try draw.heightfieldLayer(layers, 0);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    try draw.heightfieldLayers(layers);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    // An index past the last sheet is refused rather than read.
+    try std.testing.expectError(
+        zrecast.Error.InvalidArgument,
+        draw.heightfieldLayer(layers, layer_count),
+    );
+
+    // The tile cache's own three stages, driven by hand so each can be drawn
+    // between one and the next.
+    const layer = try layers.at(0);
+    const n: usize = @intCast(layer.width * layer.height);
+    const heights = try gpa.alloc(u8, n);
+    defer gpa.free(heights);
+    const areas = try gpa.alloc(u8, n);
+    defer gpa.free(areas);
+    const cons = try gpa.alloc(u8, n);
+    defer gpa.free(cons);
+    try layers.heights(0, 0, heights);
+    try layers.areas(0, 0, areas);
+    try layers.cons(0, 0, cons);
+
+    const header = zrecast.TileCacheLayerHeader{
+        .tile_x = 0,
+        .tile_y = 0,
+        .tile_layer = 0,
+        .bmin = layer.bmin,
+        .bmax = layer.bmax,
+        .height_min = layer.height_min,
+        .height_max = layer.height_max,
+        .width = layer.width,
+        .height = layer.height,
+        .min_x = layer.min_x,
+        .max_x = layer.max_x,
+        .min_z = layer.min_z,
+        .max_z = layer.max_z,
+    };
+    var codec = StoreCodec.compressor();
+    const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons);
+    defer bytes.deinit();
+
+    const decoded = try zrecast.TileCacheLayer.initFromBytes(&codec, null, bytes.bytes);
+    defer decoded.deinit();
+
+    try draw.tileCacheLayerAreas(decoded, config.cell_size, config.cell_height);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    try decoded.buildRegions(cells.walkable_climb);
+    try draw.tileCacheLayerRegions(decoded, config.cell_size, config.cell_height);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    const traced = try zrecast.TileCacheContourSet.init(
+        null,
+        decoded,
+        cells.walkable_climb,
+        cells.max_simplification_error,
+    );
+    defer traced.deinit();
+    try draw.tileCacheContours(traced, layer.bmin, config.cell_size, config.cell_height);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    const rebuilt = try zrecast.TileCachePolyMesh.init(null, traced);
+    defer rebuilt.deinit();
+    try draw.tileCachePolyMesh(rebuilt, layer.bmin, config.cell_size, config.cell_height);
+    try recorder.expectWellFormed();
+    recorder.reset();
+}
+
+test "the primitive helpers emit the runs they are named for" {
+    var recorder = DrawRecorder{};
+    const draw = zrecast.DebugDraw.of(&recorder);
+
+    const bmin = zrecast.Vec3{ -1, 0, -1 };
+    const bmax = zrecast.Vec3{ 1, 2, 1 };
+    const col = zrecast.rgba(255, 128, 0, 255);
+    const faces = zrecast.boxColors(col, zrecast.darkenCol(col));
+
+    // A wire box is twelve edges, so twenty-four line vertices in one run.
+    try draw.boxWire(bmin, bmax, col, 1.0);
+    try std.testing.expectEqual(@as(u32, 1), recorder.runs());
+    try std.testing.expectEqual(
+        @as(u32, 24),
+        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+    );
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    // A solid box is six quads, four vertices each.
+    try draw.box(bmin, bmax, &faces);
+    try std.testing.expectEqual(
+        @as(u32, 24),
+        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.quads)],
+    );
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    // A cross is three segments through the centre: six line vertices.
+    try draw.cross(.{ 0, 0, 0 }, 1.0, col, 1.0);
+    try std.testing.expectEqual(
+        @as(u32, 6),
+        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+    );
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    inline for (.{
+        .{ "cylinderWire", .{ bmin, bmax, col, 1.0 } },
+        .{ "circle", .{ zrecast.Vec3{ 0, 0, 0 }, 1.0, col, 1.0 } },
+        .{ "cylinder", .{ bmin, bmax, col } },
+    }) |shape| {
+        try @call(.auto, @field(zrecast.DebugDraw, shape[0]), .{draw} ++ shape[1]);
+        try recorder.expectWellFormed();
+        recorder.reset();
+    }
+
+    try draw.arc(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.25, 0.1, 0.1, col, 1.0);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    try draw.arrow(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.1, 0.1, col, 1.0);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    try draw.gridXZ(.{ 0, 0, 0 }, 4, 4, 1.0, col, 1.0);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    // The grid is drawn as fence posts rather than cells: `w + 1` lines one
+    // way and `h + 1` the other, so a zero-cell grid is still a cross of two.
+    try draw.gridXZ(.{ 0, 0, 0 }, 0, 0, 1.0, col, 1.0);
+    try std.testing.expectEqual(@as(u32, 4), recorder.total());
+    recorder.reset();
+
+    // The append forms share one run, which is the only way to draw many
+    // shapes without a state change between each.
+    recorder.begin(.lines, 1.0);
+    try draw.appendBoxWire(bmin, bmax, col);
+    try draw.appendCylinderWire(bmin, bmax, col);
+    try draw.appendArc(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.25, 0.1, 0.1, col);
+    try draw.appendArrow(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.1, 0.1, col);
+    try draw.appendCircle(.{ 0, 0, 0 }, 1.0, col);
+    try draw.appendCross(.{ 0, 0, 0 }, 1.0, col);
+    recorder.end();
+    try std.testing.expectEqual(@as(u32, 1), recorder.runs());
+    try recorder.expectWellFormed();
+    const lines = recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)];
+    try std.testing.expect(lines > 24);
+    recorder.reset();
+
+    // Sixteen, not eight: upstream emits each of the top and bottom outlines
+    // as four segments, so every corner arrives twice.
+    recorder.begin(.lines, 1.0);
+    try draw.appendBoxPoints(bmin, bmax, col);
+    recorder.end();
+    try std.testing.expectEqual(
+        @as(u32, 16),
+        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+    );
+    recorder.reset();
+
+    recorder.begin(.quads, 1.0);
+    try draw.appendBox(bmin, bmax, &faces);
+    try draw.appendCylinder(bmin, bmax, col);
+    recorder.end();
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    // A non-finite coordinate would be multiplied straight into a host's
+    // vertex buffer.
+    const nan = std.math.nan(f32);
+    try std.testing.expectError(
+        zrecast.Error.InvalidArgument,
+        draw.circle(.{ nan, 0, 0 }, 1.0, col, 1.0),
+    );
+}
+
+test "the colour helpers pack the channels upstream packs" {
+    // 0xAABBGGRR, which is what every colour argument in this section reads.
+    try std.testing.expectEqual(@as(u32, 0xFF804020), zrecast.rgba(0x20, 0x40, 0x80, 0xFF));
+    try std.testing.expectEqual(@as(u32, 0xFF0000FF), zrecast.rgba(255, 0, 0, 255));
+    // Truncation, not rounding: 0.5 * 255 is 127.5 and the cast drops the
+    // half, which is what upstream's duRGBAf does.
+    try std.testing.expectEqual(zrecast.rgba(255, 127, 0, 255), zrecast.rgbaFloat(1.0, 0.5, 0.0, 1.0));
+
+    // Alpha survives both, which is what makes them usable on an overlay.
+    const col = zrecast.rgba(200, 100, 50, 255);
+    try std.testing.expectEqual(@as(u32, 0xFF), zrecast.darkenCol(col) >> 24);
+    try std.testing.expectEqual(@as(u32, 0xFF), zrecast.multCol(col, 128) >> 24);
+    try std.testing.expectEqual(col & 0x00FFFFFF, zrecast.transCol(col, 64) & 0x00FFFFFF);
+    try std.testing.expectEqual(@as(u32, 64), zrecast.transCol(col, 64) >> 24);
+
+    const a = zrecast.rgba(0, 0, 0, 0);
+    const b = zrecast.rgba(255, 255, 255, 255);
+    try std.testing.expectEqual(a, zrecast.lerpCol(a, b, 0));
+    try std.testing.expectEqual(b, zrecast.lerpCol(a, b, 255));
+
+    // The integer colour table reads six bits of its argument, so it repeats
+    // every 64 entries and not before, and it carries the alpha it was asked
+    // for.
+    try std.testing.expectEqual(zrecast.intToCol(1, 255), zrecast.intToCol(65, 255));
+    try std.testing.expect(zrecast.intToCol(1, 255) != zrecast.intToCol(33, 255));
+    try std.testing.expectEqual(@as(u32, 255), zrecast.intToCol(1, 255) >> 24);
+
+    // The float form is upstream's other overload, not the same table: it
+    // assigns the bits to different channels and inverts them, so it is
+    // deliberately not compared against the packed one.
+    const channels = zrecast.intToColFloat(1);
+    for (channels) |channel| {
+        try std.testing.expect(channel >= 0.0 and channel <= 1.0);
+    }
+    try std.testing.expectEqual(zrecast.intToColFloat(1), zrecast.intToColFloat(65));
+
+    // Six faces: the top colour, the side colour, and four darkened variants.
+    const faces = zrecast.boxColors(zrecast.rgba(255, 255, 255, 255), zrecast.rgba(128, 128, 128, 255));
+    try std.testing.expectEqual(@as(usize, 6), faces.len);
+    for (faces) |face| try std.testing.expectEqual(@as(u32, 255), face >> 24);
+}
+
+test "a display list records a run and replays it into another renderer" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const list = try zrecast.DisplayList.init(16);
+    defer list.deinit();
+    try std.testing.expectEqual(@as(u32, 0), try list.count());
+
+    // An empty list replays nothing at all, not even the begin/end pair.
+    var recorder = DrawRecorder{};
+    const draw = zrecast.DebugDraw.of(&recorder);
+    try list.draw(draw);
+    try std.testing.expectEqual(@as(u32, 0), recorder.runs());
+    try std.testing.expectEqual(@as(u32, 0), recorder.depth_masks);
+
+    const col = zrecast.rgba(10, 20, 30, 255);
+    try list.setDepthMask(false);
+    try list.begin(.lines, 2.0);
+    try list.vertex(.{ 1, 2, 3 }, col);
+    try list.vertexXyz(4, 5, 6, col);
+    try list.end();
+    try std.testing.expectEqual(@as(u32, 2), try list.count());
+
+    try list.draw(draw);
+    try std.testing.expectEqual(@as(u32, 1), recorder.runs());
+    try std.testing.expectEqual(
+        @as(u32, 2),
+        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+    );
+    try std.testing.expectEqual(@as(u32, 1), recorder.depth_masks);
+    try recorder.expectWellFormed();
+    recorder.reset();
+
+    // Clearing keeps the primitive type and drops the vertices, so the list
+    // replays nothing again.
+    try list.clear();
+    try std.testing.expectEqual(@as(u32, 0), try list.count());
+    try list.draw(draw);
+    try std.testing.expectEqual(@as(u32, 0), recorder.runs());
+
+    // A list is a renderer as well: a draw call records into it, and the
+    // replay puts the same vertices into a recorder. `begin` discards what
+    // the list held, so what survives is the draw's last run.
+    const recorder_draw = list.recorder();
+    try recorder_draw.cross(.{ 0, 0, 0 }, 1.0, col, 1.0);
+    try std.testing.expectEqual(@as(u32, 6), try list.count());
+
+    try list.draw(draw);
+    try std.testing.expectEqual(
+        @as(u32, 6),
+        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+    );
+    try recorder.expectWellFormed();
+
+    // Refusals, at the door rather than inside upstream. The entry point also
+    // refuses a primitive outside the four, which no test here can reach: the
+    // Zig enum is exhaustive, and forging one in C is the undefined behaviour
+    // the sanitizer stops.
+    try std.testing.expectError(
+        zrecast.Error.InvalidArgument,
+        list.vertex(.{ std.math.nan(f32), 0, 0 }, col),
+    );
+}
+
+/// A byte stream over a growable buffer, written and read back through the
+/// `FileIO` hooks.
+const MemoryStream = struct {
+    bytes: std.ArrayList(u8),
+    gpa: std.mem.Allocator,
+    cursor: usize = 0,
+    writing: bool,
+    /// Set when a read asked for more than the buffer holds, which is the
+    /// only failure a stream over memory can have.
+    overran: bool = false,
+
+    fn init(gpa: std.mem.Allocator, writing: bool) MemoryStream {
+        return .{ .bytes = .empty, .gpa = gpa, .writing = writing };
+    }
+
+    fn deinit(self: *MemoryStream) void {
+        self.bytes.deinit(self.gpa);
+    }
+
+    /// The same bytes, rewound and switched to reading.
+    fn rewind(self: *MemoryStream) void {
+        self.cursor = 0;
+        self.writing = false;
+    }
+
+    pub fn isWriting(self: *MemoryStream) bool {
+        return self.writing;
+    }
+
+    pub fn isReading(self: *MemoryStream) bool {
+        return !self.writing;
+    }
+
+    pub fn write(self: *MemoryStream, data: []const u8) bool {
+        self.bytes.appendSlice(self.gpa, data) catch return false;
+        return true;
+    }
+
+    pub fn read(self: *MemoryStream, out: []u8) bool {
+        if (self.cursor + out.len > self.bytes.items.len) {
+            self.overran = true;
+            return false;
+        }
+        @memcpy(out, self.bytes.items[self.cursor..][0..out.len]);
+        self.cursor += out.len;
+        return true;
+    }
+};
+
+test "a polygon mesh and its detail mesh dump to OBJ through a Zig stream" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const poly = try bakeFixture(null);
+    defer poly.deinit();
+    const built = try poly.info();
+
+    var stream = MemoryStream.init(gpa, true);
+    defer stream.deinit();
+    try zrecast.dumpPolyMeshToObj(poly, zrecast.FileIO.of(&stream));
+
+    const text = stream.bytes.items;
+    try std.testing.expect(std.mem.startsWith(u8, text, "# Recast Navmesh\n"));
+
+    var vertex_lines: usize = 0;
+    var face_lines: usize = 0;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "v ")) vertex_lines += 1;
+        if (std.mem.startsWith(u8, line, "f ")) face_lines += 1;
+    }
+
+    // One `v` per mesh vertex, and one `f` per triangle of each polygon's
+    // fan — so at least one face per polygon, and more wherever a polygon has
+    // more than three corners.
+    try std.testing.expectEqual(@as(usize, @intCast(built.vert_count)), vertex_lines);
+    try std.testing.expect(face_lines >= @as(usize, @intCast(built.poly_count)));
+
+    // A stream that says it is reading is refused before upstream prints to
+    // the host's console about it.
+    stream.rewind();
+    try std.testing.expectError(
+        zrecast.Error.InvalidArgument,
+        zrecast.dumpPolyMeshToObj(poly, zrecast.FileIO.of(&stream)),
+    );
+
+    var detail = MemoryStream.init(gpa, true);
+    defer detail.deinit();
+    try zrecast.dumpPolyMeshDetailToObj(poly, zrecast.FileIO.of(&detail));
+    try std.testing.expect(detail.bytes.items.len > 0);
+    try std.testing.expect(std.mem.indexOf(u8, detail.bytes.items, "\nf ") != null);
+
+    // A mesh whose detail mesh was never built writes the two header lines
+    // and no geometry, which is an empty answer rather than an error.
+    const bare = try zrecast.PolyMesh.initEmpty();
+    defer bare.deinit();
+    var none = MemoryStream.init(gpa, true);
+    defer none.deinit();
+    try zrecast.dumpPolyMeshDetailToObj(bare, zrecast.FileIO.of(&none));
+    try std.testing.expect(std.mem.indexOf(u8, none.bytes.items, "\nv ") == null);
+    try std.testing.expect(std.mem.indexOf(u8, none.bytes.items, "\nf ") == null);
+}
+
+test "a contour set survives a dump and a read" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const stages = try DrawStages.init(gpa);
+    defer stages.deinit();
+
+    var stream = MemoryStream.init(gpa, true);
+    defer stream.deinit();
+    try zrecast.dumpContourSet(stages.contours, zrecast.FileIO.of(&stream));
+    try std.testing.expect(stream.bytes.items.len > 0);
+
+    stream.rewind();
+    const read_back = try zrecast.readContourSet(zrecast.FileIO.of(&stream));
+    defer read_back.deinit();
+
+    const before = try stages.contours.info();
+    const after = try read_back.info();
+    // Every field upstream's format carries. `max_error` is not one of them:
+    // duDumpContourSet never writes it, so it comes back as the default the
+    // container was allocated with.
+    try std.testing.expectEqual(before.contour_count, after.contour_count);
+    try std.testing.expectEqual(before.bmin, after.bmin);
+    try std.testing.expectEqual(before.bmax, after.bmax);
+    try std.testing.expectEqual(before.cell_size, after.cell_size);
+    try std.testing.expectEqual(before.cell_height, after.cell_height);
+    try std.testing.expectEqual(before.width, after.width);
+    try std.testing.expectEqual(before.height, after.height);
+    try std.testing.expectEqual(before.border_size, after.border_size);
+
+    var index: u32 = 0;
+    while (index < @as(u32, @intCast(before.contour_count))) : (index += 1) {
+        const one = try stages.contours.at(index);
+        const two = try read_back.at(index);
+        try std.testing.expectEqual(one, two);
+
+        const verts_a = try gpa.alloc(zrecast.ContourVertex, @intCast(one.vert_count));
+        defer gpa.free(verts_a);
+        const verts_b = try gpa.alloc(zrecast.ContourVertex, @intCast(two.vert_count));
+        defer gpa.free(verts_b);
+        try stages.contours.verts(index, 0, verts_a);
+        try read_back.verts(index, 0, verts_b);
+        try std.testing.expectEqualSlices(zrecast.ContourVertex, verts_a, verts_b);
+    }
+
+    // A read is a draw's opposite in one respect: it builds. The contour set
+    // it produced draws exactly as the one it was copied from.
+    var recorder = DrawRecorder{};
+    const draw = zrecast.DebugDraw.of(&recorder);
+    try draw.contours(stages.contours, 1.0);
+    const original = recorder.total();
+    recorder.reset();
+    try draw.contours(read_back, 1.0);
+    try std.testing.expectEqual(original, recorder.total());
+
+    // Bytes that are not a contour set are refused rather than trusted.
+    var garbage = MemoryStream.init(gpa, true);
+    defer garbage.deinit();
+    try std.testing.expect(garbage.write(&[_]u8{0} ** 64));
+    garbage.rewind();
+    try std.testing.expectError(
+        zrecast.Error.BadFormat,
+        zrecast.readContourSet(zrecast.FileIO.of(&garbage)),
+    );
+}
+
+test "a compact heightfield survives a dump and a read" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const stages = try DrawStages.init(gpa);
+    defer stages.deinit();
+
+    var stream = MemoryStream.init(gpa, true);
+    defer stream.deinit();
+    try zrecast.dumpCompactHeightfield(stages.compact, zrecast.FileIO.of(&stream));
+
+    stream.rewind();
+    const read_back = try zrecast.readCompactHeightfield(zrecast.FileIO.of(&stream));
+    defer read_back.deinit();
+
+    // Every field the format carries, in one comparison.
+    try std.testing.expectEqual(try stages.compact.info(), try read_back.info());
+
+    const info = try read_back.info();
+    const span_count: usize = @intCast(info.span_count);
+    const areas_a = try gpa.alloc(u8, span_count);
+    defer gpa.free(areas_a);
+    const areas_b = try gpa.alloc(u8, span_count);
+    defer gpa.free(areas_b);
+    try stages.compact.areas(0, areas_a);
+    try read_back.areas(0, areas_b);
+    try std.testing.expectEqualSlices(u8, areas_a, areas_b);
+
+    const dist_a = try gpa.alloc(u16, span_count);
+    defer gpa.free(dist_a);
+    const dist_b = try gpa.alloc(u16, span_count);
+    defer gpa.free(dist_b);
+    try stages.compact.distances(0, dist_a);
+    try read_back.distances(0, dist_b);
+    try std.testing.expectEqualSlices(u16, dist_a, dist_b);
+
+    // And it draws the same, which is the end-to-end statement: dumped, read
+    // and rendered produces the picture the original does.
+    var recorder = DrawRecorder{};
+    const draw = zrecast.DebugDraw.of(&recorder);
+    try draw.compactHeightfieldRegions(stages.compact);
+    const original = recorder.total();
+    recorder.reset();
+    try draw.compactHeightfieldRegions(read_back);
+    try std.testing.expectEqual(original, recorder.total());
+}
+
+test "a dump refuses a stream with a hook missing" {
+    const gpa = std.testing.allocator;
+    try zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const poly = try bakeFixture(null);
+    defer poly.deinit();
+
+    var stream = MemoryStream.init(gpa, true);
+    defer stream.deinit();
+    const complete = zrecast.FileIO.of(&stream);
+    inline for (.{ "is_writing", "is_reading", "write", "read" }) |field| {
+        var holed = complete;
+        @field(holed, field) = null;
+        try std.testing.expectError(
+            zrecast.Error.InvalidArgument,
+            zrecast.dumpPolyMeshToObj(poly, holed),
+        );
+    }
+    try std.testing.expectEqual(@as(usize, 0), stream.bytes.items.len);
+}
+
+test "build times reach a context's log hook" {
+    const Timings = struct {
+        var lines: u32 = 0;
+        var total_seen: bool = false;
+
+        fn log(user: ?*anyopaque, category: zrecast.LogCategory, text: [*]const u8, len: i32) callconv(.c) void {
+            _ = user;
+            _ = category;
+            lines += 1;
+            const message = text[0..@intCast(len)];
+            if (std.mem.indexOf(u8, message, "TOTAL") != null) total_seen = true;
+        }
+
+        fn accumulatedTime(user: ?*anyopaque, label: zrecast.TimerLabel) callconv(.c) i32 {
+            _ = user;
+            _ = label;
+            return 1000;
+        }
+    };
+
+    Timings.lines = 0;
+    Timings.total_seen = false;
+
+    const context = zrecast.BuildContext{
+        .log = Timings.log,
+        .accumulated_time = Timings.accumulatedTime,
+        .log_enabled = true,
+        .timers_enabled = true,
+    };
+    try zrecast.logBuildTimes(&context, 100000);
+
+    // A heading, twenty-five phases and a total.
+    try std.testing.expectEqual(@as(u32, 27), Timings.lines);
+    try std.testing.expect(Timings.total_seen);
+
+    // A context with logging off still formats every line, then discards it.
+    Timings.lines = 0;
+    var quiet = context;
+    quiet.log_enabled = false;
+    try zrecast.logBuildTimes(&quiet, 100000);
+    try std.testing.expectEqual(@as(u32, 0), Timings.lines);
+
+    // A zero total is a division upstream performs before anything else.
+    try std.testing.expectError(
+        zrecast.Error.InvalidArgument,
+        zrecast.logBuildTimes(&context, 0),
+    );
+    try std.testing.expectError(
+        zrecast.Error.InvalidArgument,
+        zrecast.logBuildTimes(null, -1),
+    );
+}

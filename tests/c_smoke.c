@@ -3120,6 +3120,629 @@ static void test_path_queue(void) {
   zrcNavMeshDestroy(navmesh);
 }
 
+/*===----------------------------------------------------------------------===*/
+/* DebugUtils: the renderer table, the display list, and the dump streams.    */
+/*===----------------------------------------------------------------------===*/
+
+typedef struct DrawCounts {
+  int begins;
+  int verts;
+  int textured;
+  int ends;
+  int depth_masks;
+  int textures;
+  int area_colors;
+  int open;
+  int misordered;
+} DrawCounts;
+
+static void draw_depth_mask(void* user, ZrcBool state) {
+  (void)state;
+  ++((DrawCounts*)user)->depth_masks;
+}
+
+static void draw_texture(void* user, ZrcBool state) {
+  (void)state;
+  ++((DrawCounts*)user)->textures;
+}
+
+static void draw_begin(void* user, ZrcDebugDrawPrimitive prim, float size) {
+  DrawCounts* counts = (DrawCounts*)user;
+  (void)prim;
+  (void)size;
+  if (counts->open) counts->misordered = 1;
+  counts->open = 1;
+  ++counts->begins;
+}
+
+static void draw_vertex(void* user, const float* pos, uint32_t color) {
+  DrawCounts* counts = (DrawCounts*)user;
+  (void)pos;
+  (void)color;
+  if (!counts->open) counts->misordered = 1;
+  ++counts->verts;
+}
+
+static void draw_vertex_xyz(void* user, float x, float y, float z,
+                            uint32_t color) {
+  const float pos[3] = {x, y, z};
+  draw_vertex(user, pos, color);
+}
+
+static void draw_vertex_uv(void* user, const float* pos, uint32_t color,
+                           const float* uv) {
+  (void)uv;
+  ++((DrawCounts*)user)->textured;
+  draw_vertex(user, pos, color);
+}
+
+static void draw_vertex_xyz_uv(void* user, float x, float y, float z,
+                               uint32_t color, float u, float v) {
+  const float pos[3] = {x, y, z};
+  const float uv[2] = {u, v};
+  draw_vertex_uv(user, pos, color, uv);
+}
+
+static void draw_end(void* user) {
+  DrawCounts* counts = (DrawCounts*)user;
+  if (!counts->open) counts->misordered = 1;
+  counts->open = 0;
+  ++counts->ends;
+}
+
+static uint32_t draw_area_to_col(void* user, uint32_t area) {
+  ++((DrawCounts*)user)->area_colors;
+  return zrcDebugRgba((int32_t)area, 0, 0, 255);
+}
+
+static void fill_debug_draw(ZrcDebugDraw* dd, DrawCounts* counts) {
+  memset(counts, 0, sizeof(*counts));
+  dd->user = counts;
+  dd->depth_mask = draw_depth_mask;
+  dd->texture = draw_texture;
+  dd->begin = draw_begin;
+  dd->vertex = draw_vertex;
+  dd->vertex_xyz = draw_vertex_xyz;
+  dd->vertex_uv = draw_vertex_uv;
+  dd->vertex_xyz_uv = draw_vertex_xyz_uv;
+  dd->end = draw_end;
+  dd->area_to_col = draw_area_to_col;
+}
+
+/* A byte stream over a fixed buffer, which is all a dump needs. */
+typedef struct ByteStream {
+  unsigned char* bytes;
+  size_t capacity;
+  size_t length;
+  size_t cursor;
+  int writing;
+  int overran;
+} ByteStream;
+
+static ZrcBool stream_is_writing(void* user) {
+  return ((ByteStream*)user)->writing ? ZRC_TRUE : ZRC_FALSE;
+}
+
+static ZrcBool stream_is_reading(void* user) {
+  return ((ByteStream*)user)->writing ? ZRC_FALSE : ZRC_TRUE;
+}
+
+static ZrcBool stream_write(void* user, const void* ptr, size_t size) {
+  ByteStream* stream = (ByteStream*)user;
+  if (stream->length + size > stream->capacity) {
+    stream->overran = 1;
+    return ZRC_FALSE;
+  }
+  memcpy(stream->bytes + stream->length, ptr, size);
+  stream->length += size;
+  return ZRC_TRUE;
+}
+
+static ZrcBool stream_read(void* user, void* ptr, size_t size) {
+  ByteStream* stream = (ByteStream*)user;
+  if (stream->cursor + size > stream->length) {
+    stream->overran = 1;
+    return ZRC_FALSE;
+  }
+  memcpy(ptr, stream->bytes + stream->cursor, size);
+  stream->cursor += size;
+  return ZRC_TRUE;
+}
+
+static void fill_file_io(ZrcFileIO* io, ByteStream* stream) {
+  io->user = stream;
+  io->is_writing = stream_is_writing;
+  io->is_reading = stream_is_reading;
+  io->write = stream_write;
+  io->read = stream_read;
+}
+
+static void test_debug_draw(void) {
+  ZrcDebugDraw dd;
+  DrawCounts counts;
+  fill_debug_draw(&dd, &counts);
+
+  /* Colours: 0xAABBGGRR, and the helpers agree with the packing. */
+  CHECK(zrcDebugRgba(0x20, 0x40, 0x80, 0xFF) == 0xFF804020u);
+  CHECK(zrcDebugRgbaFloat(1.0f, 0.5f, 0.0f, 1.0f) ==
+        zrcDebugRgba(255, 127, 0, 255));
+  CHECK((zrcDebugDarkenCol(zrcDebugRgba(200, 100, 50, 255)) >> 24) == 0xFFu);
+  CHECK((zrcDebugMultCol(zrcDebugRgba(200, 100, 50, 255), 128) >> 24) ==
+        0xFFu);
+  CHECK((zrcDebugTransCol(zrcDebugRgba(200, 100, 50, 255), 64) >> 24) == 64u);
+  CHECK(zrcDebugLerpCol(0u, 0xFFFFFFFFu, 0) == 0u);
+  CHECK(zrcDebugIntToCol(1, 255) == zrcDebugIntToCol(65, 255));
+
+  float channels[3] = {-1.0f, -1.0f, -1.0f};
+  CHECK(zrcDebugIntToColFloat(1, channels) == ZRC_OK);
+  CHECK(channels[0] >= 0.0f && channels[0] <= 1.0f);
+  CHECK(zrcDebugIntToColFloat(1, NULL) == ZRC_ERR_INVALID_ARGUMENT);
+
+  uint32_t faces[6];
+  CHECK(zrcDebugCalcBoxColors(faces, zrcDebugRgba(255, 255, 255, 255),
+                              zrcDebugRgba(128, 128, 128, 255)) == ZRC_OK);
+  CHECK(zrcDebugCalcBoxColors(NULL, 0, 0) == ZRC_ERR_INVALID_ARGUMENT);
+
+  /* A wire box is twelve edges: twenty-four line vertices in one run. */
+  CHECK(zrcDebugDrawBoxWire(&dd, -1, 0, -1, 1, 2, 1, faces[0], 1.0f) ==
+        ZRC_OK);
+  CHECK(counts.begins == 1);
+  CHECK(counts.ends == 1);
+  CHECK(counts.verts == 24);
+  CHECK(!counts.misordered);
+
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawBox(&dd, -1, 0, -1, 1, 2, 1, faces) == ZRC_OK);
+  CHECK(counts.verts == 24);
+
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawCross(&dd, 0, 0, 0, 1.0f, faces[0], 1.0f) == ZRC_OK);
+  CHECK(counts.verts == 6);
+
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawCircle(&dd, 0, 0, 0, 1.0f, faces[0], 1.0f) == ZRC_OK);
+  CHECK(zrcDebugDrawCylinder(&dd, -1, 0, -1, 1, 2, 1, faces[0]) == ZRC_OK);
+  CHECK(zrcDebugDrawCylinderWire(&dd, -1, 0, -1, 1, 2, 1, faces[0], 1.0f) ==
+        ZRC_OK);
+  CHECK(zrcDebugDrawArc(&dd, -1, 0, 0, 1, 0, 0, 0.25f, 0.1f, 0.1f, faces[0],
+                        1.0f) == ZRC_OK);
+  CHECK(zrcDebugDrawArrow(&dd, -1, 0, 0, 1, 0, 0, 0.1f, 0.1f, faces[0],
+                          1.0f) == ZRC_OK);
+  CHECK(zrcDebugDrawGridXZ(&dd, 0, 0, 0, 4, 4, 1.0f, faces[0], 1.0f) ==
+        ZRC_OK);
+  CHECK(counts.verts > 0);
+  CHECK(counts.begins == counts.ends);
+  CHECK(!counts.misordered);
+
+  /* The append forms share one run, which the caller opens and closes. */
+  fill_debug_draw(&dd, &counts);
+  draw_begin(&counts, ZRC_DEBUG_DRAW_LINES, 1.0f);
+  CHECK(zrcDebugAppendBoxWire(&dd, -1, 0, -1, 1, 2, 1, faces[0]) == ZRC_OK);
+  CHECK(zrcDebugAppendBoxPoints(&dd, -1, 0, -1, 1, 2, 1, faces[0]) == ZRC_OK);
+  CHECK(zrcDebugAppendCylinderWire(&dd, -1, 0, -1, 1, 2, 1, faces[0]) ==
+        ZRC_OK);
+  CHECK(zrcDebugAppendArc(&dd, -1, 0, 0, 1, 0, 0, 0.25f, 0.1f, 0.1f,
+                          faces[0]) == ZRC_OK);
+  CHECK(zrcDebugAppendArrow(&dd, -1, 0, 0, 1, 0, 0, 0.1f, 0.1f, faces[0]) ==
+        ZRC_OK);
+  CHECK(zrcDebugAppendCircle(&dd, 0, 0, 0, 1.0f, faces[0]) == ZRC_OK);
+  CHECK(zrcDebugAppendCross(&dd, 0, 0, 0, 1.0f, faces[0]) == ZRC_OK);
+  draw_end(&counts);
+  CHECK(counts.begins == 1);
+  CHECK(counts.verts > 24);
+  CHECK(!counts.misordered);
+
+  fill_debug_draw(&dd, &counts);
+  draw_begin(&counts, ZRC_DEBUG_DRAW_QUADS, 1.0f);
+  CHECK(zrcDebugAppendBox(&dd, -1, 0, -1, 1, 2, 1, faces) == ZRC_OK);
+  CHECK(zrcDebugAppendCylinder(&dd, -1, 0, -1, 1, 2, 1, faces[0]) == ZRC_OK);
+  draw_end(&counts);
+  CHECK(counts.verts > 0);
+
+  /* Every hook but area_to_col is required, and a non-finite coordinate is
+     refused before it is multiplied into a host's vertex buffer. */
+  {
+    ZrcDebugDraw holed;
+    fill_debug_draw(&holed, &counts);
+    holed.vertex_uv = NULL;
+    CHECK(zrcDebugDrawBoxWire(&holed, -1, 0, -1, 1, 2, 1, 0, 1.0f) ==
+          ZRC_ERR_INVALID_ARGUMENT);
+    fill_debug_draw(&holed, &counts);
+    holed.area_to_col = NULL;
+    CHECK(zrcDebugDrawBoxWire(&holed, -1, 0, -1, 1, 2, 1, 0, 1.0f) == ZRC_OK);
+  }
+  CHECK(zrcDebugDrawBoxWire(NULL, -1, 0, -1, 1, 2, 1, 0, 1.0f) ==
+        ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcDebugDrawCircle(&dd, (float)(0.0 / 1.0) / 0.0f, 0, 0, 1.0f, 0,
+                           1.0f) == ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcDebugDrawGridXZ(&dd, 0, 0, 0, -1, 4, 1.0f, 0, 1.0f) ==
+        ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcDebugDrawBox(&dd, -1, 0, -1, 1, 2, 1, NULL) ==
+        ZRC_ERR_INVALID_ARGUMENT);
+
+  /* The display list: one run recorded, then replayed into the table above. */
+  ZrcDisplayList* refused = NULL;
+  CHECK(zrcDisplayListCreate(-1, &refused) == ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(refused == NULL);
+  CHECK(zrcDisplayListCreate(16, NULL) == ZRC_ERR_INVALID_ARGUMENT);
+
+  ZrcDisplayList* list = NULL;
+  CHECK(zrcDisplayListCreate(16, &list) == ZRC_OK);
+  if (list == NULL) {
+    ++failures;
+    return;
+  }
+
+  int32_t recorded = -1;
+  CHECK(zrcDisplayListVertexCount(list, &recorded) == ZRC_OK);
+  CHECK(recorded == 0);
+
+  const float pos[3] = {1.0f, 2.0f, 3.0f};
+  CHECK(zrcDisplayListDepthMask(list, ZRC_FALSE) == ZRC_OK);
+  CHECK(zrcDisplayListBegin(list, ZRC_DEBUG_DRAW_LINES, 2.0f) == ZRC_OK);
+  CHECK(zrcDisplayListVertex(list, pos, 0xFF00FF00u) == ZRC_OK);
+  CHECK(zrcDisplayListVertexXYZ(list, 4.0f, 5.0f, 6.0f, 0xFF00FF00u) ==
+        ZRC_OK);
+  CHECK(zrcDisplayListEnd(list) == ZRC_OK);
+  CHECK(zrcDisplayListVertexCount(list, &recorded) == ZRC_OK);
+  CHECK(recorded == 2);
+
+  CHECK(zrcDisplayListVertex(list, NULL, 0) == ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcDisplayListBegin(NULL, ZRC_DEBUG_DRAW_LINES, 1.0f) ==
+        ZRC_ERR_INVALID_ARGUMENT);
+
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDisplayListDraw(list, &dd) == ZRC_OK);
+  CHECK(counts.begins == 1);
+  CHECK(counts.verts == 2);
+  CHECK(counts.depth_masks == 1);
+
+  CHECK(zrcDisplayListClear(list) == ZRC_OK);
+  CHECK(zrcDisplayListVertexCount(list, &recorded) == ZRC_OK);
+  CHECK(recorded == 0);
+
+  /* The list wearing the renderer interface: a draw call records into it. */
+  ZrcDebugDraw into_list;
+  CHECK(zrcDisplayListRecorder(list, &into_list) == ZRC_OK);
+  CHECK(zrcDebugDrawCross(&into_list, 0, 0, 0, 1.0f, 0xFFFFFFFFu, 1.0f) ==
+        ZRC_OK);
+  CHECK(zrcDisplayListVertexCount(list, &recorded) == ZRC_OK);
+  CHECK(recorded == 6);
+
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDisplayListDraw(list, &dd) == ZRC_OK);
+  CHECK(counts.verts == 6);
+
+  zrcDisplayListDestroy(list);
+  zrcDisplayListDestroy(NULL);
+}
+
+static void test_debug_draw_containers(void) {
+  ZrcDebugDraw dd;
+  DrawCounts counts;
+  fill_debug_draw(&dd, &counts);
+
+  ZrcTriMesh mesh;
+  zrcFixtureTriMesh(&mesh);
+
+  /* Three floats per triangle, and required: upstream draws nothing without
+     them and says nothing about it. */
+  float* normals = (float*)malloc(sizeof(float) * 3 * (size_t)mesh.tri_count);
+  CHECK(normals != NULL);
+  if (normals == NULL) return;
+  for (int32_t i = 0; i < mesh.tri_count; ++i) {
+    normals[i * 3 + 0] = 0.0f;
+    normals[i * 3 + 1] = 1.0f;
+    normals[i * 3 + 2] = 0.0f;
+  }
+  CHECK(zrcDebugDrawTriMesh(&dd, &mesh, normals, NULL, 1.0f) == ZRC_OK);
+  CHECK(counts.textured == mesh.tri_count * 3);
+  CHECK(counts.textures == 2);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawTriMeshSlope(&dd, &mesh, normals, 45.0f, 1.0f) == ZRC_OK);
+  CHECK(counts.textured == mesh.tri_count * 3);
+  CHECK(zrcDebugDrawTriMesh(&dd, &mesh, NULL, NULL, 1.0f) ==
+        ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcDebugDrawTriMeshSlope(&dd, &mesh, normals, 120.0f, 1.0f) ==
+        ZRC_ERR_INVALID_ARGUMENT);
+  free(normals);
+
+  ZrcBakeConfig config;
+  zrcBakeConfigDefault(&config);
+  ZrcPolyMesh* poly = NULL;
+  CHECK(zrcPolyMeshBake(&config, &mesh, NULL, NULL, &poly) == ZRC_OK);
+  if (poly == NULL) {
+    ++failures;
+    return;
+  }
+
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawPolyMesh(&dd, poly) == ZRC_OK);
+  CHECK(counts.verts > 0);
+  CHECK(counts.begins == counts.ends);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawPolyMeshDetail(&dd, poly) == ZRC_OK);
+  CHECK(counts.verts > 0);
+  CHECK(zrcDebugDrawPolyMesh(&dd, NULL) == ZRC_ERR_INVALID_ARGUMENT);
+
+  ZrcNavMesh* navmesh = NULL;
+  CHECK(zrcNavMeshCreate(poly, NULL, &navmesh) == ZRC_OK);
+  if (navmesh == NULL) {
+    zrcPolyMeshDestroy(poly);
+    ++failures;
+    return;
+  }
+  ZrcNavMeshQuery* query = NULL;
+  CHECK(zrcNavMeshQueryCreate(navmesh, 2048, &query) == ZRC_OK);
+
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawNavMesh(&dd, navmesh, ZRC_DRAWNAVMESH_OFFMESHCONS |
+                                              ZRC_DRAWNAVMESH_COLOR_TILES) ==
+        ZRC_OK);
+  CHECK(counts.verts > 0);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawNavMeshBVTree(&dd, navmesh) == ZRC_OK);
+  CHECK(counts.verts > 0);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawNavMeshPortals(&dd, navmesh) == ZRC_OK);
+  CHECK(counts.begins == counts.ends);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawNavMeshPolysWithFlags(&dd, navmesh, ZRC_POLY_FLAG_WALKABLE,
+                                          0xFF00FF00u) == ZRC_OK);
+  CHECK(counts.verts > 0);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawNavMeshWithClosedList(&dd, navmesh, query,
+                                          ZRC_DRAWNAVMESH_CLOSEDLIST) ==
+        ZRC_OK);
+  CHECK(counts.verts > 0);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawNavMeshNodes(&dd, query) == ZRC_OK);
+  CHECK(counts.begins == counts.ends);
+  CHECK(zrcDebugDrawNavMeshPoly(&dd, navmesh, 0, 0xFF00FF00u) == ZRC_OK);
+  CHECK(zrcDebugDrawNavMeshNodes(&dd, NULL) == ZRC_ERR_INVALID_ARGUMENT);
+
+  /* The OBJ dump, into a host's own bytes. */
+  ByteStream stream;
+  unsigned char* buffer = (unsigned char*)malloc(1 << 20);
+  CHECK(buffer != NULL);
+  if (buffer == NULL) {
+    zrcNavMeshQueryDestroy(query);
+    zrcNavMeshDestroy(navmesh);
+    zrcPolyMeshDestroy(poly);
+    return;
+  }
+  memset(&stream, 0, sizeof(stream));
+  stream.bytes = buffer;
+  stream.capacity = 1 << 20;
+  stream.writing = 1;
+
+  ZrcFileIO io;
+  fill_file_io(&io, &stream);
+  CHECK(zrcDumpPolyMeshToObj(poly, &io) == ZRC_OK);
+  CHECK(stream.length > 0);
+  CHECK(!stream.overran);
+  CHECK(memcmp(buffer, "# Recast Navmesh\n", 17) == 0);
+
+  /* A stream that says it is reading is refused before upstream prints to
+     the host's console about it. */
+  stream.writing = 0;
+  CHECK(zrcDumpPolyMeshToObj(poly, &io) == ZRC_ERR_INVALID_ARGUMENT);
+
+  {
+    ZrcFileIO holed = io;
+    holed.write = NULL;
+    CHECK(zrcDumpPolyMeshToObj(poly, &holed) == ZRC_ERR_INVALID_ARGUMENT);
+  }
+  CHECK(zrcDumpPolyMeshToObj(poly, NULL) == ZRC_ERR_INVALID_ARGUMENT);
+
+  stream.length = 0;
+  stream.cursor = 0;
+  stream.writing = 1;
+  CHECK(zrcDumpPolyMeshDetailToObj(poly, &io) == ZRC_OK);
+  CHECK(stream.length > 0);
+
+  free(buffer);
+  zrcNavMeshQueryDestroy(query);
+  zrcNavMeshDestroy(navmesh);
+  zrcPolyMeshDestroy(poly);
+}
+
+static void test_debug_dump_round_trip(void) {
+  ZrcTriMesh mesh;
+  zrcFixtureTriMesh(&mesh);
+
+  float bmin[3], bmax[3];
+  CHECK(zrcCalcBounds(&mesh, bmin, bmax) == ZRC_OK);
+  const float cell_size = 0.3f;
+  const float cell_height = 0.2f;
+  int32_t width = 0, height = 0;
+  CHECK(zrcCalcGridSize(bmin, bmax, cell_size, &width, &height) == ZRC_OK);
+
+  ZrcHeightfield* hf = NULL;
+  CHECK(zrcHeightfieldCreate(NULL, width, height, bmin, bmax, cell_size,
+                             cell_height, &hf) == ZRC_OK);
+  if (hf == NULL) {
+    ++failures;
+    return;
+  }
+  uint8_t* tri_areas = (uint8_t*)malloc((size_t)mesh.tri_count);
+  CHECK(tri_areas != NULL);
+  memset(tri_areas, 0, (size_t)mesh.tri_count);
+  CHECK(zrcMarkWalkableTriangles(NULL, 45.0f, &mesh, tri_areas) == ZRC_OK);
+  CHECK(zrcHeightfieldRasterizeTriangles(NULL, hf, &mesh, tri_areas, 4) ==
+        ZRC_OK);
+  free(tri_areas);
+
+  ZrcCompactHeightfield* chf = NULL;
+  CHECK(zrcCompactHeightfieldCreate(NULL, 10, 4, hf, &chf) == ZRC_OK);
+
+  ZrcDebugDraw dd;
+  DrawCounts counts;
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawHeightfieldSolid(&dd, hf) == ZRC_OK);
+  CHECK(counts.verts > 0);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawHeightfieldWalkable(&dd, hf) == ZRC_OK);
+  CHECK(counts.verts > 0);
+  zrcHeightfieldDestroy(hf);
+  if (chf == NULL) {
+    ++failures;
+    return;
+  }
+
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawCompactHeightfieldSolid(&dd, chf) == ZRC_OK);
+  CHECK(counts.verts > 0);
+
+  /* The distance field is an array upstream reads unconditionally, and it
+     does not exist until it is built. */
+  CHECK(zrcDebugDrawCompactHeightfieldDistance(&dd, chf) ==
+        ZRC_ERR_EMPTY_RESULT);
+  CHECK(zrcCompactHeightfieldBuildDistanceField(NULL, chf) == ZRC_OK);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawCompactHeightfieldDistance(&dd, chf) == ZRC_OK);
+  CHECK(counts.verts > 0);
+
+  CHECK(zrcCompactHeightfieldBuildRegions(NULL, chf, ZRC_PARTITION_WATERSHED,
+                                          0, 64, 400) == ZRC_OK);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawCompactHeightfieldRegions(&dd, chf) == ZRC_OK);
+  CHECK(counts.verts > 0);
+
+  ZrcContourSet* contours = NULL;
+  CHECK(zrcContourSetCreate(NULL, chf, 1.3f, 40, ZRC_CONTOUR_TESS_WALL_EDGES,
+                            &contours) == ZRC_OK);
+  if (contours == NULL) {
+    zrcCompactHeightfieldDestroy(chf);
+    ++failures;
+    return;
+  }
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawContours(&dd, contours, 1.0f) == ZRC_OK);
+  CHECK(counts.verts > 0);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawRawContours(&dd, contours, 1.0f) == ZRC_OK);
+  CHECK(counts.verts > 0);
+  fill_debug_draw(&dd, &counts);
+  CHECK(zrcDebugDrawRegionConnections(&dd, contours, 1.0f) == ZRC_OK);
+  CHECK(counts.begins == counts.ends);
+  CHECK(zrcDebugDrawContours(&dd, contours, 2.0f) == ZRC_ERR_INVALID_ARGUMENT);
+
+  /* Dump and read back, through the same host stream. */
+  const size_t capacity = 8u << 20;
+  unsigned char* buffer = (unsigned char*)malloc(capacity);
+  CHECK(buffer != NULL);
+  if (buffer == NULL) {
+    zrcContourSetDestroy(contours);
+    zrcCompactHeightfieldDestroy(chf);
+    return;
+  }
+
+  ByteStream stream;
+  ZrcFileIO io;
+  memset(&stream, 0, sizeof(stream));
+  stream.bytes = buffer;
+  stream.capacity = capacity;
+  stream.writing = 1;
+  fill_file_io(&io, &stream);
+
+  CHECK(zrcDumpContourSet(contours, &io) == ZRC_OK);
+  CHECK(!stream.overran);
+  stream.writing = 0;
+  stream.cursor = 0;
+
+  ZrcContourSet* read_contours = NULL;
+  CHECK(zrcReadContourSet(&io, &read_contours) == ZRC_OK);
+  if (read_contours != NULL) {
+    ZrcContourSetInfo before, after;
+    memset(&before, 0, sizeof(before));
+    memset(&after, 0, sizeof(after));
+    CHECK(zrcContourSetInfo(contours, &before) == ZRC_OK);
+    CHECK(zrcContourSetInfo(read_contours, &after) == ZRC_OK);
+    CHECK(before.contour_count == after.contour_count);
+    CHECK(before.width == after.width);
+    CHECK(before.height == after.height);
+    CHECK(before.cell_size == after.cell_size);
+    zrcContourSetDestroy(read_contours);
+  } else {
+    ++failures;
+  }
+
+  /* A stream that says it is writing cannot be read from. */
+  stream.writing = 1;
+  read_contours = NULL;
+  CHECK(zrcReadContourSet(&io, &read_contours) == ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(read_contours == NULL);
+
+  stream.length = 0;
+  stream.cursor = 0;
+  CHECK(zrcDumpCompactHeightfield(chf, &io) == ZRC_OK);
+  CHECK(!stream.overran);
+  stream.writing = 0;
+  stream.cursor = 0;
+
+  ZrcCompactHeightfield* read_chf = NULL;
+  CHECK(zrcReadCompactHeightfield(&io, &read_chf) == ZRC_OK);
+  if (read_chf != NULL) {
+    ZrcCompactHeightfieldInfo before, after;
+    memset(&before, 0, sizeof(before));
+    memset(&after, 0, sizeof(after));
+    CHECK(zrcCompactHeightfieldInfo(chf, &before) == ZRC_OK);
+    CHECK(zrcCompactHeightfieldInfo(read_chf, &after) == ZRC_OK);
+    CHECK(memcmp(&before, &after, sizeof(before)) == 0);
+    zrcCompactHeightfieldDestroy(read_chf);
+  } else {
+    ++failures;
+  }
+
+  /* Bytes that are not a dump are refused rather than trusted. */
+  memset(buffer, 0, 64);
+  stream.length = 64;
+  stream.cursor = 0;
+  stream.writing = 0;
+  read_chf = NULL;
+  CHECK(zrcReadCompactHeightfield(&io, &read_chf) == ZRC_ERR_BAD_FORMAT);
+  CHECK(read_chf == NULL);
+
+  free(buffer);
+  zrcContourSetDestroy(contours);
+  zrcCompactHeightfieldDestroy(chf);
+}
+
+static int build_time_lines = 0;
+
+static void build_time_log(void* user, ZrcLogCategory category,
+                           const char* text, int32_t length) {
+  (void)user;
+  (void)category;
+  (void)text;
+  (void)length;
+  ++build_time_lines;
+}
+
+static int32_t build_time_accumulated(void* user, ZrcTimerLabel label) {
+  (void)user;
+  (void)label;
+  return 1000;
+}
+
+static void test_log_build_times(void) {
+  ZrcBuildContext ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.log = build_time_log;
+  ctx.accumulated_time = build_time_accumulated;
+  ctx.log_enabled = ZRC_TRUE;
+  ctx.timers_enabled = ZRC_TRUE;
+
+  build_time_lines = 0;
+  CHECK(zrcLogBuildTimes(&ctx, 100000) == ZRC_OK);
+  CHECK(build_time_lines == 27);
+
+  /* Upstream turns the total into a percentage by dividing into it. */
+  CHECK(zrcLogBuildTimes(&ctx, 0) == ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcLogBuildTimes(NULL, -5) == ZRC_ERR_INVALID_ARGUMENT);
+}
+
 int main(void) {
   Counters counters = {0, 0};
   ZrcAllocator allocator;
@@ -3156,6 +3779,10 @@ int main(void) {
   test_path_corridor();
   test_local_boundary();
   test_path_queue();
+  test_debug_draw();
+  test_debug_draw_containers();
+  test_debug_dump_round_trip();
+  test_log_build_times();
 
   /* The seam must actually have been used, and everything taken must have been
      given back. */

@@ -1,0 +1,16 @@
+# expect: a draw call refuses a renderer with a hook missing
+--- a/ffi/zrecast_debugdraw.cpp
++++ b/ffi/zrecast_debugdraw.cpp
+@@ -22,12 +22,6 @@
+ /// containers and not on others.
+ ZrcResult ValidateDebugDraw(const ZrcDebugDraw* dd) {
+   if (dd == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+-  if (dd->depth_mask == nullptr || dd->texture == nullptr ||
+-      dd->begin == nullptr || dd->vertex == nullptr ||
+-      dd->vertex_xyz == nullptr || dd->vertex_uv == nullptr ||
+-      dd->vertex_xyz_uv == nullptr || dd->end == nullptr) {
+-    return ZRC_ERR_INVALID_ARGUMENT;
+-  }
+   return ZRC_OK;
+ }
+ 

@@ -1,0 +1,13 @@
+# expect: does not declare it
+# run: tools/record.sh && ci/check-coverage.sh
+--- a/tools/bindings.tsv
++++ b/tools/bindings.tsv
+@@ -653,7 +653,7 @@
+ func:-::duDebugDrawGridXZ/9	BOUND	zrcDebugDrawGridXZ, with the negative grid extents upstream would loop over refused
+ func:-::duDebugDrawHeightfieldLayer/3	BOUND	zrcDebugDrawHeightfieldLayer, which bounds the sheet index against the set rather than indexing it blind
+ func:-::duDebugDrawHeightfieldLayers/2	BOUND	zrcDebugDrawHeightfieldLayers
+-func:-::duDebugDrawHeightfieldLayersRegions/2	UNDEFINED	RecastDebugDraw.h:34 declares it and no vendored source defines it; rcHeightfieldLayer carries heights, areas and connections and no region ids, so there would be nothing to draw
++func:-::duDebugDrawHeightfieldLayersRegions/2	UNDEFINED	RecastDebugDraw.h:33 declares it and no vendored source defines it; rcHeightfieldLayer carries heights, areas and connections and no region ids, so there would be nothing to draw
+ func:-::duDebugDrawHeightfieldSolid/2	BOUND	zrcDebugDrawHeightfieldSolid
+ func:-::duDebugDrawHeightfieldWalkable/2	BOUND	zrcDebugDrawHeightfieldWalkable
+ func:-::duDebugDrawNavMesh/3	BOUND	zrcDebugDrawNavMesh
