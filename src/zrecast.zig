@@ -54,6 +54,7 @@ const asserts_mod = @import("asserts.zig");
 const pipeline_mod = @import("pipeline.zig");
 const tilecache_mod = @import("tilecache.zig");
 const crowd_mod = @import("crowd.zig");
+const debugdraw_mod = @import("debugdraw.zig");
 
 //=============================================================================
 // Public surface
@@ -257,6 +258,30 @@ pub const avoidance_max_pattern_divs = crowd_mod.avoidance_max_pattern_divs;
 pub const avoidance_max_pattern_rings = crowd_mod.avoidance_max_pattern_rings;
 pub const path_corridor_min_path = crowd_mod.path_corridor_min_path;
 
+// Drawing what a bake produced, and dumping it to a host's bytes.
+pub const DebugDraw = debugdraw_mod.DebugDraw;
+pub const DebugDrawPrimitive = debugdraw_mod.Primitive;
+pub const NavMeshDrawOptions = debugdraw_mod.NavMeshDrawOptions;
+pub const DisplayList = debugdraw_mod.DisplayList;
+pub const FileIO = debugdraw_mod.FileIO;
+pub const debug_pi = c.debug_pi;
+pub const rgba = debugdraw_mod.rgba;
+pub const rgbaFloat = debugdraw_mod.rgbaFloat;
+pub const intToCol = debugdraw_mod.intToCol;
+pub const intToColFloat = debugdraw_mod.intToColFloat;
+pub const multCol = debugdraw_mod.multCol;
+pub const darkenCol = debugdraw_mod.darkenCol;
+pub const lerpCol = debugdraw_mod.lerpCol;
+pub const transCol = debugdraw_mod.transCol;
+pub const boxColors = debugdraw_mod.boxColors;
+pub const dumpPolyMeshToObj = debugdraw_mod.dumpPolyMeshToObj;
+pub const dumpPolyMeshDetailToObj = debugdraw_mod.dumpPolyMeshDetailToObj;
+pub const dumpContourSet = debugdraw_mod.dumpContourSet;
+pub const readContourSet = debugdraw_mod.readContourSet;
+pub const dumpCompactHeightfield = debugdraw_mod.dumpCompactHeightfield;
+pub const readCompactHeightfield = debugdraw_mod.readCompactHeightfield;
+pub const logBuildTimes = debugdraw_mod.logBuildTimes;
+
 // Geometry and value math.
 pub const vec = vec_mod;
 pub const geom = geom_mod;
@@ -323,6 +348,7 @@ test {
     _ = asserts_mod;
     _ = pipeline_mod;
     _ = tilecache_mod;
+    _ = debugdraw_mod;
     // Only reachable in a test build, where the fixture library is linked.
     _ = @import("integration_test.zig");
 }
@@ -1363,6 +1389,44 @@ test "the C library agrees with the extern declarations in c.zig" {
     try std.testing.expectEqual(
         @as(u32, @sizeOf(c.PathRequestRef)),
         layout.path_request_ref_size,
+    );
+
+    const debug_draw_field_order = [_][]const u8{
+        "user",
+        "depth_mask",
+        "texture",
+        "begin",
+        "vertex",
+        "vertex_xyz",
+        "vertex_uv",
+        "vertex_xyz_uv",
+        "end",
+        "area_to_col",
+    };
+    try expectFieldOffsets(
+        c.DebugDraw,
+        &debug_draw_field_order,
+        layout.debug_draw_size,
+        layout.debug_draw_align,
+        layout.debug_draw_field_count,
+        &layout.debug_draw_offsets,
+    );
+
+    const file_io_field_order = [_][]const u8{
+        "user", "is_writing", "is_reading", "write", "read",
+    };
+    try expectFieldOffsets(
+        c.FileIO,
+        &file_io_field_order,
+        layout.file_io_size,
+        layout.file_io_align,
+        layout.file_io_field_count,
+        &layout.file_io_offsets,
+    );
+
+    try std.testing.expectEqual(
+        @as(u32, @typeInfo(c.DebugDrawPrimitive).@"enum".fields.len),
+        layout.debug_draw_primitive_count,
     );
 
     // ZRC_MAX_TIMERS is the last enumerator, so the count includes it.

@@ -1163,6 +1163,7 @@ pub const TileCache = opaque {};
 pub const TileCacheLayer = opaque {};
 pub const TileCacheContourSet = opaque {};
 pub const TileCachePolyMesh = opaque {};
+pub const DisplayList = opaque {};
 
 //=============================================================================
 // Entry points
@@ -3011,3 +3012,410 @@ pub extern fn zrcPathQueueResult(
     out_count: *i32,
 ) Result;
 pub extern fn zrcPathQueueNavMeshQuery(queue: *const PathQueue, out: **const NavMeshQuery) Result;
+
+//=============================================================================
+// DebugUtils — drawing and dumping
+//=============================================================================
+
+/// Recast's own pi (ZRC_DEBUG_PI), the value duDebugDrawTriMeshSlope converts
+/// degrees with.
+pub const debug_pi: f32 = 3.14159265;
+
+/// What a `begin`/`end` pair describes.
+pub const DebugDrawPrimitive = enum(c_int) {
+    points = 0,
+    lines = 1,
+    tris = 2,
+    quads = 3,
+};
+
+/// What `zrcDebugDrawNavMesh` should include beyond the polygons.
+pub const drawnavmesh_offmeshcons: u8 = 0x01;
+pub const drawnavmesh_closedlist: u8 = 0x02;
+pub const drawnavmesh_color_tiles: u8 = 0x04;
+
+pub const DebugDraw = extern struct {
+    user: ?*anyopaque,
+    depth_mask: ?*const fn (user: ?*anyopaque, state: Bool) callconv(.c) void,
+    texture: ?*const fn (user: ?*anyopaque, state: Bool) callconv(.c) void,
+    begin: ?*const fn (user: ?*anyopaque, prim: DebugDrawPrimitive, size: f32) callconv(.c) void,
+    vertex: ?*const fn (user: ?*anyopaque, pos: *const [3]f32, color: u32) callconv(.c) void,
+    vertex_xyz: ?*const fn (
+        user: ?*anyopaque,
+        x: f32,
+        y: f32,
+        z: f32,
+        color: u32,
+    ) callconv(.c) void,
+    vertex_uv: ?*const fn (
+        user: ?*anyopaque,
+        pos: *const [3]f32,
+        color: u32,
+        uv: *const [2]f32,
+    ) callconv(.c) void,
+    vertex_xyz_uv: ?*const fn (
+        user: ?*anyopaque,
+        x: f32,
+        y: f32,
+        z: f32,
+        color: u32,
+        u: f32,
+        v: f32,
+    ) callconv(.c) void,
+    end: ?*const fn (user: ?*anyopaque) callconv(.c) void,
+    /// `null` selects upstream's own area colour table.
+    area_to_col: ?*const fn (user: ?*anyopaque, area: u32) callconv(.c) u32,
+};
+
+pub const FileIO = extern struct {
+    user: ?*anyopaque,
+    is_writing: ?*const fn (user: ?*anyopaque) callconv(.c) Bool,
+    is_reading: ?*const fn (user: ?*anyopaque) callconv(.c) Bool,
+    write: ?*const fn (user: ?*anyopaque, ptr: *const anyopaque, size: usize) callconv(.c) Bool,
+    read: ?*const fn (user: ?*anyopaque, ptr: *anyopaque, size: usize) callconv(.c) Bool,
+};
+
+pub extern fn zrcDebugRgba(r: i32, g: i32, b: i32, a: i32) u32;
+pub extern fn zrcDebugRgbaFloat(r: f32, g: f32, b: f32, a: f32) u32;
+pub extern fn zrcDebugIntToCol(i: i32, a: i32) u32;
+pub extern fn zrcDebugIntToColFloat(i: i32, out: *[3]f32) Result;
+pub extern fn zrcDebugMultCol(col: u32, d: u32) u32;
+pub extern fn zrcDebugDarkenCol(col: u32) u32;
+pub extern fn zrcDebugLerpCol(a: u32, b: u32, u: u32) u32;
+pub extern fn zrcDebugTransCol(c: u32, a: u32) u32;
+pub extern fn zrcDebugCalcBoxColors(out: *[6]u32, top: u32, side: u32) Result;
+
+pub extern fn zrcDebugDrawBoxWire(
+    dd: *const DebugDraw,
+    minx: f32,
+    miny: f32,
+    minz: f32,
+    maxx: f32,
+    maxy: f32,
+    maxz: f32,
+    col: u32,
+    line_width: f32,
+) Result;
+pub extern fn zrcDebugDrawCylinderWire(
+    dd: *const DebugDraw,
+    minx: f32,
+    miny: f32,
+    minz: f32,
+    maxx: f32,
+    maxy: f32,
+    maxz: f32,
+    col: u32,
+    line_width: f32,
+) Result;
+pub extern fn zrcDebugDrawArc(
+    dd: *const DebugDraw,
+    x0: f32,
+    y0: f32,
+    z0: f32,
+    x1: f32,
+    y1: f32,
+    z1: f32,
+    h: f32,
+    as0: f32,
+    as1: f32,
+    col: u32,
+    line_width: f32,
+) Result;
+pub extern fn zrcDebugDrawArrow(
+    dd: *const DebugDraw,
+    x0: f32,
+    y0: f32,
+    z0: f32,
+    x1: f32,
+    y1: f32,
+    z1: f32,
+    as0: f32,
+    as1: f32,
+    col: u32,
+    line_width: f32,
+) Result;
+pub extern fn zrcDebugDrawCircle(
+    dd: *const DebugDraw,
+    x: f32,
+    y: f32,
+    z: f32,
+    r: f32,
+    col: u32,
+    line_width: f32,
+) Result;
+pub extern fn zrcDebugDrawCross(
+    dd: *const DebugDraw,
+    x: f32,
+    y: f32,
+    z: f32,
+    size: f32,
+    col: u32,
+    line_width: f32,
+) Result;
+pub extern fn zrcDebugDrawBox(
+    dd: *const DebugDraw,
+    minx: f32,
+    miny: f32,
+    minz: f32,
+    maxx: f32,
+    maxy: f32,
+    maxz: f32,
+    fcol: *const [6]u32,
+) Result;
+pub extern fn zrcDebugDrawCylinder(
+    dd: *const DebugDraw,
+    minx: f32,
+    miny: f32,
+    minz: f32,
+    maxx: f32,
+    maxy: f32,
+    maxz: f32,
+    col: u32,
+) Result;
+pub extern fn zrcDebugDrawGridXZ(
+    dd: *const DebugDraw,
+    ox: f32,
+    oy: f32,
+    oz: f32,
+    w: i32,
+    h: i32,
+    size: f32,
+    col: u32,
+    line_width: f32,
+) Result;
+
+pub extern fn zrcDebugAppendBoxWire(
+    dd: *const DebugDraw,
+    minx: f32,
+    miny: f32,
+    minz: f32,
+    maxx: f32,
+    maxy: f32,
+    maxz: f32,
+    col: u32,
+) Result;
+pub extern fn zrcDebugAppendBoxPoints(
+    dd: *const DebugDraw,
+    minx: f32,
+    miny: f32,
+    minz: f32,
+    maxx: f32,
+    maxy: f32,
+    maxz: f32,
+    col: u32,
+) Result;
+pub extern fn zrcDebugAppendCylinderWire(
+    dd: *const DebugDraw,
+    minx: f32,
+    miny: f32,
+    minz: f32,
+    maxx: f32,
+    maxy: f32,
+    maxz: f32,
+    col: u32,
+) Result;
+pub extern fn zrcDebugAppendArc(
+    dd: *const DebugDraw,
+    x0: f32,
+    y0: f32,
+    z0: f32,
+    x1: f32,
+    y1: f32,
+    z1: f32,
+    h: f32,
+    as0: f32,
+    as1: f32,
+    col: u32,
+) Result;
+pub extern fn zrcDebugAppendArrow(
+    dd: *const DebugDraw,
+    x0: f32,
+    y0: f32,
+    z0: f32,
+    x1: f32,
+    y1: f32,
+    z1: f32,
+    as0: f32,
+    as1: f32,
+    col: u32,
+) Result;
+pub extern fn zrcDebugAppendCircle(
+    dd: *const DebugDraw,
+    x: f32,
+    y: f32,
+    z: f32,
+    r: f32,
+    col: u32,
+) Result;
+pub extern fn zrcDebugAppendCross(
+    dd: *const DebugDraw,
+    x: f32,
+    y: f32,
+    z: f32,
+    size: f32,
+    col: u32,
+) Result;
+pub extern fn zrcDebugAppendBox(
+    dd: *const DebugDraw,
+    minx: f32,
+    miny: f32,
+    minz: f32,
+    maxx: f32,
+    maxy: f32,
+    maxz: f32,
+    fcol: *const [6]u32,
+) Result;
+pub extern fn zrcDebugAppendCylinder(
+    dd: *const DebugDraw,
+    minx: f32,
+    miny: f32,
+    minz: f32,
+    maxx: f32,
+    maxy: f32,
+    maxz: f32,
+    col: u32,
+) Result;
+
+pub extern fn zrcDisplayListCreate(capacity: i32, out: **DisplayList) Result;
+pub extern fn zrcDisplayListDestroy(list: ?*DisplayList) void;
+pub extern fn zrcDisplayListRecorder(list: *DisplayList, out: *DebugDraw) Result;
+pub extern fn zrcDisplayListDepthMask(list: *DisplayList, state: Bool) Result;
+pub extern fn zrcDisplayListBegin(
+    list: *DisplayList,
+    prim: DebugDrawPrimitive,
+    size: f32,
+) Result;
+pub extern fn zrcDisplayListVertex(
+    list: *DisplayList,
+    pos: *const [3]f32,
+    color: u32,
+) Result;
+pub extern fn zrcDisplayListVertexXYZ(
+    list: *DisplayList,
+    x: f32,
+    y: f32,
+    z: f32,
+    color: u32,
+) Result;
+pub extern fn zrcDisplayListEnd(list: *DisplayList) Result;
+pub extern fn zrcDisplayListClear(list: *DisplayList) Result;
+pub extern fn zrcDisplayListDraw(list: *const DisplayList, dd: *const DebugDraw) Result;
+pub extern fn zrcDisplayListVertexCount(list: *const DisplayList, out: *i32) Result;
+
+pub extern fn zrcDebugDrawTriMesh(
+    dd: *const DebugDraw,
+    mesh: *const TriMesh,
+    normals: [*]const f32,
+    flags: ?[*]const u8,
+    tex_scale: f32,
+) Result;
+pub extern fn zrcDebugDrawTriMeshSlope(
+    dd: *const DebugDraw,
+    mesh: *const TriMesh,
+    normals: [*]const f32,
+    walkable_slope_angle: f32,
+    tex_scale: f32,
+) Result;
+pub extern fn zrcDebugDrawHeightfieldSolid(dd: *const DebugDraw, hf: *const Heightfield) Result;
+pub extern fn zrcDebugDrawHeightfieldWalkable(dd: *const DebugDraw, hf: *const Heightfield) Result;
+pub extern fn zrcDebugDrawCompactHeightfieldSolid(
+    dd: *const DebugDraw,
+    chf: *const CompactHeightfield,
+) Result;
+pub extern fn zrcDebugDrawCompactHeightfieldRegions(
+    dd: *const DebugDraw,
+    chf: *const CompactHeightfield,
+) Result;
+pub extern fn zrcDebugDrawCompactHeightfieldDistance(
+    dd: *const DebugDraw,
+    chf: *const CompactHeightfield,
+) Result;
+pub extern fn zrcDebugDrawHeightfieldLayer(
+    dd: *const DebugDraw,
+    layers: *const HeightfieldLayerSet,
+    index: i32,
+) Result;
+pub extern fn zrcDebugDrawHeightfieldLayers(
+    dd: *const DebugDraw,
+    layers: *const HeightfieldLayerSet,
+) Result;
+pub extern fn zrcDebugDrawRegionConnections(
+    dd: *const DebugDraw,
+    cset: *const ContourSet,
+    alpha: f32,
+) Result;
+pub extern fn zrcDebugDrawRawContours(
+    dd: *const DebugDraw,
+    cset: *const ContourSet,
+    alpha: f32,
+) Result;
+pub extern fn zrcDebugDrawContours(
+    dd: *const DebugDraw,
+    cset: *const ContourSet,
+    alpha: f32,
+) Result;
+pub extern fn zrcDebugDrawPolyMesh(dd: *const DebugDraw, mesh: *const PolyMesh) Result;
+pub extern fn zrcDebugDrawPolyMeshDetail(dd: *const DebugDraw, mesh: *const PolyMesh) Result;
+
+pub extern fn zrcDebugDrawNavMesh(dd: *const DebugDraw, mesh: *const NavMesh, flags: u8) Result;
+pub extern fn zrcDebugDrawNavMeshWithClosedList(
+    dd: *const DebugDraw,
+    mesh: *const NavMesh,
+    query: *const NavMeshQuery,
+    flags: u8,
+) Result;
+pub extern fn zrcDebugDrawNavMeshNodes(dd: *const DebugDraw, query: *const NavMeshQuery) Result;
+pub extern fn zrcDebugDrawNavMeshBVTree(dd: *const DebugDraw, mesh: *const NavMesh) Result;
+pub extern fn zrcDebugDrawNavMeshPortals(dd: *const DebugDraw, mesh: *const NavMesh) Result;
+pub extern fn zrcDebugDrawNavMeshPolysWithFlags(
+    dd: *const DebugDraw,
+    mesh: *const NavMesh,
+    poly_flags: u16,
+    col: u32,
+) Result;
+pub extern fn zrcDebugDrawNavMeshPoly(
+    dd: *const DebugDraw,
+    mesh: *const NavMesh,
+    ref: PolyRef,
+    col: u32,
+) Result;
+pub extern fn zrcDebugDrawTileCacheLayerAreas(
+    dd: *const DebugDraw,
+    layer: *const TileCacheLayer,
+    cs: f32,
+    ch: f32,
+) Result;
+pub extern fn zrcDebugDrawTileCacheLayerRegions(
+    dd: *const DebugDraw,
+    layer: *const TileCacheLayer,
+    cs: f32,
+    ch: f32,
+) Result;
+pub extern fn zrcDebugDrawTileCacheContours(
+    dd: *const DebugDraw,
+    cset: *const TileCacheContourSet,
+    origin: *const [3]f32,
+    cs: f32,
+    ch: f32,
+) Result;
+pub extern fn zrcDebugDrawTileCachePolyMesh(
+    dd: *const DebugDraw,
+    mesh: *const TileCachePolyMesh,
+    origin: *const [3]f32,
+    cs: f32,
+    ch: f32,
+) Result;
+
+pub extern fn zrcDumpPolyMeshToObj(mesh: *const PolyMesh, io: *const FileIO) Result;
+pub extern fn zrcDumpPolyMeshDetailToObj(mesh: *const PolyMesh, io: *const FileIO) Result;
+pub extern fn zrcDumpContourSet(cset: *const ContourSet, io: *const FileIO) Result;
+pub extern fn zrcReadContourSet(io: *const FileIO, out: **ContourSet) Result;
+pub extern fn zrcDumpCompactHeightfield(
+    chf: *const CompactHeightfield,
+    io: *const FileIO,
+) Result;
+pub extern fn zrcReadCompactHeightfield(
+    io: *const FileIO,
+    out: **CompactHeightfield,
+) Result;
+pub extern fn zrcLogBuildTimes(context: ?*const BuildContext, total_usec: i32) Result;
