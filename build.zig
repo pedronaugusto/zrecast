@@ -94,20 +94,21 @@ pub fn build(b: *std.Build) void {
             bool,
             "enable_asserts",
             "Keep Recast's and Detour's internal asserts (defaults to on in Debug)",
-        ) orelse (optimize == .Debug),
+        ) orelse (optimize == .debug),
         .sanitize_c = b.option(
             bool,
             "sanitize_c",
             "Keep Zig's C undefined-behaviour sanitizer enabled",
-        ) orelse (optimize == .Debug),
+        ) orelse (optimize == .debug),
     };
 
     // Every ABI- or behaviour-affecting option is mirrored into a Zig module so
     // the wrapper can never disagree with how the C++ was compiled. The single
     // `options` struct above is the one source both sides read from.
     const options_step = b.addOptions();
-    inline for (std.meta.fields(@TypeOf(options))) |field| {
-        options_step.addOption(field.type, field.name, @field(options, field.name));
+    const options_info = @typeInfo(@TypeOf(options)).@"struct";
+    inline for (options_info.field_names, options_info.field_types) |name, T| {
+        options_step.addOption(T, name, @field(options, name));
     }
     // The package version's one home is build.zig.zon; the ZRC_VERSION_*
     // macros in ffi/zrecast.h restate it for C consumers, and the version
@@ -385,4 +386,12 @@ pub fn build(b: *std.Build) void {
     const c_test_step = b.step("test-c", "Run the C-level smoke test");
     c_test_step.dependOn(&b.addRunArtifact(c_smoke).step);
     test_step.dependOn(c_test_step);
+}
+
+/// The development build: `bay <step>` runs the steps added here, with the
+/// dev dependencies of build.zig.zon as `tools` (`tools.<name>` is that
+/// package's build.zig). A package that depends on this one never runs it.
+pub fn dev(b: *std.Build, tools: type) void {
+    _ = b;
+    _ = tools;
 }

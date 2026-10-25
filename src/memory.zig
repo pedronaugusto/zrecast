@@ -75,7 +75,7 @@ comptime {
     // they are the two invariants the arithmetic below depends on.
     std.debug.assert(prefix_size >= @sizeOf(Header));
     std.debug.assert(prefix_size % c.alloc_alignment == 0);
-    std.debug.assert(@intFromEnum(alignment) >= @intFromEnum(std.mem.Alignment.of(Header)));
+    std.debug.assert(@backingInt(alignment) >= @backingInt(std.mem.Alignment.of(Header)));
 }
 
 fn allocate(user: ?*anyopaque, size: usize, hint: c.AllocHint) callconv(.c) ?*anyopaque {

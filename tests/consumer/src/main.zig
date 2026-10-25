@@ -4,10 +4,8 @@
 const std = @import("std");
 const zrecast = @import("zrecast");
 
-pub fn main() !void {
-    var gpa_state = std.heap.DebugAllocator(.{}){};
-    defer _ = gpa_state.deinit();
-    const gpa = gpa_state.allocator();
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
 
     try zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();

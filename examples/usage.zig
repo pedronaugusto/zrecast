@@ -8,10 +8,8 @@
 const std = @import("std");
 const zrecast = @import("zrecast");
 
-pub fn main() !void {
-    var gpa_state = std.heap.DebugAllocator(.{}){};
-    defer _ = gpa_state.deinit();
-    const gpa = gpa_state.allocator();
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
 
     // A 20 x 20 m ground plane: four corners, two triangles, Y up.
     const level_verts = [_]f32{

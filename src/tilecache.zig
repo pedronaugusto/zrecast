@@ -870,9 +870,9 @@ test "buildTileCacheLayer rejects an array shorter than header.width * header.he
         .min_z = 0,
         .max_z = 3,
     };
-    const heights = [_]u8{0} ** 16;
-    const areas = [_]u8{0} ** 16;
-    const short_cons = [_]u8{0} ** 15;
+    const heights = @as([16]u8, @splat(0));
+    const areas = @as([16]u8, @splat(0));
+    const short_cons = @as([15]u8, @splat(0));
     const compressor = Compressor{};
     try std.testing.expectError(
         err.Error.InvalidArgument,
@@ -896,9 +896,9 @@ test "buildTileCacheLayer rejects an array longer than header.width * header.hei
         .min_z = 0,
         .max_z = 1,
     };
-    const long_heights = [_]u8{0} ** 5;
-    const areas = [_]u8{0} ** 4;
-    const cons = [_]u8{0} ** 4;
+    const long_heights = @as([5]u8, @splat(0));
+    const areas = @as([4]u8, @splat(0));
+    const cons = @as([4]u8, @splat(0));
     const compressor = Compressor{};
     try std.testing.expectError(
         err.Error.InvalidArgument,

@@ -246,7 +246,7 @@ pub const NavMesh = struct {
     pub fn polyType(self: NavMesh, ref: c.PolyRef) err.Error!PolyType {
         var out_type: i32 = 0;
         try err.check(c.zrcNavMeshGetPolyType(self.handle, ref, &out_type));
-        return @enumFromInt(out_type);
+        return @fromBackingInt(@intCast(out_type));
     }
 
     /// The two endpoints of an off-mesh connection, `.{ start, end }`, in the
@@ -659,7 +659,8 @@ pub fn detailTriEdgeFlags(tri_flags: u8, edge_index: u2) u8 {
 }
 
 test "obvious non-navmesh bytes are rejected" {
-    const garbage = "this is not a navigation mesh, not even a little bit" ** 4;
+    const line = "this is not a navigation mesh, not even a little bit";
+    const garbage = line ++ line ++ line ++ line;
     try std.testing.expectError(err.Error.BadFormat, validate(garbage));
     try std.testing.expectError(err.Error.BadFormat, validate(""));
     try std.testing.expectError(err.Error.BadFormat, NavMesh.initFromBytes(garbage));

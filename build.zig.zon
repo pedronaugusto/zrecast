@@ -1,7 +1,7 @@
 .{
     .name = .zrecast,
     .version = "0.1.1",
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .fingerprint = 0xf1b06206e107955a,
     .paths = .{
         "build.zig",
@@ -24,5 +24,15 @@
         "examples",
         // README links into docs/, so a fetched copy has to carry it.
         "docs",
+    },
+    .dev_dependencies = .{
+        .preflight = .{
+            .url = "git+https://github.com/pedronaugusto/preflight?ref=v0.17.2#0a4837efddacaa7432c517291f45760a716b415e",
+            .hash = "preflight-0.17.2-LX1ZwvU3EgBn-dkbAkxSQPZUidRb7E4iBderALgJd9r2",
+        },
+        .shakedown = .{
+            .url = "git+https://github.com/pedronaugusto/shakedown?ref=v0.4.17#b96c548a2fed2a4cc8b9d790fdbf29332b056f9d",
+            .hash = "shakedown-0.4.17-BR8U41SzFgBFNel0aa2pn9ELQvUHoVDmnXOWslP0wHV7",
+        },
     },
 }

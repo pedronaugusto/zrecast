@@ -416,7 +416,7 @@ test "the C library agrees with the extern declarations in c.zig" {
         "tile_size",
         "border_size",
     };
-    const bake_fields = @typeInfo(c.BakeConfig).@"struct".fields;
+    const bake_fields = @typeInfo(c.BakeConfig).@"struct".field_names;
     // A field added to one side and not the other, in either direction.
     try std.testing.expectEqual(
         @as(u32, bake_field_order.len),
@@ -710,7 +710,7 @@ test "the C library agrees with the extern declarations in c.zig" {
         "links_free_list",
         "next_tile",
     };
-    const tile_info_fields = @typeInfo(c.TileInfo).@"struct".fields;
+    const tile_info_fields = @typeInfo(c.TileInfo).@"struct".field_names;
     try std.testing.expectEqual(
         @as(u32, tile_info_field_order.len),
         layout.tile_info_field_count,
@@ -739,7 +739,7 @@ test "the C library agrees with the extern declarations in c.zig" {
         "detail_vert_count",
         "detail_tri_count",
     };
-    const poly_info_fields = @typeInfo(c.PolyInfo).@"struct".fields;
+    const poly_info_fields = @typeInfo(c.PolyInfo).@"struct".field_names;
     try std.testing.expectEqual(
         @as(u32, poly_info_field_order.len),
         layout.poly_info_field_count,
@@ -845,7 +845,7 @@ test "the C library agrees with the extern declarations in c.zig" {
         "off_mesh_cons_size",
         "total_size",
     };
-    const tile_layout_fields = @typeInfo(c.TileLayout).@"struct".fields;
+    const tile_layout_fields = @typeInfo(c.TileLayout).@"struct".field_names;
     try std.testing.expectEqual(
         @as(u32, tile_layout_field_order.len),
         layout.tile_layout_field_count,
@@ -1425,18 +1425,18 @@ test "the C library agrees with the extern declarations in c.zig" {
     );
 
     try std.testing.expectEqual(
-        @as(u32, @typeInfo(c.DebugDrawPrimitive).@"enum".fields.len),
+        @as(u32, @typeInfo(c.DebugDrawPrimitive).@"enum".field_names.len),
         layout.debug_draw_primitive_count,
     );
 
     // ZRC_MAX_TIMERS is the last enumerator, so the count includes it.
     try std.testing.expectEqual(
-        @as(u32, @typeInfo(c.TimerLabel).@"enum".fields.len),
+        @as(u32, @typeInfo(c.TimerLabel).@"enum".field_names.len),
         layout.timer_label_count,
     );
 
     // The Zig error mapping must cover every C result.
-    const result_fields = @typeInfo(c.Result).@"enum".fields;
+    const result_fields = @typeInfo(c.Result).@"enum".field_names;
     try std.testing.expectEqual(@as(u32, result_fields.len), layout.result_count);
 }
 
@@ -1457,7 +1457,7 @@ fn expectFieldOffsets(
     try std.testing.expectEqual(@as(u32, @sizeOf(T)), reported_size);
     try std.testing.expectEqual(@as(u32, @alignOf(T)), reported_align);
     try std.testing.expectEqual(@as(u32, order.len), reported_count);
-    try std.testing.expectEqual(order.len, @typeInfo(T).@"struct".fields.len);
+    try std.testing.expectEqual(order.len, @typeInfo(T).@"struct".field_names.len);
     try std.testing.expect(order.len <= c.abi_max_fields);
     inline for (order, 0..) |name, i| {
         try std.testing.expectEqual(@as(u32, @offsetOf(T, name)), offsets[i]);
@@ -1470,7 +1470,7 @@ test "version reporting is wired up" {
     // they compiled to, so this comparison is what stops the two drifting.
     const v = version();
     var rendered: [16]u8 = undefined;
-    const got = try std.fmt.bufPrint(
+    const got = try std.mem.print(
         &rendered,
         "{d}.{d}.{d}",
         .{ v.major, v.minor, v.patch },
@@ -1483,8 +1483,8 @@ test "version reporting is wired up" {
 }
 
 test "result names are never empty" {
-    inline for (@typeInfo(c.Result).@"enum".fields) |field| {
-        const name = resultName(@enumFromInt(field.value));
+    inline for (@typeInfo(c.Result).@"enum".field_values) |value| {
+        const name = resultName(@fromBackingInt(@intCast(value)));
         try std.testing.expect(name.len > 0);
     }
 }

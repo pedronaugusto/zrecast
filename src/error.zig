@@ -74,8 +74,8 @@ pub fn name(result: c.Result) [:0]const u8 {
 
 test "ok is the only result that is not an error, and all of them are named" {
     try check(.ok);
-    inline for (@typeInfo(c.Result).@"enum".fields) |field| {
-        const result: c.Result = @enumFromInt(field.value);
+    inline for (@typeInfo(c.Result).@"enum".field_values) |value| {
+        const result: c.Result = @fromBackingInt(@intCast(value));
         try std.testing.expect(name(result).len > 0);
         if (result == .ok) continue;
         if (check(result)) |_| return error.ResultMappedToSuccess else |_| {}

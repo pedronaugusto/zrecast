@@ -422,7 +422,7 @@ pub fn buildCells(config: Config) err.Error!BuildCells {
 /// The C side fills the buffer as a C string; this is the slice up to the
 /// terminator, or the whole buffer if the writer somehow left none.
 pub fn logText(buffer: []const u8) []const u8 {
-    const end = std.mem.indexOfScalar(u8, buffer, 0) orelse buffer.len;
+    const end = std.mem.findScalar(u8, buffer, 0) orelse buffer.len;
     return buffer[0..end];
 }
 

@@ -98,7 +98,7 @@ test "baking the fixture produces a mesh that covers the ground" {
 
     // A successful bake should not have logged an error.
     try std.testing.expect(
-        std.mem.indexOf(u8, zrecast.logText(&log_buffer), "error:") == null,
+        std.mem.find(u8, zrecast.logText(&log_buffer), "error:") == null,
     );
 }
 
@@ -122,7 +122,7 @@ test "geometry with no walkable surface is an empty result, and says why" {
     // caller their slope threshold was the problem.
     const text = zrecast.logText(&log_buffer);
     try std.testing.expect(text.len > 0);
-    try std.testing.expect(std.mem.indexOf(u8, text, "no walkable polygons") != null);
+    try std.testing.expect(std.mem.find(u8, text, "no walkable polygons") != null);
 }
 
 test "a bake log smaller than the message is truncated, not overrun" {
@@ -131,7 +131,7 @@ test "a bake log smaller than the message is truncated, not overrun" {
     defer zrecast.resetAllocator();
 
     // A canary either side, so an overrun by even one byte is visible.
-    var storage = [_]u8{0xAA} ** 32;
+    var storage = @as([32]u8, @splat(0xAA));
     const log = storage[8..16];
 
     const baked = zrecast.PolyMesh.bake(zrecast.defaultConfig(), unwalkableMesh(), null, log);
@@ -398,7 +398,7 @@ fn hexDigest(hash: std.crypto.hash.sha2.Sha256) [64]u8 {
     var copy = hash;
     copy.final(&raw);
     var hex: [64]u8 = undefined;
-    _ = std.fmt.bufPrint(&hex, "{x}", .{&raw}) catch unreachable;
+    _ = std.mem.print(&hex, "{x}", .{&raw}) catch unreachable;
     return hex;
 }
 
@@ -442,7 +442,7 @@ fn cookTiledDigest() ![64]u8 {
 /// well as the pipeline they sit in.
 fn cookAuthoredDigest() ![64]u8 {
     var authored = std.crypto.hash.sha2.Sha256.init(.{});
-    var table = [_]u16{0} ** c.max_areas;
+    var table = @as([c.max_areas]u16, @splat(0));
     table[zrecast.area_walkable] = zrecast.poly_flag_walkable;
     table[@intCast(marked_area)] = marked_flag;
 
@@ -588,7 +588,7 @@ test "an image survives a round trip through the opposite byte order" {
     try std.testing.expectEqualSlices(u8, again.bytes, image.bytes);
 
     // Nonsense in either direction is refused rather than swapped.
-    var junk = [_]u8{0xAB} ** 256;
+    var junk = @as([256]u8, @splat(0xAB));
     try std.testing.expectError(
         zrecast.Error.BadFormat,
         zrecast.swapImageEndian(&junk, true),
@@ -2514,18 +2514,18 @@ test "bytes that are not a compressed layer never reach the tile cache" {
     // comparing the length against anything, then stores a compressed length
     // computed by subtraction — negative for a short buffer, and handed to
     // the host's codec as a plain int. Checked here before upstream sees it.
-    var stub = [_]u8{0} ** 8;
+    var stub = @as([8]u8, @splat(0));
     try std.testing.expectError(zrecast.Error.BadFormat, world.cache.addTile(&stub));
 
     // Long enough to be a header, but not one.
-    var wrong = [_]u8{0} ** 128;
+    var wrong = @as([128]u8, @splat(0));
     try std.testing.expectError(zrecast.Error.BadFormat, world.cache.addTile(&wrong));
 
     // The sharp case: a buffer carrying the right magic and version but too
     // short to be a header. Upstream tests the magic before it looks at the
     // length at all, so this is what reaches the subtraction that goes
     // negative and the read that runs off the end.
-    var short_but_labelled = [_]u8{0} ** 8;
+    var short_but_labelled = @as([8]u8, @splat(0));
     std.mem.writeInt(i32, short_but_labelled[0..4], c.tilecache_magic, .little);
     std.mem.writeInt(i32, short_but_labelled[4..8], c.tilecache_version, .little);
     try std.testing.expectError(
@@ -3375,7 +3375,7 @@ test "the area-to-flag table decides which polygons a filter admits" {
     try zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
-    var table = [_]u16{0} ** c.max_areas;
+    var table = @as([c.max_areas]u16, @splat(0));
     table[zrecast.area_walkable] = zrecast.poly_flag_walkable;
     table[@intCast(marked_area)] = marked_flag;
 
@@ -3522,7 +3522,7 @@ test "area authoring Recast could not read is refused before anything is baked" 
     }
 
     // A flag on area_null admits a polygon nothing may stand on.
-    var walkable_null = [_]u16{0} ** c.max_areas;
+    var walkable_null = @as([c.max_areas]u16, @splat(0));
     walkable_null[zrecast.area_null] = zrecast.poly_flag_walkable;
     try std.testing.expectError(
         zrecast.Error.InvalidArgument,
@@ -4249,7 +4249,7 @@ test "a polygon read back is the polygon a query found" {
     const info = try world.mesh.polyInfo(ref);
     try std.testing.expect(info.vert_count >= 3);
     try std.testing.expect(info.vert_count <= c.verts_per_polygon);
-    try std.testing.expectEqual(zrecast.PolyType.ground, @as(zrecast.PolyType, @enumFromInt(info.type)));
+    try std.testing.expectEqual(zrecast.PolyType.ground, @as(zrecast.PolyType, @fromBackingInt(@intCast(info.type))));
 
     // The area and flags reached two ways: through the accessor this tranche
     // adds, and through the one tranche 3a added.
@@ -5452,7 +5452,7 @@ test "a buffer that is not a tile image has no layout" {
     try zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
-    var junk = [_]u8{0} ** 256;
+    var junk = @as([256]u8, @splat(0));
     try std.testing.expectError(error.BadFormat, zrecast.tileLayout(&junk));
     try std.testing.expectError(error.BadFormat, zrecast.tileLayout(junk[0..4]));
 }
@@ -7005,7 +7005,7 @@ const DrawRecorder = struct {
     misordered: bool = false,
 
     fn index(prim: zrecast.DebugDrawPrimitive) usize {
-        return @intCast(@intFromEnum(prim));
+        return @intCast(@backingInt(prim));
     }
 
     pub fn depthMask(self: *DrawRecorder, state: bool) void {
@@ -7583,7 +7583,7 @@ test "the primitive helpers emit the runs they are named for" {
     try std.testing.expectEqual(@as(u32, 1), recorder.runs());
     try std.testing.expectEqual(
         @as(u32, 24),
-        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+        recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.lines)],
     );
     try recorder.expectWellFormed();
     recorder.reset();
@@ -7592,7 +7592,7 @@ test "the primitive helpers emit the runs they are named for" {
     try draw.box(bmin, bmax, &faces);
     try std.testing.expectEqual(
         @as(u32, 24),
-        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.quads)],
+        recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.quads)],
     );
     try recorder.expectWellFormed();
     recorder.reset();
@@ -7601,7 +7601,7 @@ test "the primitive helpers emit the runs they are named for" {
     try draw.cross(.{ 0, 0, 0 }, 1.0, col, 1.0);
     try std.testing.expectEqual(
         @as(u32, 6),
-        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+        recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.lines)],
     );
     try recorder.expectWellFormed();
     recorder.reset();
@@ -7646,7 +7646,7 @@ test "the primitive helpers emit the runs they are named for" {
     recorder.end();
     try std.testing.expectEqual(@as(u32, 1), recorder.runs());
     try recorder.expectWellFormed();
-    const lines = recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)];
+    const lines = recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.lines)];
     try std.testing.expect(lines > 24);
     recorder.reset();
 
@@ -7657,7 +7657,7 @@ test "the primitive helpers emit the runs they are named for" {
     recorder.end();
     try std.testing.expectEqual(
         @as(u32, 16),
-        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+        recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.lines)],
     );
     recorder.reset();
 
@@ -7747,7 +7747,7 @@ test "a display list records a run and replays it into another renderer" {
     try std.testing.expectEqual(@as(u32, 1), recorder.runs());
     try std.testing.expectEqual(
         @as(u32, 2),
-        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+        recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.lines)],
     );
     try std.testing.expectEqual(@as(u32, 1), recorder.depth_masks);
     try recorder.expectWellFormed();
@@ -7770,7 +7770,7 @@ test "a display list records a run and replays it into another renderer" {
     try list.draw(draw);
     try std.testing.expectEqual(
         @as(u32, 6),
-        recorder.verts[@intFromEnum(zrecast.DebugDrawPrimitive.lines)],
+        recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.lines)],
     );
     try recorder.expectWellFormed();
 
@@ -7875,7 +7875,7 @@ test "a polygon mesh and its detail mesh dump to OBJ through a Zig stream" {
     defer detail.deinit();
     try zrecast.dumpPolyMeshDetailToObj(poly, zrecast.FileIO.of(&detail));
     try std.testing.expect(detail.bytes.items.len > 0);
-    try std.testing.expect(std.mem.indexOf(u8, detail.bytes.items, "\nf ") != null);
+    try std.testing.expect(std.mem.find(u8, detail.bytes.items, "\nf ") != null);
 
     // A mesh whose detail mesh was never built writes the two header lines
     // and no geometry, which is an empty answer rather than an error.
@@ -7884,8 +7884,8 @@ test "a polygon mesh and its detail mesh dump to OBJ through a Zig stream" {
     var none = MemoryStream.init(gpa, true);
     defer none.deinit();
     try zrecast.dumpPolyMeshDetailToObj(bare, zrecast.FileIO.of(&none));
-    try std.testing.expect(std.mem.indexOf(u8, none.bytes.items, "\nv ") == null);
-    try std.testing.expect(std.mem.indexOf(u8, none.bytes.items, "\nf ") == null);
+    try std.testing.expect(std.mem.find(u8, none.bytes.items, "\nv ") == null);
+    try std.testing.expect(std.mem.find(u8, none.bytes.items, "\nf ") == null);
 }
 
 test "a contour set survives a dump and a read" {
@@ -7947,7 +7947,7 @@ test "a contour set survives a dump and a read" {
     // Bytes that are not a contour set are refused rather than trusted.
     var garbage = MemoryStream.init(gpa, true);
     defer garbage.deinit();
-    try std.testing.expect(garbage.write(&[_]u8{0} ** 64));
+    try std.testing.expect(garbage.write(&@as([64]u8, @splat(0))));
     garbage.rewind();
     try std.testing.expectError(
         zrecast.Error.BadFormat,
@@ -8035,7 +8035,7 @@ test "build times reach a context's log hook" {
             _ = category;
             lines += 1;
             const message = text[0..@intCast(len)];
-            if (std.mem.indexOf(u8, message, "TOTAL") != null) total_seen = true;
+            if (std.mem.find(u8, message, "TOTAL") != null) total_seen = true;
         }
 
         fn accumulatedTime(user: ?*anyopaque, label: zrecast.TimerLabel) callconv(.c) i32 {
