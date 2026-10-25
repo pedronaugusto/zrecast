@@ -258,19 +258,35 @@ pub fn dev(b: *std.Build, tools: type) void {
     // The C boundary on its own, with no Zig in the picture: plain C11 that
     // includes <zrecast.h> through the artifact's installed header, walks
     // bake, build, serialise, reload and query with a malloc allocator, and
-    // checks every byte came back.
+    // checks every byte came back. Twice: as a consumer links it, and with
+    // the program and the C++ under the sanitizer, since some of the
+    // boundary's paths only C reaches. The sanitized arm takes the library
+    // the sanitized suite arm builds, so the graph holds no further instance
+    // of the package.
     const library = package.artifact("zrecast");
-    const default_options: Options = .{ .shared = false, .enable_asserts = asserts_default, .sanitize_c = false };
-    const c_smoke = b.addExecutable(.{
-        .name = "zrecast-c-smoke",
-        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
-    });
-    c_smoke.root_module.addIncludePath(p.path("tests"));
-    c_smoke.root_module.addCSourceFile(.{ .file = p.path("tests/c_smoke.c"), .flags = &.{ "-std=c11", "-Wall", "-Wextra" } });
-    c_smoke.root_module.linkLibrary(library);
-    c_smoke.root_module.linkLibrary(fixtureLibrary(b, p, target, optimize, default_options, library));
-    test_step.dependOn(&b.addRunArtifact(c_smoke).step);
-    check_step.dependOn(&c_smoke.step);
+    for ([_]struct { name: []const u8, sanitize_c: bool }{
+        .{ .name = "zrecast-c-smoke", .sanitize_c = false },
+        .{ .name = "zrecast-c-smoke-ubsan", .sanitize_c = true },
+    }) |arm| {
+        const options: Options = .{ .shared = false, .enable_asserts = asserts_default, .sanitize_c = arm.sanitize_c };
+        const linked = if (arm.sanitize_c) b.dependency("zrecast", .{
+            .target = target,
+            .optimize = optimize,
+            .enable_asserts = options.enable_asserts,
+            .sanitize_c = options.sanitize_c,
+        }).artifact("zrecast") else library;
+        const c_smoke = b.addExecutable(.{
+            .name = arm.name,
+            .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+        });
+        c_smoke.root_module.sanitize_c = if (arm.sanitize_c) .full else .off;
+        c_smoke.root_module.addIncludePath(p.path("tests"));
+        c_smoke.root_module.addCSourceFile(.{ .file = p.path("tests/c_smoke.c"), .flags = &.{ "-std=c11", "-Wall", "-Wextra" } });
+        c_smoke.root_module.linkLibrary(linked);
+        c_smoke.root_module.linkLibrary(fixtureLibrary(b, p, target, optimize, options, linked));
+        test_step.dependOn(&b.addRunArtifact(c_smoke).step);
+        check_step.dependOn(&c_smoke.step);
+    }
 
     // The configurations no arm above links: the shared library, which is
     // what proves the export list, and the asserts flipped under the

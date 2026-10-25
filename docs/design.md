@@ -1500,6 +1500,9 @@ refused without unseating the working one, and `zrcSetAllocator(NULL)` handing
 allocation back to malloc. And it asserts that every allocation was returned;
 that assertion caught a leak of three buffers per detail mesh during
 development, recorded under [Known upstream behaviour](#known-upstream-behaviour).
+It runs twice: as a consumer links it, and with the program and the C++
+under Zig's undefined-behaviour sanitizer, since some of the boundary's
+checks guard paths only C reaches.
 
 `ci/consumer.zig` is the Zig consumer: preflight builds it against the package
 as a dependency, the way a project that depends on zrecast reaches it.

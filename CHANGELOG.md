@@ -75,7 +75,8 @@ not express, so a port has the reason and not only the diff.
 - The development gate is preflight's, run with `bay test`: formatting,
   structure layers, lint, documentation drift, the suite three times (under
   the C sanitizer, without it, and with the asserts flipped), the C smoke test
-  against the installed header, the examples, the shared and asserts-flipped
+  against the installed header, with the sanitizer and without it, the
+  examples, the shared and asserts-flipped
   library builds, and a consumer build. Every check that was a shell script is
   a Zig program in `ci/`: comments, ignored files, coverage, hand-written
   numbers and the vendor comparison, which now fetches upstream by URL and
