@@ -1,15 +1,15 @@
 # expect: a tile's state saves and restores the flags a query can see
 --- a/ffi/zrecast_navmesh.cpp
 +++ b/ffi/zrecast_navmesh.cpp
-@@ -1231,7 +1231,6 @@
+@@ -1594,7 +1594,6 @@
    // rather than casting the caller's `size` to int also means a `size` past
    // INT_MAX is simply unequal to it rather than a truncating cast.
    if (size < static_cast<size_t>(state_size)) return ZRC_ERR_BUFFER_TOO_SMALL;
 -  if (size > static_cast<size_t>(state_size)) return ZRC_ERR_INVALID_ARGUMENT;
  
-   const dtStatus status = navmesh->impl->storeTileState(
-       tile, static_cast<unsigned char*>(data), state_size);
-@@ -1250,7 +1249,6 @@
+   // Upstream writes the blob as a dtTileState and a dtPolyState array, and the
+   // caller's buffer may be a byte slice with no particular alignment, so it
+@@ -1619,7 +1618,6 @@
    // Same exact-length rule as zrcNavMeshStoreTileState, for the same reason.
    const int state_size = navmesh->impl->getTileStateSize(tile);
    if (size < static_cast<size_t>(state_size)) return ZRC_ERR_BUFFER_TOO_SMALL;

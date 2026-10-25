@@ -1,10 +1,10 @@
 # expect: an array length the C cannot check is checked here
 --- a/src/geom.zig
 +++ b/src/geom.zig
-@@ -64,7 +64,7 @@
+@@ -78,7 +78,7 @@
      out_edge_t: []f32,
  ) Error!bool {
-     const vert_count = std.math.cast(i32, verts.len) orelse return Error.InvalidArgument;
+     const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
 -    if (out_edge_dist_sqr.len < verts.len or out_edge_t.len < verts.len) {
 +    if (out_edge_dist_sqr.len < 0 or out_edge_t.len < 0) {
          return Error.InvalidArgument;

@@ -1,4 +1,7 @@
-# expect: the C library agrees with the extern declarations in c.zig
+# expect: zrecast ABI drift: type AreaVolume.
+#
+# src/abi_test.zig compares src/c.zig with the header at compile time, so a
+# swapped field fails the build before the run-time layout test is reached.
 --- a/src/c.zig
 +++ b/src/c.zig
 @@ -136,8 +136,8 @@
