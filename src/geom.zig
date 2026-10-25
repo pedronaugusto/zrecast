@@ -6,6 +6,7 @@
 //! polygon array and the number describing it cannot fall out of step.
 
 const std = @import("std");
+const aegis = @import("aegis");
 const zc = @import("c.zig");
 const err = @import("error.zig");
 const Error = err.Error;
@@ -76,14 +77,14 @@ pub fn distancePointToPolyEdges(
     out_edge_dist_sqr: []f32,
     out_edge_t: []f32,
 ) Error!bool {
-    const vert_count = std.math.cast(i32, verts.len) orelse return Error.InvalidArgument;
+    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
     if (out_edge_dist_sqr.len < verts.len or out_edge_t.len < verts.len) {
         return Error.InvalidArgument;
     }
     var inside: zc.Bool = zc.c_false;
     try err.check(zc.zrcDistancePointToPolyEdges(
         &point,
-        @ptrCast(verts.ptr),
+        @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         out_edge_dist_sqr.ptr,
         out_edge_t.ptr,
@@ -94,9 +95,9 @@ pub fn distancePointToPolyEdges(
 
 /// Whether `point` lies inside a polygon, on the xz-plane.
 pub fn pointInPolygon(point: Vec3, verts: []const Vec3) Error!bool {
-    const vert_count = std.math.cast(i32, verts.len) orelse return Error.InvalidArgument;
+    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
     var inside: zc.Bool = zc.c_false;
-    try err.check(zc.zrcPointInPolygon(&point, @ptrCast(verts.ptr), vert_count, &inside));
+    try err.check(zc.zrcPointInPolygon(&point, @ptrCast(verts.ptr), vert_count, &inside)); // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
     return inside != zc.c_false;
 }
 
@@ -105,7 +106,7 @@ pub fn pointInPolygon(point: Vec3, verts: []const Vec3) Error!bool {
 /// the polygon reports 0 and 1. `seg_min` and `seg_max` are the polygon edge
 /// crossed at each end, or -1 where that endpoint is inside.
 pub fn intersectSegmentPoly2D(p0: Vec3, p1: Vec3, verts: []const Vec3) Error!SegmentPolyHit {
-    const vert_count = std.math.cast(i32, verts.len) orelse return Error.InvalidArgument;
+    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
     var t_min: f32 = undefined;
     var t_max: f32 = undefined;
     var seg_min: i32 = undefined;
@@ -114,7 +115,7 @@ pub fn intersectSegmentPoly2D(p0: Vec3, p1: Vec3, verts: []const Vec3) Error!Seg
     try err.check(zc.zrcIntersectSegmentPoly2D(
         &p0,
         &p1,
-        @ptrCast(verts.ptr),
+        @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         &t_min,
         &t_max,
@@ -147,13 +148,13 @@ pub fn intersectSegSeg2D(ap: Vec3, aq: Vec3, bp: Vec3, bq: Vec3) Error!?SegSegHi
 
 /// Whether two convex polygons overlap, on the xz-plane, by separating axis.
 pub fn overlapPolyPoly2D(a: []const Vec3, b: []const Vec3) Error!bool {
-    const count_a = std.math.cast(i32, a.len) orelse return Error.InvalidArgument;
-    const count_b = std.math.cast(i32, b.len) orelse return Error.InvalidArgument;
+    const count_a = aegis.int.cast(i32, a.len) catch return Error.InvalidArgument;
+    const count_b = aegis.int.cast(i32, b.len) catch return Error.InvalidArgument;
     var overlap: zc.Bool = zc.c_false;
     try err.check(zc.zrcOverlapPolyPoly2D(
-        @ptrCast(a.ptr),
+        @ptrCast(a.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         count_a,
-        @ptrCast(b.ptr),
+        @ptrCast(b.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         count_b,
         &overlap,
     ));
@@ -187,10 +188,10 @@ pub fn triArea2D(a: Vec3, b: Vec3, c: Vec3) Error!f32 {
 /// Centroid of the polygon formed by indexing `verts` with `indices`. Every
 /// index must be less than `verts.len`.
 pub fn polyCenter(verts: []const Vec3, indices: []const u16) Error!Vec3 {
-    const vert_count = std.math.cast(i32, verts.len) orelse return Error.InvalidArgument;
-    const index_count = std.math.cast(i32, indices.len) orelse return Error.InvalidArgument;
+    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
+    const index_count = aegis.int.cast(i32, indices.len) catch return Error.InvalidArgument;
     var out: Vec3 = undefined;
-    try err.check(zc.zrcPolyCenter(@ptrCast(verts.ptr), vert_count, indices.ptr, index_count, &out));
+    try err.check(zc.zrcPolyCenter(@ptrCast(verts.ptr), vert_count, indices.ptr, index_count, &out)); // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
     return out;
 }
 
@@ -201,11 +202,11 @@ pub fn polyCenter(verts: []const Vec3, indices: []const u16) Error!Vec3 {
 /// `scratch` is working storage for the fan's areas and must be at least
 /// `verts.len` long; its contents on return are unspecified.
 pub fn randomPointInConvexPoly(verts: []const Vec3, scratch: []f32, s: f32, t: f32) Error!Vec3 {
-    const vert_count = std.math.cast(i32, verts.len) orelse return Error.InvalidArgument;
-    const scratch_count = std.math.cast(i32, scratch.len) orelse return Error.InvalidArgument;
+    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
+    const scratch_count = aegis.int.cast(i32, scratch.len) catch return Error.InvalidArgument;
     var out: Vec3 = undefined;
     try err.check(zc.zrcRandomPointInConvexPoly(
-        @ptrCast(verts.ptr),
+        @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         scratch.ptr,
         scratch_count,
@@ -227,18 +228,18 @@ pub fn randomPointInConvexPoly(verts: []const Vec3, scratch: []f32, s: f32, t: f
 /// to succeed. A result that would exactly fill `out` is reported as
 /// `Error.BufferTooSmall` rather than as a short write.
 pub fn offsetPoly(verts: []const Vec3, offset: f32, out: []Vec3) Error!usize {
-    const vert_count = std.math.cast(i32, verts.len) orelse return Error.InvalidArgument;
-    const max_out_verts = std.math.cast(i32, out.len) orelse return Error.InvalidArgument;
+    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
+    const max_out_verts = aegis.int.cast(i32, out.len) catch return Error.InvalidArgument;
     var written: i32 = undefined;
     try err.check(zc.zrcOffsetPoly(
-        @ptrCast(verts.ptr),
+        @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         offset,
-        @ptrCast(out.ptr),
+        @ptrCast(out.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         max_out_verts,
         &written,
     ));
-    return @intCast(written);
+    return zc.reported(usize, written);
 }
 
 test "an empty polygon is rejected before Recast ever sees it" {

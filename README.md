@@ -15,7 +15,7 @@ it.
 ```zig
 const zrecast = @import("zrecast");
 
-try zrecast.setAllocator(gpa);
+zrecast.setAllocator(gpa);
 defer zrecast.resetAllocator();
 
 // In the cook: geometry in, bytes out. `log` is optional, and the
@@ -34,7 +34,7 @@ defer image.deinit();
 // ...write `image.bytes` wherever the pipeline puts build artefacts.
 
 // In the game: bytes in, answers out.
-const mesh = try zrecast.NavMesh.initFromBytes(image.bytes);
+const mesh = try zrecast.NavMesh.initFromBytes(.init(image.bytes));
 defer mesh.deinit();
 const query = try zrecast.NavMeshQuery.init(mesh, 2048);
 defer query.deinit();
@@ -92,7 +92,8 @@ A C or C++ host links the library and includes the header it installs:
 exe.root_module.linkLibrary(zrecast_dep.artifact("zrecast"));  // then #include <zrecast.h>
 ```
 
-zrecast has no dependencies of its own; upstream is in the tree.
+zrecast's one dependency is [aegis](https://github.com/pedronaugusto/aegis);
+upstream is in the tree.
 
 | Build option | Default | Effect |
 |---|---|---|
@@ -111,9 +112,10 @@ zrecast has no dependencies of its own; upstream is in the tree.
   stage per call with every intermediate a handle the host can read and edit.
   A failed bake fills a log with the stage that failed and why.
 - The navmesh: a bake becomes bytes, bytes become a navmesh, and a tile reads
-  back by value. A serialised navmesh is validated before Detour reads it:
-  every count, then every index, coordinate and off-mesh connection it can
-  point at.
+  back by value. Bytes from outside arrive as a `zrecast.Image`, aegis's
+  untrusted-input type, and a serialised navmesh is validated before Detour
+  reads it: every count, then every index, coordinate and off-mesh connection
+  it can point at.
 - The queries: the whole of `dtNavMeshQuery`, sliced pathfinding, polygon
   references and the node pool. A path that stops short of its goal is a
   result with `partial` set, not an error.

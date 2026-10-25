@@ -40,6 +40,7 @@
 //! could not be honoured.
 
 const std = @import("std");
+const aegis = @import("aegis");
 const c = @import("c.zig");
 const err = @import("error.zig");
 
@@ -84,22 +85,22 @@ fn allocate(user: ?*anyopaque, size: usize, hint: c.AllocHint) callconv(.c) ?*an
     // for temporaries would be a policy this package has no business setting.
     _ = hint;
 
-    const gpa: *const std.mem.Allocator = @ptrCast(@alignCast(user orelse return null));
-    const total = std.math.add(usize, prefix_size, size) catch return null;
+    const gpa: *const std.mem.Allocator = @ptrCast(@alignCast(user orelse return null)); // safe: user is &installed, the *const std.mem.Allocator setAllocator stores
+    const total = (aegis.int.Checked(usize).init(prefix_size).add(size) catch return null).raw();
 
     const base = gpa.rawAlloc(total, alignment, @returnAddress()) orelse return null;
 
     const payload = base + prefix_size;
-    const header: *Header = @ptrCast(@alignCast(payload - @sizeOf(Header)));
+    const header: *Header = @ptrCast(@alignCast(payload - @sizeOf(Header))); // safe: the header sits right below the payload, in a prefix that keeps it aligned
     header.* = .{ .tag = header_tag, .total_len = total };
-    return @ptrCast(payload);
+    return @ptrCast(payload); // safe: the payload, as the seam's untyped pointer
 }
 
 fn deallocate(user: ?*anyopaque, block: ?*anyopaque) callconv(.c) void {
-    const gpa: *const std.mem.Allocator = @ptrCast(@alignCast(user orelse return));
-    const payload: [*]u8 = @ptrCast(block orelse return);
+    const gpa: *const std.mem.Allocator = @ptrCast(@alignCast(user orelse return)); // safe: user is &installed, the *const std.mem.Allocator setAllocator stores
+    const payload: [*]u8 = @ptrCast(block orelse return); // safe: a block is a byte pointer; its header is checked below before it is trusted
 
-    const header: *const Header = @ptrCast(@alignCast(payload - @sizeOf(Header)));
+    const header: *const Header = @ptrCast(@alignCast(payload - @sizeOf(Header))); // safe: the header sits right below the payload, in a prefix that keeps it aligned
     // Only the pointer `allocate` returned can be freed. A pointer into the
     // middle of a block — a sub-slice of a serialised image, classically —
     // has payload where the header should be, so freeing on that basis would
@@ -121,14 +122,16 @@ var installed: std.mem.Allocator = undefined;
 /// Process-wide. Call once during start-up, before baking or loading anything,
 /// and do not swap it while handles are alive — a handle is freed through
 /// whichever allocator is installed when it is destroyed.
-pub fn setAllocator(gpa: std.mem.Allocator) err.Error!void {
+pub fn setAllocator(gpa: std.mem.Allocator) void {
     installed = gpa;
     const bridge = c.Allocator{
         .allocate = allocate,
         .deallocate = deallocate,
-        .user = @ptrCast(&installed),
+        .user = @ptrCast(&installed), // safe: the allocator's address, which allocate and deallocate read back
     };
-    try err.check(c.zrcSetAllocator(&bridge));
+    // The boundary refuses only a bridge missing a function, and this one
+    // has both.
+    err.check(c.zrcSetAllocator(&bridge)) catch aegis.assert.never("the Zig bridge has both functions");
 }
 
 /// Restores upstream's built-in malloc/free allocators.
@@ -153,7 +156,7 @@ pub const AllocHint = c.AllocHint;
 /// way — scratch for `geom.randomPointInConvexPoly`, say.
 pub fn alloc(size: usize, hint: AllocHint) err.Error![]u8 {
     const p = c.zrcAlloc(size, hint) orelse return err.Error.OutOfMemory;
-    const bytes: [*]u8 = @ptrCast(p);
+    const bytes: [*]u8 = @ptrCast(p); // safe: zrcAlloc returns a block of size bytes
     return bytes[0..size];
 }
 
@@ -175,7 +178,7 @@ pub fn free(block: []u8) void {
 
 test "the bridge round-trips a range of sizes and keeps the promised alignment" {
     const gpa = std.testing.allocator;
-    try setAllocator(gpa);
+    setAllocator(gpa);
     defer resetAllocator();
 
     var size: usize = 1;
@@ -193,7 +196,7 @@ test "the bridge round-trips a range of sizes and keeps the promised alignment" 
 
 test "the bridge tolerates a zero-size request and a null free" {
     const gpa = std.testing.allocator;
-    try setAllocator(gpa);
+    setAllocator(gpa);
     defer resetAllocator();
 
     const block = allocate(@ptrCast(&installed), 0, .temp) orelse {
@@ -216,7 +219,7 @@ test "installing an incomplete allocator is refused" {
 
 test "alloc and free round-trip through the installed allocator" {
     const gpa = std.testing.allocator;
-    try setAllocator(gpa);
+    setAllocator(gpa);
     defer resetAllocator();
 
     const block = try alloc(128, .perm);
@@ -267,7 +270,7 @@ test "the bridge refuses a pointer it did not hand out" {
     };
 
     var recorder: Recorder = .{};
-    try setAllocator(.{ .ptr = &recorder, .vtable = &Recorder.vtable });
+    setAllocator(.{ .ptr = &recorder, .vtable = &Recorder.vtable });
     defer resetAllocator();
 
     const size = 64;

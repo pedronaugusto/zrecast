@@ -5,10 +5,12 @@
 //! much of it was used.
 
 const std = @import("std");
+const aegis = @import("aegis");
 const c = @import("c.zig");
 const err = @import("error.zig");
 const memory = @import("memory.zig");
 const NavMesh = @import("navmesh.zig").NavMesh;
+const BorrowedNavMesh = @import("navmesh.zig").BorrowedNavMesh;
 const Vec3 = @import("vec.zig").Vec3;
 
 /// Identifies one polygon of one navmesh. Zero means "no polygon", which is
@@ -112,7 +114,7 @@ pub const RaycastHit = struct {
             .position = raw.position,
             .normal = raw.normal,
             .hit = raw.hit != c.c_false,
-            .hit_edge_index = if (raw.hit_edge_index < 0) null else @intCast(raw.hit_edge_index),
+            .hit_edge_index = if (raw.hit_edge_index < 0) null else c.reported(u32, raw.hit_edge_index),
             .path_cost = raw.path_cost,
         };
     }
@@ -323,702 +325,716 @@ fn sharedCapacity(lens: []const usize) err.Error!i32 {
             if (l != s) return err.Error.InvalidArgument;
         } else shared = l;
     }
-    return std.math.cast(i32, shared orelse 0) orelse err.Error.InvalidArgument;
+    return aegis.int.cast(i32, shared orelse 0) catch err.Error.InvalidArgument;
 }
 
 /// A navmesh plus the node pool a search needs.
 ///
 /// Borrows its navmesh, which must outlive it. Not thread-safe: the node pool
 /// is mutable state, so give each thread its own query.
-pub const NavMeshQuery = struct {
-    handle: *c.NavMeshQuery,
+pub const NavMeshQuery = NavMeshQueryOf(.owned);
 
-    /// `max_nodes` bounds every search: A* fails with `OutOfNodes` rather than
-    /// growing. 2048 suits a small mesh.
-    ///
-    /// [Limit: 4 ... 65535]. Four, not one: Detour sizes the pool's hash table
-    /// as `dtNextPow2(max_nodes / 4)`, which is zero for anything smaller, and
-    /// every bucket index it then computes lands outside the allocation.
-    pub fn init(navmesh: NavMesh, max_nodes: u32) err.Error!NavMeshQuery {
-        const nodes = std.math.cast(i32, max_nodes) orelse
-            return err.Error.InvalidArgument;
-        var handle: *c.NavMeshQuery = undefined;
-        try err.check(c.zrcNavMeshQueryCreate(navmesh.handle, nodes, &handle));
-        return .{ .handle = handle };
-    }
+/// A query another object lent, read-only: a crowd's or a path queue's. It
+/// answers the queries that do not change it, cannot run a sliced search or
+/// be freed, and lives as long as its owner.
+pub const BorrowedNavMeshQuery = NavMeshQueryOf(.borrowed);
 
-    pub fn deinit(self: NavMeshQuery) void {
-        c.zrcNavMeshQueryDestroy(self.handle);
-    }
+fn NavMeshQueryOf(comptime access: c.Access) type {
+    return struct {
+        const Self = @This();
 
-    /// Finds the polygon nearest `center` within a box of `half_extents`.
-    ///
-    /// The y half-extent is usually the one that decides the answer: it has to
-    /// span the distance from `center` down to the floor.
-    pub fn findNearestPoly(
-        self: NavMeshQuery,
-        center: [3]f32,
-        half_extents: [3]f32,
-        filter: *const Filter,
-    ) err.Error!NearestPoly {
-        var ref: PolyRef = 0;
-        var point: [3]f32 = undefined;
-        var over_poly: c.Bool = c.c_false;
-        try err.check(c.zrcFindNearestPoly(
-            self.handle,
-            &center,
-            &half_extents,
-            filter,
-            &ref,
-            &point,
-            &over_poly,
-        ));
-        return .{
-            .ref = if (ref == 0) null else ref,
-            .point = point,
-            .over_poly = over_poly != c.c_false,
-        };
-    }
+        handle: c.Handle(c.NavMeshQuery, access),
 
-    /// A* over the polygon graph, writing the corridor into `out_path`.
-    ///
-    /// The result is not a path to walk; it is the corridor a walkable path
-    /// lives in. Pass it to `findStraightPath` to get corners.
-    pub fn findPath(
-        self: NavMeshQuery,
-        start_ref: PolyRef,
-        end_ref: PolyRef,
-        start_pos: [3]f32,
-        end_pos: [3]f32,
-        filter: *const Filter,
-        out_path: []PolyRef,
-    ) err.Error!PathResult {
-        const capacity = std.math.cast(i32, out_path.len) orelse
-            return err.Error.InvalidArgument;
-        var count: i32 = 0;
-        var partial: c.Bool = c.c_false;
-        try err.check(c.zrcFindPath(
-            self.handle,
-            start_ref,
-            end_ref,
-            &start_pos,
-            &end_pos,
-            filter,
-            out_path.ptr,
-            capacity,
-            &count,
-            &partial,
-        ));
-        return .{ .len = @intCast(count), .partial = partial != c.c_false };
-    }
+        /// `max_nodes` bounds every search: A* fails with `OutOfNodes` rather than
+        /// growing. 2048 suits a small mesh.
+        ///
+        /// [Limit: 4 ... 65535]. Four, not one: Detour sizes the pool's hash table
+        /// as `dtNextPow2(max_nodes / 4)`, which is zero for anything smaller, and
+        /// every bucket index it then computes lands outside the allocation.
+        pub fn init(navmesh: NavMesh, max_nodes: u32) err.Error!NavMeshQuery {
+            comptime c.ownedOnly(access);
+            const nodes = aegis.int.cast(i32, max_nodes) catch
+                return err.Error.InvalidArgument;
+            var handle: *c.NavMeshQuery = undefined;
+            try err.check(c.zrcNavMeshQueryCreate(navmesh.handle, nodes, &handle));
+            return .{ .handle = handle };
+        }
 
-    /// String-pulls a corridor into the corners to walk.
-    ///
-    /// `out_points` receives one `[3]f32` per corner. `out_flags` and
-    /// `out_refs`, when given, must be at least as long as `out_points`.
-    pub fn findStraightPath(
-        self: NavMeshQuery,
-        start_pos: [3]f32,
-        end_pos: [3]f32,
-        path: []const PolyRef,
-        options: StraightPathOptions,
-        out_points: [][3]f32,
-        out_flags: ?[]u8,
-        out_refs: ?[]PolyRef,
-    ) err.Error!PathResult {
-        const path_count = std.math.cast(i32, path.len) orelse
-            return err.Error.InvalidArgument;
-        const capacity = std.math.cast(i32, out_points.len) orelse
-            return err.Error.InvalidArgument;
-        // Detour writes these three arrays in lockstep and bounds only the
-        // first; the C layer rejects a short companion, and the slice lengths
-        // below are what it checks against.
-        const flags_capacity = std.math.cast(i32, if (out_flags) |f| f.len else 0) orelse
-            return err.Error.InvalidArgument;
-        const refs_capacity = std.math.cast(i32, if (out_refs) |r| r.len else 0) orelse
-            return err.Error.InvalidArgument;
+        pub fn deinit(self: Self) void {
+            comptime c.ownedOnly(access);
+            c.zrcNavMeshQueryDestroy(self.handle);
+        }
 
-        var count: i32 = 0;
-        var partial: c.Bool = c.c_false;
-        try err.check(c.zrcFindStraightPath(
-            self.handle,
-            &start_pos,
-            &end_pos,
-            path.ptr,
-            path_count,
-            options.toC(),
-            // A [3]f32 array is 3 contiguous floats with no padding, which the
-            // ABI test pins; this is the same memory Detour wants.
-            @ptrCast(out_points.ptr),
-            capacity,
-            if (out_flags) |flags| flags.ptr else null,
-            flags_capacity,
-            if (out_refs) |refs| refs.ptr else null,
-            refs_capacity,
-            &count,
-            &partial,
-        ));
-        return .{ .len = @intCast(count), .partial = partial != c.c_false };
-    }
+        /// Finds the polygon nearest `center` within a box of `half_extents`.
+        ///
+        /// The y half-extent is usually the one that decides the answer: it has to
+        /// span the distance from `center` down to the floor.
+        pub fn findNearestPoly(
+            self: Self,
+            center: [3]f32,
+            half_extents: [3]f32,
+            filter: *const Filter,
+        ) err.Error!NearestPoly {
+            var ref: PolyRef = 0;
+            var point: [3]f32 = undefined;
+            var over_poly: c.Bool = c.c_false;
+            try err.check(c.zrcFindNearestPoly(
+                self.handle,
+                &center,
+                &half_extents,
+                filter,
+                &ref,
+                &point,
+                &over_poly,
+            ));
+            return .{
+                .ref = if (ref == 0) null else ref,
+                .point = point,
+                .over_poly = over_poly != c.c_false,
+            };
+        }
 
-    /// Slides from `start_pos` towards `end_pos` across the surface, stopping
-    /// at walls. The movement primitive for a character driven by input.
-    ///
-    /// Returns the position reached. `out_visited`, when given, receives the
-    /// polygons crossed; `visited_len` in the result says how many.
-    pub fn moveAlongSurface(
-        self: NavMeshQuery,
-        start_ref: PolyRef,
-        start_pos: [3]f32,
-        end_pos: [3]f32,
-        filter: *const Filter,
-        out_visited: ?[]PolyRef,
-    ) err.Error!MoveResult {
-        const capacity: i32 = if (out_visited) |visited|
-            std.math.cast(i32, visited.len) orelse return err.Error.InvalidArgument
-        else
-            0;
-        var position: [3]f32 = undefined;
-        var count: i32 = 0;
-        var truncated: c.Bool = c.c_false;
-        try err.check(c.zrcMoveAlongSurface(
-            self.handle,
-            start_ref,
-            &start_pos,
-            &end_pos,
-            filter,
-            &position,
-            if (out_visited) |visited| visited.ptr else null,
-            capacity,
-            &count,
-            &truncated,
-        ));
-        return .{
-            .position = position,
-            .visited_len = @intCast(count),
-            .truncated = truncated != c.c_false,
-        };
-    }
+        /// A* over the polygon graph, writing the corridor into `out_path`.
+        ///
+        /// The result is not a path to walk; it is the corridor a walkable path
+        /// lives in. Pass it to `findStraightPath` to get corners.
+        pub fn findPath(
+            self: Self,
+            start_ref: PolyRef,
+            end_ref: PolyRef,
+            start_pos: [3]f32,
+            end_pos: [3]f32,
+            filter: *const Filter,
+            out_path: []PolyRef,
+        ) err.Error!PathResult {
+            const capacity = aegis.int.cast(i32, out_path.len) catch
+                return err.Error.InvalidArgument;
+            var count: i32 = 0;
+            var partial: c.Bool = c.c_false;
+            try err.check(c.zrcFindPath(
+                self.handle,
+                start_ref,
+                end_ref,
+                &start_pos,
+                &end_pos,
+                filter,
+                out_path.ptr,
+                capacity,
+                &count,
+                &partial,
+            ));
+            return .{ .len = c.reported(usize, count), .partial = partial != c.c_false };
+        }
 
-    /// Casts a walkability ray across the surface.
-    ///
-    /// Not a physics ray: it ignores height and reports the first navmesh
-    /// boundary crossed. `prev_ref` is the polygon `start_ref` was entered
-    /// from, or null for "no parent"; it affects nothing but the cost of
-    /// entering `start_ref`, and only when `options.use_costs` is set.
-    /// `out_path`, when given, receives the polygons crossed.
-    pub fn raycast(
-        self: NavMeshQuery,
-        start_ref: PolyRef,
-        start_pos: [3]f32,
-        end_pos: [3]f32,
-        filter: *const Filter,
-        options: RaycastOptions,
-        prev_ref: ?PolyRef,
-        out_path: ?[]PolyRef,
-    ) err.Error!RaycastResult {
-        const capacity: i32 = if (out_path) |path|
-            std.math.cast(i32, path.len) orelse return err.Error.InvalidArgument
-        else
-            0;
-        var raw_hit: c.RaycastHit = undefined;
-        var path_len: i32 = 0;
-        var truncated: c.Bool = c.c_false;
-        try err.check(c.zrcRaycast(
-            self.handle,
-            start_ref,
-            &start_pos,
-            &end_pos,
-            filter,
-            options.toC(),
-            prev_ref orelse 0,
-            &raw_hit,
-            if (out_path) |path| path.ptr else null,
-            capacity,
-            &path_len,
-            &truncated,
-        ));
-        return .{
-            .hit = RaycastHit.fromC(raw_hit),
-            .path_len = @intCast(path_len),
-            .truncated = truncated != c.c_false,
-        };
-    }
+        /// String-pulls a corridor into the corners to walk.
+        ///
+        /// `out_points` receives one `[3]f32` per corner. `out_flags` and
+        /// `out_refs`, when given, must be at least as long as `out_points`.
+        pub fn findStraightPath(
+            self: Self,
+            start_pos: [3]f32,
+            end_pos: [3]f32,
+            path: []const PolyRef,
+            options: StraightPathOptions,
+            out_points: [][3]f32,
+            out_flags: ?[]u8,
+            out_refs: ?[]PolyRef,
+        ) err.Error!PathResult {
+            const path_count = aegis.int.cast(i32, path.len) catch
+                return err.Error.InvalidArgument;
+            const capacity = aegis.int.cast(i32, out_points.len) catch
+                return err.Error.InvalidArgument;
+            // Detour writes these three arrays in lockstep and bounds only the
+            // first; the C layer rejects a short companion, and the slice lengths
+            // below are what it checks against.
+            const flags_capacity = aegis.int.cast(i32, if (out_flags) |f| f.len else 0) catch
+                return err.Error.InvalidArgument;
+            const refs_capacity = aegis.int.cast(i32, if (out_refs) |r| r.len else 0) catch
+                return err.Error.InvalidArgument;
 
-    /// Begins a sliced search: the same A* `findPath` runs, driven a few
-    /// iterations at a time so a frame can spend a fixed budget on it. State
-    /// lives in this query; there is no second handle.
-    ///
-    /// `filter` is copied and need not outlive the call. Replaces any slice
-    /// already in flight on this query.
-    pub fn slicedFindPathInit(
-        self: NavMeshQuery,
-        start_ref: PolyRef,
-        end_ref: PolyRef,
-        start_pos: Vec3,
-        end_pos: Vec3,
-        filter: *const Filter,
-        options: FindPathOptions,
-    ) err.Error!void {
-        try err.check(c.zrcSlicedFindPathInit(
-            self.handle,
-            start_ref,
-            end_ref,
-            &start_pos,
-            &end_pos,
-            filter,
-            options.toC(),
-        ));
-    }
+            var count: i32 = 0;
+            var partial: c.Bool = c.c_false;
+            try err.check(c.zrcFindStraightPath(
+                self.handle,
+                &start_pos,
+                &end_pos,
+                path.ptr,
+                path_count,
+                options.toC(),
+                // A [3]f32 array is 3 contiguous floats with no padding, which the
+                // ABI test pins; this is the same memory Detour wants.
+                @ptrCast(out_points.ptr), // safe: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
+                capacity,
+                if (out_flags) |flags| flags.ptr else null,
+                flags_capacity,
+                if (out_refs) |refs| refs.ptr else null,
+                refs_capacity,
+                &count,
+                &partial,
+            ));
+            return .{ .len = c.reported(usize, count), .partial = partial != c.c_false };
+        }
 
-    /// Advances the search by at most `max_iters` node expansions.
-    ///
-    /// A search that ran out of nodes, or whose start or end polygon stopped
-    /// being valid, reports the failure here rather than at finalise.
-    pub fn slicedFindPathUpdate(self: NavMeshQuery, max_iters: u32) err.Error!SliceProgress {
-        const iters = std.math.cast(i32, max_iters) orelse
-            return err.Error.InvalidArgument;
-        var iterations: i32 = 0;
-        var in_progress: c.Bool = c.c_false;
-        try err.check(c.zrcSlicedFindPathUpdate(self.handle, iters, &iterations, &in_progress));
-        return .{
-            .iterations = @intCast(iterations),
-            .in_progress = in_progress != c.c_false,
-        };
-    }
+        /// Slides from `start_pos` towards `end_pos` across the surface, stopping
+        /// at walls. The movement primitive for a character driven by input.
+        ///
+        /// Returns the position reached. `out_visited`, when given, receives the
+        /// polygons crossed; `visited_len` in the result says how many.
+        pub fn moveAlongSurface(
+            self: Self,
+            start_ref: PolyRef,
+            start_pos: [3]f32,
+            end_pos: [3]f32,
+            filter: *const Filter,
+            out_visited: ?[]PolyRef,
+        ) err.Error!MoveResult {
+            const capacity: i32 = if (out_visited) |visited|
+                aegis.int.cast(i32, visited.len) catch return err.Error.InvalidArgument
+            else
+                0;
+            var position: [3]f32 = undefined;
+            var count: i32 = 0;
+            var truncated: c.Bool = c.c_false;
+            try err.check(c.zrcMoveAlongSurface(
+                self.handle,
+                start_ref,
+                &start_pos,
+                &end_pos,
+                filter,
+                &position,
+                if (out_visited) |visited| visited.ptr else null,
+                capacity,
+                &count,
+                &truncated,
+            ));
+            return .{
+                .position = position,
+                .visited_len = c.reported(usize, count),
+                .truncated = truncated != c.c_false,
+            };
+        }
 
-    /// Reads out the corridor a finished search found, and ends the slice.
-    ///
-    /// A second call in a row is `error.NoSearch` rather than an answer:
-    /// upstream clears its own re-entry guard on the way out without clearing
-    /// the state it guards, so a second call would otherwise fall into the
-    /// "start and end are the same polygon" branch and report success with a
-    /// one-element path holding the null reference.
-    pub fn slicedFindPathFinalize(self: NavMeshQuery, out_path: []PolyRef) err.Error!PathResult {
-        const capacity = std.math.cast(i32, out_path.len) orelse
-            return err.Error.InvalidArgument;
-        var count: i32 = 0;
-        var partial: c.Bool = c.c_false;
-        try err.check(c.zrcSlicedFindPathFinalize(
-            self.handle,
-            out_path.ptr,
-            capacity,
-            &count,
-            &partial,
-        ));
-        return .{ .len = @intCast(count), .partial = partial != c.c_false };
-    }
+        /// Casts a walkability ray across the surface.
+        ///
+        /// Not a physics ray: it ignores height and reports the first navmesh
+        /// boundary crossed. `prev_ref` is the polygon `start_ref` was entered
+        /// from, or null for "no parent"; it affects nothing but the cost of
+        /// entering `start_ref`, and only when `options.use_costs` is set.
+        /// `out_path`, when given, receives the polygons crossed.
+        pub fn raycast(
+            self: Self,
+            start_ref: PolyRef,
+            start_pos: [3]f32,
+            end_pos: [3]f32,
+            filter: *const Filter,
+            options: RaycastOptions,
+            prev_ref: ?PolyRef,
+            out_path: ?[]PolyRef,
+        ) err.Error!RaycastResult {
+            const capacity: i32 = if (out_path) |path|
+                aegis.int.cast(i32, path.len) catch return err.Error.InvalidArgument
+            else
+                0;
+            var raw_hit: c.RaycastHit = undefined;
+            var path_len: i32 = 0;
+            var truncated: c.Bool = c.c_false;
+            try err.check(c.zrcRaycast(
+                self.handle,
+                start_ref,
+                &start_pos,
+                &end_pos,
+                filter,
+                options.toC(),
+                prev_ref orelse 0,
+                &raw_hit,
+                if (out_path) |path| path.ptr else null,
+                capacity,
+                &path_len,
+                &truncated,
+            ));
+            return .{
+                .hit = RaycastHit.fromC(raw_hit),
+                .path_len = c.reported(usize, path_len),
+                .truncated = truncated != c.c_false,
+            };
+        }
 
-    /// Ends the slice early, keeping as much of `existing` — a corridor from
-    /// an earlier search — as the search has confirmed: walked from its end
-    /// backwards until one of its polygons is found in the search's own tree,
-    /// then joined to what the search reached. Lets a host re-plan a path it
-    /// is already walking without discarding it.
-    pub fn slicedFindPathFinalizePartial(
-        self: NavMeshQuery,
-        existing: []const PolyRef,
-        out_path: []PolyRef,
-    ) err.Error!PathResult {
-        const existing_count = std.math.cast(i32, existing.len) orelse
-            return err.Error.InvalidArgument;
-        const capacity = std.math.cast(i32, out_path.len) orelse
-            return err.Error.InvalidArgument;
-        var count: i32 = 0;
-        var partial: c.Bool = c.c_false;
-        try err.check(c.zrcSlicedFindPathFinalizePartial(
-            self.handle,
-            existing.ptr,
-            existing_count,
-            out_path.ptr,
-            capacity,
-            &count,
-            &partial,
-        ));
-        return .{ .len = @intCast(count), .partial = partial != c.c_false };
-    }
+        /// Begins a sliced search: the same A* `findPath` runs, driven a few
+        /// iterations at a time so a frame can spend a fixed budget on it. State
+        /// lives in this query; there is no second handle.
+        ///
+        /// `filter` is copied and need not outlive the call. Replaces any slice
+        /// already in flight on this query.
+        pub fn slicedFindPathInit(
+            self: Self,
+            start_ref: PolyRef,
+            end_ref: PolyRef,
+            start_pos: Vec3,
+            end_pos: Vec3,
+            filter: *const Filter,
+            options: FindPathOptions,
+        ) err.Error!void {
+            try err.check(c.zrcSlicedFindPathInit(
+                self.handle,
+                start_ref,
+                end_ref,
+                &start_pos,
+                &end_pos,
+                filter,
+                options.toC(),
+            ));
+        }
 
-    /// Abandons a slice in flight, releasing the query for other searches.
-    /// Succeeds whether or not a slice was in flight.
-    pub fn slicedFindPathCancel(self: NavMeshQuery) err.Error!void {
-        try err.check(c.zrcSlicedFindPathCancel(self.handle));
-    }
+        /// Advances the search by at most `max_iters` node expansions.
+        ///
+        /// A search that ran out of nodes, or whose start or end polygon stopped
+        /// being valid, reports the failure here rather than at finalise.
+        pub fn slicedFindPathUpdate(self: Self, max_iters: u32) err.Error!SliceProgress {
+            const iters = aegis.int.cast(i32, max_iters) catch
+                return err.Error.InvalidArgument;
+            var iterations: i32 = 0;
+            var in_progress: c.Bool = c.c_false;
+            try err.check(c.zrcSlicedFindPathUpdate(self.handle, iters, &iterations, &in_progress));
+            return .{
+                .iterations = c.reported(u32, iterations),
+                .in_progress = in_progress != c.c_false,
+            };
+        }
 
-    /// Whether a sliced search is in flight on this query.
-    pub fn slicedFindPathActive(self: NavMeshQuery) bool {
-        return c.zrcSlicedFindPathActive(self.handle) != c.c_false;
-    }
+        /// Reads out the corridor a finished search found, and ends the slice.
+        ///
+        /// A second call in a row is `error.NoSearch` rather than an answer:
+        /// upstream clears its own re-entry guard on the way out without clearing
+        /// the state it guards, so a second call would otherwise fall into the
+        /// "start and end are the same polygon" branch and report success with a
+        /// one-element path holding the null reference.
+        pub fn slicedFindPathFinalize(self: Self, out_path: []PolyRef) err.Error!PathResult {
+            const capacity = aegis.int.cast(i32, out_path.len) catch
+                return err.Error.InvalidArgument;
+            var count: i32 = 0;
+            var partial: c.Bool = c.c_false;
+            try err.check(c.zrcSlicedFindPathFinalize(
+                self.handle,
+                out_path.ptr,
+                capacity,
+                &count,
+                &partial,
+            ));
+            return .{ .len = c.reported(usize, count), .partial = partial != c.c_false };
+        }
 
-    /// A random point on the navmesh, uniform by polygon area.
-    pub fn findRandomPoint(
-        self: NavMeshQuery,
-        filter: *const Filter,
-        random: RandomSource,
-    ) err.Error!RandomPoint {
-        const source = random.toC();
-        var ref: PolyRef = 0;
-        var point: Vec3 = undefined;
-        try err.check(c.zrcFindRandomPoint(self.handle, filter, &source, &ref, &point));
-        return .{ .ref = ref, .point = point };
-    }
+        /// Ends the slice early, keeping as much of `existing` — a corridor from
+        /// an earlier search — as the search has confirmed: walked from its end
+        /// backwards until one of its polygons is found in the search's own tree,
+        /// then joined to what the search reached. Lets a host re-plan a path it
+        /// is already walking without discarding it.
+        pub fn slicedFindPathFinalizePartial(
+            self: Self,
+            existing: []const PolyRef,
+            out_path: []PolyRef,
+        ) err.Error!PathResult {
+            const existing_count = aegis.int.cast(i32, existing.len) catch
+                return err.Error.InvalidArgument;
+            const capacity = aegis.int.cast(i32, out_path.len) catch
+                return err.Error.InvalidArgument;
+            var count: i32 = 0;
+            var partial: c.Bool = c.c_false;
+            try err.check(c.zrcSlicedFindPathFinalizePartial(
+                self.handle,
+                existing.ptr,
+                existing_count,
+                out_path.ptr,
+                capacity,
+                &count,
+                &partial,
+            ));
+            return .{ .len = c.reported(usize, count), .partial = partial != c.c_false };
+        }
 
-    /// A random point on a polygon the search reached within `max_radius` of
-    /// `center`, starting from `start_ref`. Reachable, not merely near: the
-    /// search walks the surface, so a polygon across a wall is not a
-    /// candidate however close it is.
-    ///
-    /// The polygon is what the radius bounds, not the point. Upstream picks a
-    /// polygon the search reached and places the point anywhere inside it, and
-    /// a polygon reached near the edge of the circle extends past it.
-    pub fn findRandomPointAroundCircle(
-        self: NavMeshQuery,
-        start_ref: PolyRef,
-        center: Vec3,
-        max_radius: f32,
-        filter: *const Filter,
-        random: RandomSource,
-    ) err.Error!RandomPoint {
-        const source = random.toC();
-        var ref: PolyRef = 0;
-        var point: Vec3 = undefined;
-        try err.check(c.zrcFindRandomPointAroundCircle(
-            self.handle,
-            start_ref,
-            &center,
-            max_radius,
-            filter,
-            &source,
-            &ref,
-            &point,
-        ));
-        return .{ .ref = ref, .point = point };
-    }
+        /// Abandons a slice in flight, releasing the query for other searches.
+        /// Succeeds whether or not a slice was in flight.
+        pub fn slicedFindPathCancel(self: Self) void {
+            // The boundary refuses only a query that was never made, and a
+            // NavMeshQuery is one that was.
+            err.check(c.zrcSlicedFindPathCancel(self.handle)) catch aegis.assert.never("a NavMeshQuery is a live query");
+        }
 
-    /// Every polygon whose bounds overlap the box `center` +/- `half_extents`.
-    pub fn queryPolygons(
-        self: NavMeshQuery,
-        center: Vec3,
-        half_extents: Vec3,
-        filter: *const Filter,
-        out_refs: []PolyRef,
-    ) err.Error!PolyList {
-        const capacity = std.math.cast(i32, out_refs.len) orelse
-            return err.Error.InvalidArgument;
-        var count: i32 = 0;
-        var truncated: c.Bool = c.c_false;
-        try err.check(c.zrcQueryPolygons(
-            self.handle,
-            &center,
-            &half_extents,
-            filter,
-            out_refs.ptr,
-            capacity,
-            &count,
-            &truncated,
-        ));
-        return .{ .len = @intCast(count), .truncated = truncated != c.c_false };
-    }
+        /// Whether a sliced search is in flight on this query.
+        pub fn slicedFindPathActive(self: Self) bool {
+            return c.zrcSlicedFindPathActive(self.handle) != c.c_false;
+        }
 
-    /// The same query, delivered in batches instead of into a buffer: for a
-    /// caller that would rather not size an array for a result it cannot
-    /// predict. Batches follow upstream's own boundary — once per 32
-    /// polygons within a single tile, plus once for what remains of it — not
-    /// a promise this binding makes.
-    pub fn queryPolygonsBatched(
-        self: NavMeshQuery,
-        center: Vec3,
-        half_extents: Vec3,
-        filter: *const Filter,
-        sink: PolySink,
-    ) err.Error!void {
-        const raw_sink = sink.toC();
-        try err.check(c.zrcQueryPolygonsBatched(self.handle, &center, &half_extents, filter, &raw_sink));
-    }
+        /// A random point on the navmesh, uniform by polygon area.
+        pub fn findRandomPoint(
+            self: Self,
+            filter: *const Filter,
+            random: RandomSource,
+        ) err.Error!RandomPoint {
+            const source = random.toC();
+            var ref: PolyRef = 0;
+            var point: Vec3 = undefined;
+            try err.check(c.zrcFindRandomPoint(self.handle, filter, &source, &ref, &point));
+            return .{ .ref = ref, .point = point };
+        }
 
-    /// Closest point on `ref` to `pos`, using the polygon's detail mesh for
-    /// height.
-    pub fn closestPointOnPoly(self: NavMeshQuery, ref: PolyRef, pos: Vec3) err.Error!ClosestPoint {
-        var point: Vec3 = undefined;
-        var over_poly: c.Bool = c.c_false;
-        try err.check(c.zrcClosestPointOnPoly(self.handle, ref, &pos, &point, &over_poly));
-        return .{ .point = point, .over_poly = over_poly != c.c_false };
-    }
+        /// A random point on a polygon the search reached within `max_radius` of
+        /// `center`, starting from `start_ref`. Reachable, not merely near: the
+        /// search walks the surface, so a polygon across a wall is not a
+        /// candidate however close it is.
+        ///
+        /// The polygon is what the radius bounds, not the point. Upstream picks a
+        /// polygon the search reached and places the point anywhere inside it, and
+        /// a polygon reached near the edge of the circle extends past it.
+        pub fn findRandomPointAroundCircle(
+            self: Self,
+            start_ref: PolyRef,
+            center: Vec3,
+            max_radius: f32,
+            filter: *const Filter,
+            random: RandomSource,
+        ) err.Error!RandomPoint {
+            const source = random.toC();
+            var ref: PolyRef = 0;
+            var point: Vec3 = undefined;
+            try err.check(c.zrcFindRandomPointAroundCircle(
+                self.handle,
+                start_ref,
+                &center,
+                max_radius,
+                filter,
+                &source,
+                &ref,
+                &point,
+            ));
+            return .{ .ref = ref, .point = point };
+        }
 
-    /// Closest point on `ref`'s boundary to `pos`, which is the polygon
-    /// itself when `pos` is outside it and the projection onto its edge
-    /// otherwise. Cheaper than `closestPointOnPoly` and does not consult the
-    /// detail mesh, so the height it reports is the polygon's own.
-    pub fn closestPointOnPolyBoundary(self: NavMeshQuery, ref: PolyRef, pos: Vec3) err.Error!Vec3 {
-        var point: Vec3 = undefined;
-        try err.check(c.zrcClosestPointOnPolyBoundary(self.handle, ref, &pos, &point));
-        return point;
-    }
+        /// Every polygon whose bounds overlap the box `center` +/- `half_extents`.
+        pub fn queryPolygons(
+            self: Self,
+            center: Vec3,
+            half_extents: Vec3,
+            filter: *const Filter,
+            out_refs: []PolyRef,
+        ) err.Error!PolyList {
+            const capacity = aegis.int.cast(i32, out_refs.len) catch
+                return err.Error.InvalidArgument;
+            var count: i32 = 0;
+            var truncated: c.Bool = c.c_false;
+            try err.check(c.zrcQueryPolygons(
+                self.handle,
+                &center,
+                &half_extents,
+                filter,
+                out_refs.ptr,
+                capacity,
+                &count,
+                &truncated,
+            ));
+            return .{ .len = c.reported(usize, count), .truncated = truncated != c.c_false };
+        }
 
-    /// Height of `ref`'s surface directly under `pos`. `error.InvalidArgument`
-    /// when `pos` is not over the polygon at all, which is the answer rather
-    /// than an approximation.
-    pub fn polyHeight(self: NavMeshQuery, ref: PolyRef, pos: Vec3) err.Error!f32 {
-        var height: f32 = 0;
-        try err.check(c.zrcPolyHeight(self.handle, ref, &pos, &height));
-        return height;
-    }
+        /// The same query, delivered in batches instead of into a buffer: for a
+        /// caller that would rather not size an array for a result it cannot
+        /// predict. Batches follow upstream's own boundary — once per 32
+        /// polygons within a single tile, plus once for what remains of it — not
+        /// a promise this binding makes.
+        pub fn queryPolygonsBatched(
+            self: Self,
+            center: Vec3,
+            half_extents: Vec3,
+            filter: *const Filter,
+            sink: PolySink,
+        ) err.Error!void {
+            const raw_sink = sink.toC();
+            try err.check(c.zrcQueryPolygonsBatched(self.handle, &center, &half_extents, filter, &raw_sink));
+        }
 
-    /// Every polygon reachable from `start_ref` within `radius` of `center`,
-    /// as a Dijkstra search over the surface rather than a route to it.
-    /// `out_parents` gives the polygon each was reached through, which is
-    /// what makes the result a tree rather than a set; `out_costs` gives the
-    /// cost to reach each. See `ReachedPolys` for the shared-capacity rule.
-    pub fn findPolysAroundCircle(
-        self: NavMeshQuery,
-        start_ref: PolyRef,
-        center: Vec3,
-        radius: f32,
-        filter: *const Filter,
-        out_refs: []PolyRef,
-        out_parents: []PolyRef,
-        out_costs: []f32,
-    ) err.Error!ReachedPolys {
-        const lens = [_]usize{ out_refs.len, out_parents.len, out_costs.len };
-        const capacity = try sharedCapacity(&lens);
-        var count: i32 = 0;
-        var truncated: c.Bool = c.c_false;
-        try err.check(c.zrcFindPolysAroundCircle(
-            self.handle,
-            start_ref,
-            &center,
-            radius,
-            filter,
-            if (out_refs.len == 0) null else out_refs.ptr,
-            if (out_parents.len == 0) null else out_parents.ptr,
-            if (out_costs.len == 0) null else out_costs.ptr,
-            capacity,
-            &count,
-            &truncated,
-        ));
-        return .{ .len = @intCast(count), .truncated = truncated != c.c_false };
-    }
+        /// Closest point on `ref` to `pos`, using the polygon's detail mesh for
+        /// height.
+        pub fn closestPointOnPoly(self: Self, ref: PolyRef, pos: Vec3) err.Error!ClosestPoint {
+            var point: Vec3 = undefined;
+            var over_poly: c.Bool = c.c_false;
+            try err.check(c.zrcClosestPointOnPoly(self.handle, ref, &pos, &point, &over_poly));
+            return .{ .point = point, .over_poly = over_poly != c.c_false };
+        }
 
-    /// The same search, bounded by a convex polygon instead of a circle.
-    /// `verts` is projected onto the xz-plane.
-    pub fn findPolysAroundShape(
-        self: NavMeshQuery,
-        start_ref: PolyRef,
-        verts: []const Vec3,
-        filter: *const Filter,
-        out_refs: []PolyRef,
-        out_parents: []PolyRef,
-        out_costs: []f32,
-    ) err.Error!ReachedPolys {
-        const vert_count = std.math.cast(i32, verts.len) orelse
-            return err.Error.InvalidArgument;
-        const lens = [_]usize{ out_refs.len, out_parents.len, out_costs.len };
-        const capacity = try sharedCapacity(&lens);
-        var count: i32 = 0;
-        var truncated: c.Bool = c.c_false;
-        try err.check(c.zrcFindPolysAroundShape(
-            self.handle,
-            start_ref,
-            // A []Vec3 is tightly packed floats, the same memory Detour wants.
-            @ptrCast(verts.ptr),
-            vert_count,
-            filter,
-            if (out_refs.len == 0) null else out_refs.ptr,
-            if (out_parents.len == 0) null else out_parents.ptr,
-            if (out_costs.len == 0) null else out_costs.ptr,
-            capacity,
-            &count,
-            &truncated,
-        ));
-        return .{ .len = @intCast(count), .truncated = truncated != c.c_false };
-    }
+        /// Closest point on `ref`'s boundary to `pos`, which is the polygon
+        /// itself when `pos` is outside it and the projection onto its edge
+        /// otherwise. Cheaper than `closestPointOnPoly` and does not consult the
+        /// detail mesh, so the height it reports is the polygon's own.
+        pub fn closestPointOnPolyBoundary(self: Self, ref: PolyRef, pos: Vec3) err.Error!Vec3 {
+            var point: Vec3 = undefined;
+            try err.check(c.zrcClosestPointOnPolyBoundary(self.handle, ref, &pos, &point));
+            return point;
+        }
 
-    /// The corridor from the last Dijkstra search's start to `end_ref`. Reads
-    /// the search tree `findPolysAroundCircle` or `findPolysAroundShape` left
-    /// behind, so it is meaningful only right after one of them, for a
-    /// polygon that search reached.
-    pub fn pathFromDijkstraSearch(
-        self: NavMeshQuery,
-        end_ref: PolyRef,
-        out_path: []PolyRef,
-    ) err.Error!PolyList {
-        const capacity = std.math.cast(i32, out_path.len) orelse
-            return err.Error.InvalidArgument;
-        var count: i32 = 0;
-        var truncated: c.Bool = c.c_false;
-        try err.check(c.zrcPathFromDijkstraSearch(
-            self.handle,
-            end_ref,
-            out_path.ptr,
-            capacity,
-            &count,
-            &truncated,
-        ));
-        return .{ .len = @intCast(count), .truncated = truncated != c.c_false };
-    }
+        /// Height of `ref`'s surface directly under `pos`. `error.InvalidArgument`
+        /// when `pos` is not over the polygon at all, which is the answer rather
+        /// than an approximation.
+        pub fn polyHeight(self: Self, ref: PolyRef, pos: Vec3) err.Error!f32 {
+            var height: f32 = 0;
+            try err.check(c.zrcPolyHeight(self.handle, ref, &pos, &height));
+            return height;
+        }
 
-    /// Polygons touching a circle around `center`, without a real search:
-    /// only the polygons adjacent to `start_ref` and their neighbours, cheap
-    /// enough for a per-frame collision query and useless further than a step
-    /// away. `out_refs` is required, unlike its two siblings above: upstream
-    /// writes through it with no null check.
-    pub fn findLocalNeighbourhood(
-        self: NavMeshQuery,
-        start_ref: PolyRef,
-        center: Vec3,
-        radius: f32,
-        filter: *const Filter,
-        out_refs: []PolyRef,
-        out_parents: []PolyRef,
-    ) err.Error!ReachedPolys {
-        if (out_parents.len != 0 and out_parents.len != out_refs.len)
-            return err.Error.InvalidArgument;
-        const capacity = std.math.cast(i32, out_refs.len) orelse
-            return err.Error.InvalidArgument;
-        var count: i32 = 0;
-        var truncated: c.Bool = c.c_false;
-        try err.check(c.zrcFindLocalNeighbourhood(
-            self.handle,
-            start_ref,
-            &center,
-            radius,
-            filter,
-            out_refs.ptr,
-            if (out_parents.len == 0) null else out_parents.ptr,
-            capacity,
-            &count,
-            &truncated,
-        ));
-        return .{ .len = @intCast(count), .truncated = truncated != c.c_false };
-    }
+        /// Every polygon reachable from `start_ref` within `radius` of `center`,
+        /// as a Dijkstra search over the surface rather than a route to it.
+        /// `out_parents` gives the polygon each was reached through, which is
+        /// what makes the result a tree rather than a set; `out_costs` gives the
+        /// cost to reach each. See `ReachedPolys` for the shared-capacity rule.
+        pub fn findPolysAroundCircle(
+            self: Self,
+            start_ref: PolyRef,
+            center: Vec3,
+            radius: f32,
+            filter: *const Filter,
+            out_refs: []PolyRef,
+            out_parents: []PolyRef,
+            out_costs: []f32,
+        ) err.Error!ReachedPolys {
+            const lens = [_]usize{ out_refs.len, out_parents.len, out_costs.len };
+            const capacity = try sharedCapacity(&lens);
+            var count: i32 = 0;
+            var truncated: c.Bool = c.c_false;
+            try err.check(c.zrcFindPolysAroundCircle(
+                self.handle,
+                start_ref,
+                &center,
+                radius,
+                filter,
+                if (out_refs.len == 0) null else out_refs.ptr,
+                if (out_parents.len == 0) null else out_parents.ptr,
+                if (out_costs.len == 0) null else out_costs.ptr,
+                capacity,
+                &count,
+                &truncated,
+            ));
+            return .{ .len = c.reported(usize, count), .truncated = truncated != c.c_false };
+        }
 
-    /// The segments of `ref`'s boundary an agent under `filter` cannot cross.
-    /// `out_verts` takes two points per segment; `out_refs`, when given,
-    /// receives the polygon on the far side of each, or 0 where there is
-    /// none.
-    pub fn polyWallSegments(
-        self: NavMeshQuery,
-        ref: PolyRef,
-        filter: *const Filter,
-        out_verts: [][2]Vec3,
-        out_refs: []PolyRef,
-    ) err.Error!WallSegments {
-        if (out_refs.len != 0 and out_refs.len != out_verts.len)
-            return err.Error.InvalidArgument;
-        const capacity = std.math.cast(i32, out_verts.len) orelse
-            return err.Error.InvalidArgument;
-        var count: i32 = 0;
-        var truncated: c.Bool = c.c_false;
-        try err.check(c.zrcPolyWallSegments(
-            self.handle,
-            ref,
-            filter,
-            // A [2]Vec3 is four tightly packed floats, the same memory Detour
-            // wants for a segment's two endpoints.
-            @ptrCast(out_verts.ptr),
-            if (out_refs.len == 0) null else out_refs.ptr,
-            capacity,
-            &count,
-            &truncated,
-        ));
-        return .{ .len = @intCast(count), .truncated = truncated != c.c_false };
-    }
+        /// The same search, bounded by a convex polygon instead of a circle.
+        /// `verts` is projected onto the xz-plane.
+        pub fn findPolysAroundShape(
+            self: Self,
+            start_ref: PolyRef,
+            verts: []const Vec3,
+            filter: *const Filter,
+            out_refs: []PolyRef,
+            out_parents: []PolyRef,
+            out_costs: []f32,
+        ) err.Error!ReachedPolys {
+            const vert_count = aegis.int.cast(i32, verts.len) catch
+                return err.Error.InvalidArgument;
+            const lens = [_]usize{ out_refs.len, out_parents.len, out_costs.len };
+            const capacity = try sharedCapacity(&lens);
+            var count: i32 = 0;
+            var truncated: c.Bool = c.c_false;
+            try err.check(c.zrcFindPolysAroundShape(
+                self.handle,
+                start_ref,
+                // A []Vec3 is tightly packed floats, the same memory Detour wants.
+                @ptrCast(verts.ptr), // safe: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
+                vert_count,
+                filter,
+                if (out_refs.len == 0) null else out_refs.ptr,
+                if (out_parents.len == 0) null else out_parents.ptr,
+                if (out_costs.len == 0) null else out_costs.ptr,
+                capacity,
+                &count,
+                &truncated,
+            ));
+            return .{ .len = c.reported(usize, count), .truncated = truncated != c.c_false };
+        }
 
-    /// Distance from `center` to the nearest wall within `max_radius`, or
-    /// null when nothing is in range.
-    pub fn findDistanceToWall(
-        self: NavMeshQuery,
-        start_ref: PolyRef,
-        center: Vec3,
-        max_radius: f32,
-        filter: *const Filter,
-    ) err.Error!?WallHit {
-        var dist: f32 = 0;
-        var pos: Vec3 = undefined;
-        var normal: Vec3 = undefined;
-        var found: c.Bool = c.c_false;
-        try err.check(c.zrcFindDistanceToWall(
-            self.handle,
-            start_ref,
-            &center,
-            max_radius,
-            filter,
-            &dist,
-            &pos,
-            &normal,
-            &found,
-        ));
-        if (found == c.c_false) return null;
-        return .{ .distance = dist, .position = pos, .normal = normal };
-    }
+        /// The corridor from the last Dijkstra search's start to `end_ref`. Reads
+        /// the search tree `findPolysAroundCircle` or `findPolysAroundShape` left
+        /// behind, so it is meaningful only right after one of them, for a
+        /// polygon that search reached.
+        pub fn pathFromDijkstraSearch(
+            self: Self,
+            end_ref: PolyRef,
+            out_path: []PolyRef,
+        ) err.Error!PolyList {
+            const capacity = aegis.int.cast(i32, out_path.len) catch
+                return err.Error.InvalidArgument;
+            var count: i32 = 0;
+            var truncated: c.Bool = c.c_false;
+            try err.check(c.zrcPathFromDijkstraSearch(
+                self.handle,
+                end_ref,
+                out_path.ptr,
+                capacity,
+                &count,
+                &truncated,
+            ));
+            return .{ .len = c.reported(usize, count), .truncated = truncated != c.c_false };
+        }
 
-    /// Whether `ref` names a live polygon, and — when `filter` is given —
-    /// one this filter would admit. A null filter asks the plainer question:
-    /// does `ref` decode to a polygon that exists, with no admission test.
-    pub fn isValidPolyRef(self: NavMeshQuery, ref: PolyRef, filter: ?*const Filter) err.Error!bool {
-        var valid: c.Bool = c.c_false;
-        try err.check(c.zrcIsValidPolyRef(self.handle, ref, filter, &valid));
-        return valid != c.c_false;
-    }
+        /// Polygons touching a circle around `center`, without a real search:
+        /// only the polygons adjacent to `start_ref` and their neighbours, cheap
+        /// enough for a per-frame collision query and useless further than a step
+        /// away. `out_refs` is required, unlike its two siblings above: upstream
+        /// writes through it with no null check.
+        pub fn findLocalNeighbourhood(
+            self: Self,
+            start_ref: PolyRef,
+            center: Vec3,
+            radius: f32,
+            filter: *const Filter,
+            out_refs: []PolyRef,
+            out_parents: []PolyRef,
+        ) err.Error!ReachedPolys {
+            if (out_parents.len != 0 and out_parents.len != out_refs.len)
+                return err.Error.InvalidArgument;
+            const capacity = aegis.int.cast(i32, out_refs.len) catch
+                return err.Error.InvalidArgument;
+            var count: i32 = 0;
+            var truncated: c.Bool = c.c_false;
+            try err.check(c.zrcFindLocalNeighbourhood(
+                self.handle,
+                start_ref,
+                &center,
+                radius,
+                filter,
+                out_refs.ptr,
+                if (out_parents.len == 0) null else out_parents.ptr,
+                capacity,
+                &count,
+                &truncated,
+            ));
+            return .{ .len = c.reported(usize, count), .truncated = truncated != c.c_false };
+        }
 
-    /// Whether the last search closed `ref` — visited it and settled its
-    /// cost.
-    pub fn isInClosedList(self: NavMeshQuery, ref: PolyRef) err.Error!bool {
-        var closed: c.Bool = c.c_false;
-        try err.check(c.zrcIsInClosedList(self.handle, ref, &closed));
-        return closed != c.c_false;
-    }
+        /// The segments of `ref`'s boundary an agent under `filter` cannot cross.
+        /// `out_verts` takes two points per segment; `out_refs`, when given,
+        /// receives the polygon on the far side of each, or 0 where there is
+        /// none.
+        pub fn polyWallSegments(
+            self: Self,
+            ref: PolyRef,
+            filter: *const Filter,
+            out_verts: [][2]Vec3,
+            out_refs: []PolyRef,
+        ) err.Error!WallSegments {
+            if (out_refs.len != 0 and out_refs.len != out_verts.len)
+                return err.Error.InvalidArgument;
+            const capacity = aegis.int.cast(i32, out_verts.len) catch
+                return err.Error.InvalidArgument;
+            var count: i32 = 0;
+            var truncated: c.Bool = c.c_false;
+            try err.check(c.zrcPolyWallSegments(
+                self.handle,
+                ref,
+                filter,
+                // A [2]Vec3 is four tightly packed floats, the same memory Detour
+                // wants for a segment's two endpoints.
+                @ptrCast(out_verts.ptr), // safe: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
+                if (out_refs.len == 0) null else out_refs.ptr,
+                capacity,
+                &count,
+                &truncated,
+            ));
+            return .{ .len = c.reported(usize, count), .truncated = truncated != c.c_false };
+        }
 
-    /// The navmesh this query was created against. Borrowed; the caller
-    /// still owns it.
-    pub fn attachedNavMesh(self: NavMeshQuery) err.Error!NavMesh {
-        var handle: *const c.NavMesh = undefined;
-        try err.check(c.zrcQueryNavMesh(self.handle, &handle));
-        return .{ .handle = @constCast(handle) };
-    }
+        /// Distance from `center` to the nearest wall within `max_radius`, or
+        /// null when nothing is in range.
+        pub fn findDistanceToWall(
+            self: Self,
+            start_ref: PolyRef,
+            center: Vec3,
+            max_radius: f32,
+            filter: *const Filter,
+        ) err.Error!?WallHit {
+            var dist: f32 = 0;
+            var pos: Vec3 = undefined;
+            var normal: Vec3 = undefined;
+            var found: c.Bool = c.c_false;
+            try err.check(c.zrcFindDistanceToWall(
+                self.handle,
+                start_ref,
+                &center,
+                max_radius,
+                filter,
+                &dist,
+                &pos,
+                &normal,
+                &found,
+            ));
+            if (found == c.c_false) return null;
+            return .{ .distance = dist, .position = pos, .normal = normal };
+        }
 
-    /// How full this query's node pool is.
-    pub fn nodePoolInfo(self: NavMeshQuery) err.Error!NodePoolInfo {
-        var raw: c.NodePoolInfo = undefined;
-        try err.check(c.zrcQueryNodePoolInfo(self.handle, &raw));
-        return .{
-            .node_count = @intCast(raw.node_count),
-            .max_nodes = @intCast(raw.max_nodes),
-            .hash_size = @intCast(raw.hash_size),
-            .bytes_used = @intCast(raw.bytes_used),
-        };
-    }
+        /// Whether `ref` names a live polygon, and — when `filter` is given —
+        /// one this filter would admit. A null filter asks the plainer question:
+        /// does `ref` decode to a polygon that exists, with no admission test.
+        pub fn isValidPolyRef(self: Self, ref: PolyRef, filter: ?*const Filter) err.Error!bool {
+            var valid: c.Bool = c.c_false;
+            try err.check(c.zrcIsValidPolyRef(self.handle, ref, filter, &valid));
+            return valid != c.c_false;
+        }
 
-    /// The node the last search made for `ref` in state `state`, if it made
-    /// one. Null rather than an error when the search never reached that
-    /// polygon in that state — the difference between "cost zero" and "not
-    /// visited".
-    pub fn findNode(self: NavMeshQuery, ref: PolyRef, state: u32) err.Error!?Node {
-        var raw: c.Node = undefined;
-        const result = c.zrcQueryFindNode(self.handle, ref, state, &raw);
-        return nodeOrNotFound(result, raw);
-    }
+        /// Whether the last search closed `ref` — visited it and settled its
+        /// cost.
+        pub fn isInClosedList(self: Self, ref: PolyRef) err.Error!bool {
+            var closed: c.Bool = c.c_false;
+            try err.check(c.zrcIsInClosedList(self.handle, ref, &closed));
+            return closed != c.c_false;
+        }
 
-    /// Every node the last search made for `ref`, across its states, written
-    /// into `out`. Returns how many were written, at most four — the width of
-    /// upstream's per-polygon state table.
-    pub fn findNodes(self: NavMeshQuery, ref: PolyRef, out: []Node) err.Error!usize {
-        var raw: [c.max_node_states]c.Node = undefined;
-        const capacity = std.math.cast(i32, @min(out.len, raw.len)) orelse
-            return err.Error.InvalidArgument;
-        var count: i32 = 0;
-        try err.check(c.zrcQueryFindNodes(self.handle, ref, &raw, capacity, &count));
-        const found: usize = @intCast(count);
-        for (out[0..found], raw[0..found]) |*dst, src| dst.* = nodeFromC(src);
-        return found;
-    }
+        /// The navmesh this query was created against. Borrowed; the caller
+        /// still owns it.
+        pub fn attachedNavMesh(self: Self) err.Error!BorrowedNavMesh {
+            var handle: *const c.NavMesh = undefined;
+            try err.check(c.zrcQueryNavMesh(self.handle, &handle));
+            return .{ .handle = handle };
+        }
 
-    /// The node at a one-based pool index, which is what `Node.parent_index`
-    /// carries. Null for index 0, "no node".
-    pub fn nodeAt(self: NavMeshQuery, index: u32) err.Error!?Node {
-        var raw: c.Node = undefined;
-        const result = c.zrcQueryNodeAt(self.handle, index, &raw);
-        return nodeOrNotFound(result, raw);
-    }
-};
+        /// How full this query's node pool is.
+        pub fn nodePoolInfo(self: Self) err.Error!NodePoolInfo {
+            var raw: c.NodePoolInfo = undefined;
+            try err.check(c.zrcQueryNodePoolInfo(self.handle, &raw));
+            return .{
+                .node_count = c.reported(u32, raw.node_count),
+                .max_nodes = c.reported(u32, raw.max_nodes),
+                .hash_size = c.reported(u32, raw.hash_size),
+                .bytes_used = c.reported(u32, raw.bytes_used),
+            };
+        }
+
+        /// The node the last search made for `ref` in state `state`, if it made
+        /// one. Null rather than an error when the search never reached that
+        /// polygon in that state — the difference between "cost zero" and "not
+        /// visited".
+        pub fn findNode(self: Self, ref: PolyRef, state: u32) err.Error!?Node {
+            var raw: c.Node = undefined;
+            const result = c.zrcQueryFindNode(self.handle, ref, state, &raw);
+            return nodeOrNotFound(result, raw);
+        }
+
+        /// Every node the last search made for `ref`, across its states, written
+        /// into `out`. Returns how many were written, at most four — the width of
+        /// upstream's per-polygon state table.
+        pub fn findNodes(self: Self, ref: PolyRef, out: []Node) err.Error!usize {
+            var raw: [c.max_node_states]c.Node = undefined;
+            const capacity = aegis.int.cast(i32, @min(out.len, raw.len));
+            var count: i32 = 0;
+            try err.check(c.zrcQueryFindNodes(self.handle, ref, &raw, capacity, &count));
+            const found: usize = c.reported(usize, count);
+            for (out[0..found], raw[0..found]) |*dst, src| dst.* = nodeFromC(src);
+            return found;
+        }
+
+        /// The node at a one-based pool index, which is what `Node.parent_index`
+        /// carries. Null for index 0, "no node".
+        pub fn nodeAt(self: Self, index: u32) err.Error!?Node {
+            var raw: c.Node = undefined;
+            const result = c.zrcQueryNodeAt(self.handle, index, &raw);
+            return nodeOrNotFound(result, raw);
+        }
+    };
+}
 
 /// Splits a polygon reference into the three fields packed into it.
 pub fn decodePolyRef(navmesh: NavMesh, ref: PolyRef) err.Error!DecodedPolyRef {
@@ -1080,7 +1096,7 @@ const EmptyWorld = struct {
 
 test "a fresh query has no sliced search in flight" {
     const gpa = std.testing.allocator;
-    try memory.setAllocator(gpa);
+    memory.setAllocator(gpa);
     defer memory.resetAllocator();
 
     const world = try EmptyWorld.init();
@@ -1092,7 +1108,7 @@ test "a fresh query has no sliced search in flight" {
 
 test "findNode on a query that has run no search is null rather than an error" {
     const gpa = std.testing.allocator;
-    try memory.setAllocator(gpa);
+    memory.setAllocator(gpa);
     defer memory.resetAllocator();
 
     const world = try EmptyWorld.init();

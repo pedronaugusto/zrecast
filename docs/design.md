@@ -131,6 +131,18 @@ corridors), so upstream's documentation stays usable as this package's.
   reference that can be "none" is `?PolyRef`, never a magic zero at the
   surface.
 - Flags are named option structs (`StraightPathOptions`), never bare `u32`s.
+- Bytes the package parses arrive as `Image`, `aegis.input.Untrusted`: a
+  navmesh, a tile, a tile's stored state, a tile-cache layer.
+- A handle another object owns is lent as a `Borrowed` type whose handle is
+  `*const`, as upstream's getter is: `Crowd.grid`, `Crowd.pathQueue`,
+  `Crowd.navMeshQuery`, `PathQueue.navMeshQuery` and
+  `NavMeshQuery.attachedNavMesh`. It has no `deinit` and none of the writes,
+  so the crowd's own grid cannot be freed or cleared through it.
+- Narrowing into the boundary is `aegis.int.cast` with the caller's refusal;
+  a count the boundary reports comes back through `c.reported`, which stops in
+  every build if it does not fit, where `@intCast` would be undefined in
+  ReleaseFast. Every capacity a caller sets is range-checked once, in `ffi/`,
+  where a C host meets the same check.
 - Memory routes through the process-wide allocator seam
   (`setAllocator`/`resetAllocator`), which `tests/c_smoke.c` proves is in use
   by counting.

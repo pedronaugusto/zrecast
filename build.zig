@@ -161,7 +161,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/zrecast.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "zrecast_options", .module = optionsModule(b, options) }},
+        .imports = &.{
+            .{ .name = "zrecast_options", .module = optionsModule(b, options) },
+            .{ .name = "aegis", .module = b.dependency("aegis", .{ .target = target, .optimize = optimize }).module("aegis") },
+        },
     });
     module.linkLibrary(lib);
 }
@@ -353,10 +356,12 @@ pub fn dev(b: *std.Build, tools: type) void {
     }
 
     preflight.addCi(b, p, .{ .tests = test_step });
-    // The build a consumer gets: the module and the library, fetching nothing.
+    // The build a consumer gets: the module, the library and aegis, fetching
+    // nothing.
     preflight.addConsumerCheck(b, p, .{
         .package = "zrecast",
         .program = p.path("ci/consumer.zig"),
+        .packages = &.{p.dependency("aegis", .{})},
     });
 }
 
@@ -375,7 +380,10 @@ fn suite(b: *std.Build, p: *std.Build, target: std.Build.ResolvedTarget, optimiz
             .root_source_file = p.path("src/zrecast.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{.{ .name = "zrecast_options", .module = optionsModule(b, options) }},
+            .imports = &.{
+                .{ .name = "zrecast_options", .module = optionsModule(b, options) },
+                .{ .name = "aegis", .module = p.dependency("aegis", .{ .target = target, .optimize = optimize }).module("aegis") },
+            },
         }),
     });
     tests.root_module.linkLibrary(library);

@@ -4,7 +4,7 @@ const std = @import("std");
 const zrecast = @import("zrecast");
 
 pub fn main(init: std.process.Init) !void {
-    try zrecast.setAllocator(init.gpa);
+    zrecast.setAllocator(init.gpa);
     defer zrecast.resetAllocator();
 
     const verts = [_]f32{ -10, 0, -10, 10, 0, -10, 10, 0, 10, -10, 0, 10 };

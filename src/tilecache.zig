@@ -16,11 +16,13 @@
 //! whatever that codec writes.
 
 const std = @import("std");
+const aegis = @import("aegis");
 const c = @import("c.zig");
 const err = @import("error.zig");
 const BuildContext = @import("pipeline.zig").BuildContext;
 const CompactHeightfield = @import("pipeline.zig").CompactHeightfield;
 const NavMesh = @import("navmesh.zig").NavMesh;
+const Image = @import("navmesh.zig").Image;
 const Serialized = @import("navmesh.zig").Serialized;
 
 //===----------------------------------------------------------------------===//
@@ -98,11 +100,11 @@ pub const HeightfieldLayerSet = struct {
     pub fn count(self: HeightfieldLayerSet) err.Error!u32 {
         var out: i32 = 0;
         try err.check(c.zrcHeightfieldLayerSetCount(self.handle, &out));
-        return @intCast(out);
+        return c.reported(u32, out);
     }
 
     pub fn at(self: HeightfieldLayerSet, index: u32) err.Error!HeightfieldLayer {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
+        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
         var out: HeightfieldLayer = undefined;
         try err.check(c.zrcHeightfieldLayerAt(self.handle, i, &out));
         return out;
@@ -111,18 +113,18 @@ pub const HeightfieldLayerSet = struct {
     /// Copies `out.len` height samples of layer `index` from `first`, one
     /// byte each.
     pub fn heights(self: HeightfieldLayerSet, index: u32, first: u32, out: []u8) err.Error!void {
-        const idx = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count_i = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const idx = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count_i = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcHeightfieldLayerHeights(self.handle, idx, first_i, count_i, ptr));
     }
 
     /// The same for the area ids, one per sample.
     pub fn areas(self: HeightfieldLayerSet, index: u32, first: u32, out: []u8) err.Error!void {
-        const idx = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count_i = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const idx = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count_i = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcHeightfieldLayerAreas(self.handle, idx, first_i, count_i, ptr));
     }
@@ -130,9 +132,9 @@ pub const HeightfieldLayerSet = struct {
     /// The same for the packed neighbour connections. Decode with
     /// `layerCon` and `layerPortal` rather than by hand.
     pub fn cons(self: HeightfieldLayerSet, index: u32, first: u32, out: []u8) err.Error!void {
-        const idx = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count_i = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const idx = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count_i = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcHeightfieldLayerCons(self.handle, idx, first_i, count_i, ptr));
     }
@@ -293,11 +295,12 @@ pub const TileCache = struct {
     }
 
     /// Adds one compressed layer, produced by `buildTileCacheLayer`. The
-    /// bytes are copied, so `data` stays the caller's and may be freed
+    /// bytes are copied, so `layer` stays the caller's and may be freed
     /// immediately.
     ///
     /// `error.TileOccupied` when a layer already sits at that position.
-    pub fn addTile(self: TileCache, data: []const u8) err.Error!CompressedTileRef {
+    pub fn addTile(self: TileCache, layer: Image) err.Error!CompressedTileRef {
+        const data = layer.readForParse();
         var ref: CompressedTileRef = 0;
         try err.check(c.zrcTileCacheAddTile(self.handle, data.ptr, data.len, &ref));
         return ref;
@@ -314,7 +317,7 @@ pub const TileCache = struct {
         var data: ?*anyopaque = null;
         var size: usize = 0;
         try err.check(c.zrcTileCacheRemoveTile(self.handle, ref, &data, &size));
-        const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult);
+        const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult); // safe: the C boundary allocates the image as bytes, through the allocator seam
         return .{ .bytes = ptr[0..size] };
     }
 
@@ -338,19 +341,19 @@ pub const TileCache = struct {
     /// buffer is needed, the same rule `pipeline.Heightfield.column`
     /// follows — a short `out` is not an error.
     pub fn tilesAt(self: TileCache, tile_x: i32, tile_y: i32, out: []CompressedTileRef) err.Error!usize {
-        const max_tiles = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const max_tiles = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         var found: i32 = 0;
         const result = c.zrcTileCacheTilesAt(self.handle, tile_x, tile_y, out.ptr, max_tiles, &found);
-        if (result == .buffer_too_small) return @intCast(found);
+        if (result == .buffer_too_small) return c.reported(usize, found);
         try err.check(result);
-        return @intCast(found);
+        return c.reported(usize, found);
     }
 
     /// The reference of the slot at `index`, or 0 when it is free. Slots
     /// run from 0 to `params().max_tiles - 1`; upstream's own accessor
     /// bounds nothing, so the index is checked here.
     pub fn tileRefAt(self: TileCache, index: u32) err.Error!CompressedTileRef {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
+        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
         var ref: CompressedTileRef = 0;
         try err.check(c.zrcTileCacheTileRefAt(self.handle, i, &ref));
         return ref;
@@ -366,7 +369,7 @@ pub const TileCache = struct {
     /// free. Upstream's own accessor bounds nothing; the index is checked
     /// here.
     pub fn obstacleRefAt(self: TileCache, index: u32) err.Error!ObstacleRef {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
+        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
         var ref: ObstacleRef = 0;
         try err.check(c.zrcTileCacheObstacleRefAt(self.handle, i, &ref));
         return ref;
@@ -430,12 +433,12 @@ pub const TileCache = struct {
     /// sizes an obstacle against `c.max_touched_tiles` before adding one.
     /// Same short-buffer rule as `tilesAt`.
     pub fn queryTiles(self: TileCache, bmin: [3]f32, bmax: [3]f32, out: []CompressedTileRef) err.Error!usize {
-        const max_tiles = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const max_tiles = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         var found: i32 = 0;
         const result = c.zrcTileCacheQueryTiles(self.handle, &bmin, &bmax, out.ptr, max_tiles, &found);
-        if (result == .buffer_too_small) return @intCast(found);
+        if (result == .buffer_too_small) return c.reported(usize, found);
         try err.check(result);
-        return @intCast(found);
+        return c.reported(usize, found);
     }
 
     /// Processes queued obstacle requests and rebuilds one tile, returning
@@ -486,9 +489,9 @@ pub fn buildTileCacheLayer(
     areas: []const u8,
     cons: []const u8,
 ) err.Error!Serialized {
-    const width = std.math.cast(usize, header.width) orelse return err.Error.InvalidArgument;
-    const height = std.math.cast(usize, header.height) orelse return err.Error.InvalidArgument;
-    const expected = std.math.mul(usize, width, height) catch return err.Error.InvalidArgument;
+    const width = aegis.int.cast(usize, header.width) catch return err.Error.InvalidArgument;
+    const height = aegis.int.cast(usize, header.height) catch return err.Error.InvalidArgument;
+    const expected = (aegis.int.Checked(usize).init(width).mul(height) catch return err.Error.InvalidArgument).raw();
     if (heights.len != expected or areas.len != expected or cons.len != expected) {
         return err.Error.InvalidArgument;
     }
@@ -504,7 +507,7 @@ pub fn buildTileCacheLayer(
         &data,
         &size,
     ));
-    const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult);
+    const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult); // safe: the C boundary allocates the image as bytes, through the allocator seam
     return .{ .bytes = ptr[0..size] };
 }
 
@@ -524,8 +527,9 @@ pub const TileCacheLayer = struct {
     pub fn initFromBytes(
         compressor: *const Compressor,
         allocator: ?*const Allocator,
-        data: []const u8,
+        layer: Image,
     ) err.Error!TileCacheLayer {
+        const data = layer.readForParse();
         var compressor_storage: c.TileCacheCompressor = undefined;
         var allocator_storage: c.TileCacheAllocator = undefined;
         var handle: *c.TileCacheLayer = undefined;
@@ -553,22 +557,22 @@ pub const TileCacheLayer = struct {
     pub fn regionCount(self: TileCacheLayer) err.Error!u32 {
         var out: i32 = 0;
         try err.check(c.zrcTileCacheLayerRegionCount(self.handle, &out));
-        return @intCast(out);
+        return c.reported(u32, out);
     }
 
     /// Copies `out.len` height samples from `first`. The array is
     /// `width * height` long, row-major.
     pub fn heights(self: TileCacheLayer, first: u32, out: []u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcTileCacheLayerHeights(self.handle, first_i, count, ptr));
     }
 
     /// The same for the area ids, one per sample.
     pub fn areas(self: TileCacheLayer, first: u32, out: []u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcTileCacheLayerAreas(self.handle, first_i, count, ptr));
     }
@@ -576,8 +580,8 @@ pub const TileCacheLayer = struct {
     /// Writes area ids back from `first`. Each must be below
     /// `c.max_areas`.
     pub fn setAreas(self: TileCacheLayer, first: u32, areas_in: []const u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, areas_in.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, areas_in.len) catch return err.Error.InvalidArgument;
         const ptr: [*]const u8 = if (areas_in.len == 0) undefined else areas_in.ptr;
         try err.check(c.zrcTileCacheLayerSetAreas(self.handle, first_i, count, ptr));
     }
@@ -587,8 +591,8 @@ pub const TileCacheLayer = struct {
     /// nibble one bit per direction for a portal into another. Decode with
     /// `layerCon` and `layerPortal`.
     pub fn cons(self: TileCacheLayer, first: u32, out: []u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcTileCacheLayerCons(self.handle, first_i, count, ptr));
     }
@@ -596,8 +600,8 @@ pub const TileCacheLayer = struct {
     /// The region id of each sample, once regions have been built.
     /// `error.NotFound` before `buildRegions` has run.
     pub fn regions(self: TileCacheLayer, first: u32, out: []u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcTileCacheLayerRegions(self.handle, first_i, count, ptr));
     }
@@ -715,11 +719,11 @@ pub const TileCacheContourSet = struct {
     pub fn count(self: TileCacheContourSet) err.Error!u32 {
         var out: i32 = 0;
         try err.check(c.zrcTileCacheContourSetCount(self.handle, &out));
-        return @intCast(out);
+        return c.reported(u32, out);
     }
 
     pub fn at(self: TileCacheContourSet, index: u32) err.Error!TileCacheContourInfo {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
+        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
         var out: TileCacheContourInfo = undefined;
         try err.check(c.zrcTileCacheContourAt(self.handle, i, &out));
         return out;
@@ -732,10 +736,10 @@ pub const TileCacheContourSet = struct {
         first: u32,
         out: []TileCacheContourVertex,
     ) err.Error!void {
-        const idx = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const vert_count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr);
+        const idx = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const vert_count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(c.zrcTileCacheContourVerts(self.handle, idx, first_i, vert_count, ptr));
     }
 };
@@ -771,9 +775,9 @@ pub const TileCachePolyMesh = struct {
     /// Copies vertices into `out`, starting at `first`, one `[3]u16` each,
     /// in cells.
     pub fn verts(self: TileCachePolyMesh, first: u32, out: [][3]u16) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]u16 = if (out.len == 0) null else @ptrCast(out.ptr);
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const ptr: ?[*]u16 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(c.zrcTileCachePolyMeshVerts(self.handle, first_i, count, ptr));
     }
 
@@ -783,18 +787,18 @@ pub const TileCachePolyMesh = struct {
     /// must be a whole number of polygons — the stride the C side cannot
     /// derive from a bare pointer.
     pub fn polys(self: TileCachePolyMesh, first: u32, out: []u16) err.Error!void {
-        const stride = 2 * @as(usize, @intCast((try self.info()).verts_per_poly));
+        const stride = 2 * c.reported(usize, (try self.info()).verts_per_poly);
         if (stride == 0 or out.len % stride != 0) return err.Error.InvalidArgument;
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len / stride) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len / stride) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcTileCachePolyMeshPolys(self.handle, first_i, count, ptr));
     }
 
     /// Copies area ids into `out`, one per polygon.
     pub fn areas(self: TileCachePolyMesh, first: u32, out: []u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcTileCachePolyMeshAreas(self.handle, first_i, count, ptr));
     }
@@ -802,8 +806,8 @@ pub const TileCachePolyMesh = struct {
     /// Copies polygon flags into `out`, one per polygon. Every entry is 0
     /// unless a mesh-process callback has written it.
     pub fn flags(self: TileCachePolyMesh, first: u32, out: []u16) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcTileCachePolyMeshFlags(self.handle, first_i, count, ptr));
     }

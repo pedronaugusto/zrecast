@@ -75,7 +75,7 @@ test "the fixture geometry is the shape the assertions assume" {
 
 test "baking the fixture produces a mesh that covers the ground" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     var log_buffer: [1024]u8 = undefined;
@@ -103,7 +103,7 @@ test "baking the fixture produces a mesh that covers the ground" {
 
 test "geometry with no walkable surface is an empty result, and says why" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     var log_buffer: [512]u8 = undefined;
@@ -126,7 +126,7 @@ test "geometry with no walkable surface is an empty result, and says why" {
 
 test "a bake log smaller than the message is truncated, not overrun" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     // A canary either side, so an overrun by even one byte is visible.
@@ -145,7 +145,7 @@ test "a bake log smaller than the message is truncated, not overrun" {
 
 test "a malformed configuration is refused before anything is allocated" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const mesh = fixtureMesh();
@@ -197,7 +197,7 @@ test "a configuration whose voxel arithmetic overflows an int is refused" {
     // conversions were not saturating. Run under `-Dsanitize_c=true` this test
     // is what proves they are.
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const mesh = fixtureMesh();
@@ -287,7 +287,7 @@ test "the walkable-slope threshold is the angle it says it is" {
     // right. A ramp at a known angle either side of the threshold is what says
     // it is: two degrees of slope decide whether this surface exists at all.
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const rise: f32 = 20.0 * std.math.tan(40.0 * std.math.pi / 180.0);
@@ -319,7 +319,7 @@ test "a slice length that is not a multiple of three is refused by bake itself" 
     // the entry point anyone calls. This drives the same rejection through
     // PolyMesh.bake, which is what a consumer actually reaches.
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = zrecast.defaultConfig();
@@ -346,7 +346,7 @@ test "a slice length that is not a multiple of three is refused by bake itself" 
 
 test "geometry with an out-of-range index or a NaN is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = zrecast.defaultConfig();
@@ -376,7 +376,7 @@ test "geometry with an out-of-range index or a NaN is refused" {
 
 test "every partition mode bakes the fixture" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     inline for (.{ .watershed, .monotone, .layers }) |mode| {
@@ -474,7 +474,7 @@ fn cookAuthoredDigest() ![64]u8 {
 // qsort, and ties fall to the implementation — docs/design.md has the entry.
 test "a cook is deterministic" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const untiled = try cookUntiledDigest();
@@ -503,7 +503,7 @@ test "a cook is deterministic" {
 
 test "a navmesh survives a round trip through bytes" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -516,9 +516,9 @@ test "a navmesh survives a round trip through bytes" {
     defer image.deinit();
     const bytes = image.bytes;
     try std.testing.expect(bytes.len > 0);
-    try zrecast.validate(bytes);
+    try zrecast.validate(.init(bytes));
 
-    const loaded = try zrecast.NavMesh.initFromBytes(bytes);
+    const loaded = try zrecast.NavMesh.initFromBytes(.init(bytes));
     defer loaded.deinit();
 
     try std.testing.expectEqual(built.polyCount(), loaded.polyCount());
@@ -552,7 +552,7 @@ test "a navmesh survives a round trip through bytes" {
 
 test "an image survives a round trip through the opposite byte order" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -562,22 +562,22 @@ test "an image survives a round trip through the opposite byte order" {
     const image = try mesh.serialize();
     defer image.deinit();
 
-    const foreign = try zrecast.swapImageEndian(image.bytes, true);
+    const foreign = try zrecast.swapImageEndian(.init(image.bytes), true);
     defer foreign.deinit();
 
     // Really the other byte order, not a copy: the header's magic is the first
     // four bytes, and swapping it is what makes the image unreadable here.
     try std.testing.expectEqual(image.bytes.len, foreign.bytes.len);
     try std.testing.expect(!std.mem.eql(u8, image.bytes, foreign.bytes));
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(foreign.bytes));
+    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(foreign.bytes)));
     try std.testing.expectError(
         zrecast.Error.BadFormat,
-        zrecast.NavMesh.initFromBytes(foreign.bytes),
+        zrecast.NavMesh.initFromBytes(.init(foreign.bytes)),
     );
 
     // And back again, byte for byte. A swap that lost or reordered anything
     // would show up here rather than as a navmesh that loads and misbehaves.
-    const home = try zrecast.swapImageEndian(foreign.bytes, false);
+    const home = try zrecast.swapImageEndian(.init(foreign.bytes), false);
     defer home.deinit();
     try std.testing.expectEqualSlices(u8, image.bytes, home.bytes);
 
@@ -590,15 +590,15 @@ test "an image survives a round trip through the opposite byte order" {
     var junk = @as([256]u8, @splat(0xAB));
     try std.testing.expectError(
         zrecast.Error.BadFormat,
-        zrecast.swapImageEndian(&junk, true),
+        zrecast.swapImageEndian(.init(&junk), true),
     );
     try std.testing.expectError(
         zrecast.Error.BadFormat,
-        zrecast.swapImageEndian(&junk, false),
+        zrecast.swapImageEndian(.init(&junk), false),
     );
     try std.testing.expectError(
         zrecast.Error.BadFormat,
-        zrecast.swapImageEndian(image.bytes[0..8], true),
+        zrecast.swapImageEndian(.init(image.bytes[0..8]), true),
     );
 }
 
@@ -609,7 +609,7 @@ test "every truncation of a valid navmesh image is rejected" {
     // dtNavMesh::init never compares those against the length it was given, so
     // without the size check here every one of these is an out-of-bounds read.
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -622,11 +622,11 @@ test "every truncation of a valid navmesh image is rejected" {
 
     var len: usize = 0;
     while (len < bytes.len) : (len += 1) {
-        if (zrecast.validate(bytes[0..len])) |_| {
+        if (zrecast.validate(.init(bytes[0..len]))) |_| {
             std.debug.print("truncated image accepted at {d} bytes\n", .{len});
             return error.TestUnexpectedResult;
         } else |_| {}
-        if (zrecast.NavMesh.initFromBytes(bytes[0..len])) |loaded| {
+        if (zrecast.NavMesh.initFromBytes(.init(bytes[0..len]))) |loaded| {
             loaded.deinit();
             std.debug.print("truncated image loaded at {d} bytes\n", .{len});
             return error.TestUnexpectedResult;
@@ -635,7 +635,7 @@ test "every truncation of a valid navmesh image is rejected" {
 
     // And the whole image must still load, so the test cannot pass by
     // rejecting everything.
-    const whole = try zrecast.NavMesh.initFromBytes(bytes);
+    const whole = try zrecast.NavMesh.initFromBytes(.init(bytes));
     whole.deinit();
 }
 
@@ -648,7 +648,7 @@ test "random image mutations never fault the validator, the loader or the querie
     // validates must also survive loading and querying, and the sanitizers
     // and the leak-checking allocator are what would object.
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -680,8 +680,8 @@ test "random image mutations never fault the validator, the loader or the querie
             mutant[random.uintLessThan(usize, mutant.len)] = random.int(u8);
         }
 
-        _ = zrecast.validate(mutant) catch continue;
-        const loaded = zrecast.NavMesh.initFromBytes(mutant) catch continue;
+        _ = zrecast.validate(.init(mutant)) catch continue;
+        const loaded = zrecast.NavMesh.initFromBytes(.init(mutant)) catch continue;
         defer loaded.deinit();
         accepted += 1;
 
@@ -724,7 +724,7 @@ test "random image mutations never fault the validator, the loader or the querie
 
 test "a navmesh image with a doctored header is rejected" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -835,17 +835,17 @@ test "a navmesh image with a doctored header is rejected" {
         @memcpy(copy, original);
         std.mem.writeInt(i32, copy[case.offset..][0..4], case.value, .little);
         if (case.lone_tile_only) {
-            zrecast.validate(copy) catch |e| {
+            zrecast.validate(.init(copy)) catch |e| {
                 std.debug.print("case '{s}' is a well-formed tile and was rejected\n", .{case.name});
                 return e;
             };
         } else {
-            std.testing.expectError(case.expected, zrecast.validate(copy)) catch |e| {
+            std.testing.expectError(case.expected, zrecast.validate(.init(copy))) catch |e| {
                 std.debug.print("case '{s}' was not rejected as expected\n", .{case.name});
                 return e;
             };
         }
-        std.testing.expectError(case.expected, zrecast.NavMesh.initFromBytes(copy)) catch |e| {
+        std.testing.expectError(case.expected, zrecast.NavMesh.initFromBytes(.init(copy))) catch |e| {
             std.debug.print("case '{s}' loaded despite validation\n", .{case.name});
             return e;
         };
@@ -854,13 +854,13 @@ test "a navmesh image with a doctored header is rejected" {
     for (float_cases) |case| {
         @memcpy(copy, original);
         @memcpy(copy[case.offset..][0..4], std.mem.asBytes(&case.value));
-        std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy)) catch |e| {
+        std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy))) catch |e| {
             std.debug.print("float case '{s}' was not rejected\n", .{case.name});
             return e;
         };
         std.testing.expectError(
             zrecast.Error.BadFormat,
-            zrecast.NavMesh.initFromBytes(copy),
+            zrecast.NavMesh.initFromBytes(.init(copy)),
         ) catch |e| {
             std.debug.print("float case '{s}' loaded despite validation\n", .{case.name});
             return e;
@@ -870,7 +870,7 @@ test "a navmesh image with a doctored header is rejected" {
     // The untouched copy must still load, proving the loops above rejected the
     // patches and not the fixture.
     @memcpy(copy, original);
-    const good = try zrecast.NavMesh.initFromBytes(copy);
+    const good = try zrecast.NavMesh.initFromBytes(.init(copy));
     good.deinit();
 }
 
@@ -883,7 +883,7 @@ test "an image whose polygons lie about their own shape is rejected" {
     // every count check, loads, and then writes vertex coordinates from the
     // image past the end of that array.
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -963,19 +963,19 @@ test "an image whose polygons lie about their own shape is rejected" {
         @memcpy(copy, original);
         copy[case.offset] = case.value;
         if (case.lone_tile_only) {
-            zrecast.validate(copy) catch |e| {
+            zrecast.validate(.init(copy)) catch |e| {
                 std.debug.print("interior case '{s}' is a well-formed tile and was rejected\n", .{case.name});
                 return e;
             };
         } else {
-            std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy)) catch |e| {
+            std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy))) catch |e| {
                 std.debug.print("interior case '{s}' was not rejected\n", .{case.name});
                 return e;
             };
         }
         std.testing.expectError(
             zrecast.Error.BadFormat,
-            zrecast.NavMesh.initFromBytes(copy),
+            zrecast.NavMesh.initFromBytes(.init(copy)),
         ) catch |e| {
             std.debug.print("interior case '{s}' loaded despite validation\n", .{case.name});
             return e;
@@ -989,10 +989,10 @@ test "an image whose polygons lie about their own shape is rejected" {
     // one, because the flag and the side share a u16.
     @memcpy(copy, original);
     std.mem.writeInt(u16, copy[polys_at + off_poly_neis ..][0..2], 0x8000 | 3, .little);
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy));
+    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
     try std.testing.expectError(
         zrecast.Error.BadFormat,
-        zrecast.NavMesh.initFromBytes(copy),
+        zrecast.NavMesh.initFromBytes(.init(copy)),
     );
 
     // Detail edge flags with no boundary bit anywhere.
@@ -1004,10 +1004,10 @@ test "an image whose polygons lie about their own shape is rejected" {
     for (0..@as(usize, @intCast(detail_tri_count))) |i| {
         copy[detail_tris_at + i * 4 + 3] = 0;
     }
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy));
+    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
     try std.testing.expectError(
         zrecast.Error.BadFormat,
-        zrecast.NavMesh.initFromBytes(copy),
+        zrecast.NavMesh.initFromBytes(.init(copy)),
     );
 
     // A NaN vertex coordinate. Every distance comparison against it is false,
@@ -1016,14 +1016,14 @@ test "an image whose polygons lie about their own shape is rejected" {
     for ([_]f32{ std.math.nan(f32), std.math.inf(f32), 1e30 }) |poison| {
         @memcpy(copy, original);
         @memcpy(copy[header_size..][0..4], std.mem.asBytes(&poison));
-        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy));
+        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
     }
     // And one in the detail vertex array, which is a separate loop.
     if (detail_vert_count > 0) {
         @memcpy(copy, original);
         const poison = std.math.nan(f32);
         @memcpy(copy[detail_verts_at..][0..4], std.mem.asBytes(&poison));
-        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy));
+        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
     }
 
     // A second corner index, on the last polygon rather than the first, so the
@@ -1031,12 +1031,12 @@ test "an image whose polygons lie about their own shape is rejected" {
     @memcpy(copy, original);
     const last_poly = polys_at + sizeof_poly * @as(usize, @intCast(poly_count - 1));
     copy[last_poly + off_poly_verts] = 0xff;
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy));
+    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
 
     // Positive control: the untouched image must still load and still answer a
     // query, or every rejection above proves nothing.
     @memcpy(copy, original);
-    const good = try zrecast.NavMesh.initFromBytes(copy);
+    const good = try zrecast.NavMesh.initFromBytes(.init(copy));
     defer good.deinit();
     const query = try zrecast.NavMeshQuery.init(good, 2048);
     defer query.deinit();
@@ -1122,7 +1122,7 @@ const TiledWorld = struct {
                 defer tile.?.deinit();
                 const bytes = try zrecast.buildTileData(tile.?, x, z, 0, null);
                 defer bytes.deinit();
-                _ = try mesh.addTile(bytes.bytes);
+                _ = try mesh.addTile(.init(bytes.bytes));
                 baked += 1;
             }
         }
@@ -1146,7 +1146,7 @@ const TiledWorld = struct {
 
 test "the tile grid covers the geometry and divides it" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = tiledConfig();
@@ -1181,7 +1181,7 @@ test "the tile grid covers the geometry and divides it" {
 
 test "a tiled bake fills some tiles and leaves the rest empty, without failing" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try TiledWorld.init();
@@ -1246,7 +1246,7 @@ test "a tiled bake fills some tiles and leaves the rest empty, without failing" 
 
 test "a path crosses a tile boundary, and stops crossing when the tile is removed" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try TiledWorld.init();
@@ -1304,7 +1304,7 @@ fn tileOf(world: TiledWorld, point: [3]f32) !zrecast.TileRef {
 
 test "a tile can be found, measured, removed, and its reference then refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try TiledWorld.init();
@@ -1331,7 +1331,7 @@ test "a tile can be found, measured, removed, and its reference then refused" {
 
 test "the tile entry points refuse what they cannot place" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = tiledConfig();
@@ -1359,13 +1359,13 @@ test "the tile entry points refuse what they cannot place" {
     {
         const mesh = try zrecast.NavMesh.initTiled(grid, 1, 1 << 14);
         defer mesh.deinit();
-        _ = try mesh.addTile(bytes.bytes);
+        _ = try mesh.addTile(.init(bytes.bytes));
         // The same grid position twice.
-        try std.testing.expectError(zrecast.Error.TileOccupied, mesh.addTile(bytes.bytes));
+        try std.testing.expectError(zrecast.Error.TileOccupied, mesh.addTile(.init(bytes.bytes)));
         // A second, different position with no slot left for it.
         const elsewhere = try zrecast.buildTileData(tile.?, tile_x, tile_z + 1, 0, null);
         defer elsewhere.deinit();
-        try std.testing.expectError(zrecast.Error.NavMeshFull, mesh.addTile(elsewhere.bytes));
+        try std.testing.expectError(zrecast.Error.NavMeshFull, mesh.addTile(.init(elsewhere.bytes)));
     }
 
     // A tile whose grid position lies outside the navmesh's grid is refused by
@@ -1375,9 +1375,9 @@ test "the tile entry points refuse what they cannot place" {
         defer outside.deinit();
         const mesh = try zrecast.NavMesh.initTiled(grid, 4, 1 << 14);
         defer mesh.deinit();
-        try std.testing.expectError(zrecast.Error.BadFormat, mesh.addTile(outside.bytes));
+        try std.testing.expectError(zrecast.Error.BadFormat, mesh.addTile(.init(outside.bytes)));
         // Well formed all the same: the position is only wrong for this grid.
-        try zrecast.validate(outside.bytes);
+        try zrecast.validate(.init(outside.bytes));
     }
 
     // A tile of a grid is not a lone navmesh, and a lone navmesh has no tiles
@@ -1385,7 +1385,7 @@ test "the tile entry points refuse what they cannot place" {
     {
         const portal_tile = try zrecast.buildTileData(tile.?, tile_x, tile_z, 0, null);
         defer portal_tile.deinit();
-        _ = zrecast.NavMesh.initFromBytes(portal_tile.bytes) catch |e| {
+        _ = zrecast.NavMesh.initFromBytes(.init(portal_tile.bytes)) catch |e| {
             try std.testing.expectEqual(zrecast.Error.BadFormat, e);
         };
     }
@@ -1407,7 +1407,7 @@ test "the tile entry points refuse what they cannot place" {
 
 test "a grid that zrcTileGridCompute could not have produced is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = tiledConfig();
@@ -1573,7 +1573,7 @@ fn stagedCook(gpa: std.mem.Allocator, config: zrecast.Config, geometry: zrecast.
 
 test "the staged pipeline cooks the same bytes a bake does" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const geometry = fixtureMesh();
@@ -1606,7 +1606,7 @@ test "the staged pipeline cooks the same bytes a bake does" {
 
 test "a hand-built mesh with no flags is a navmesh no query can cross" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = zrecast.defaultConfig();
@@ -1648,7 +1648,7 @@ test "a hand-built mesh with no flags is a navmesh no query can cross" {
 
 test "a hand-built mesh carries the agent it was built for, or is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = zrecast.defaultConfig();
@@ -1674,7 +1674,7 @@ test "a hand-built mesh carries the agent it was built for, or is refused" {
 
 test "a mesh with no detail half is a navmesh Detour derives the height for" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = zrecast.defaultConfig();
@@ -1771,7 +1771,7 @@ fn scratchField() !zrecast.Heightfield {
 
 test "an erosion radius Recast's threshold cannot express is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const field = try scratchField();
@@ -1789,7 +1789,7 @@ test "an erosion radius Recast's threshold cannot express is refused" {
 
 test "a heightfield whose cell count overflows an int is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const bmin = [3]f32{ 0, 0, 0 };
@@ -1820,7 +1820,7 @@ test "a heightfield whose cell count overflows an int is refused" {
 
 test "a vertex no cell index could name is refused before Recast sees it" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const field = try scratchField();
@@ -1853,7 +1853,7 @@ test "a vertex no cell index could name is refused before Recast sees it" {
 
 test "a span field that does not fit its packed width is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const field = try scratchField();
@@ -1895,7 +1895,7 @@ test "a span field that does not fit its packed width is refused" {
 
 test "merging two meshes that pack their polygons differently is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = zrecast.defaultConfig();
@@ -2296,7 +2296,7 @@ const CachedWorld = struct {
             var codec = StoreCodec.compressor();
             const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons);
             defer bytes.deinit();
-            _ = try cache.addTile(bytes.bytes);
+            _ = try cache.addTile(.init(bytes.bytes));
             added += 1;
         }
         return added;
@@ -2400,7 +2400,7 @@ const CachedWorld = struct {
 
 test "an obstacle in the wall's gap closes the way, and removing it opens it" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     StoreCodec.reset();
@@ -2449,7 +2449,7 @@ test "an obstacle in the wall's gap closes the way, and removing it opens it" {
 
 test "a layer built from a header reads that header back, field for field" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     // `TileCacheLayer.header` is spelled apart from the `info` family because
@@ -2488,7 +2488,7 @@ test "a layer built from a header reads that header back, field for field" {
     const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons);
     defer bytes.deinit();
 
-    const layer = try zrecast.TileCacheLayer.initFromBytes(&codec, null, bytes.bytes);
+    const layer = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes.bytes));
     defer layer.deinit();
     try std.testing.expectEqual(header, try layer.header());
 
@@ -2506,7 +2506,7 @@ test "a layer built from a header reads that header back, field for field" {
 
 test "bytes that are not a compressed layer never reach the tile cache" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     var world = try CachedWorld.init(gpa);
@@ -2517,11 +2517,11 @@ test "bytes that are not a compressed layer never reach the tile cache" {
     // computed by subtraction — negative for a short buffer, and handed to
     // the host's codec as a plain int. Checked here before upstream sees it.
     var stub = @as([8]u8, @splat(0));
-    try std.testing.expectError(zrecast.Error.BadFormat, world.cache.addTile(&stub));
+    try std.testing.expectError(zrecast.Error.BadFormat, world.cache.addTile(.init(&stub)));
 
     // Long enough to be a header, but not one.
     var wrong = @as([128]u8, @splat(0));
-    try std.testing.expectError(zrecast.Error.BadFormat, world.cache.addTile(&wrong));
+    try std.testing.expectError(zrecast.Error.BadFormat, world.cache.addTile(.init(&wrong)));
 
     // The sharp case: a buffer carrying the right magic and version but too
     // short to be a header. Upstream tests the magic before it looks at the
@@ -2532,7 +2532,7 @@ test "bytes that are not a compressed layer never reach the tile cache" {
     std.mem.writeInt(i32, short_but_labelled[4..8], c.tilecache_version, .little);
     try std.testing.expectError(
         zrecast.Error.BadFormat,
-        world.cache.addTile(&short_but_labelled),
+        world.cache.addTile(.init(&short_but_labelled)),
     );
 
     // The length dtTileCacheHeaderSwapEndian takes and discards before
@@ -2572,7 +2572,7 @@ test "bytes that are not a compressed layer never reach the tile cache" {
 
 test "an obstacle touching more tiles than the cache can track is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     var world = try CachedWorld.init(gpa);
@@ -2630,7 +2630,7 @@ test "an obstacle touching more tiles than the cache can track is refused" {
 
 test "a tile baked from one config into another config's grid is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const geometry = fixtureMesh();
@@ -2685,7 +2685,7 @@ test "a reference naming a free slot is refused rather than dereferenced" {
     // references is exactly one slot, and one more step lands on a slot that
     // was never occupied and still carries the original salt.
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try TiledWorld.init();
@@ -2733,7 +2733,7 @@ test "a reference naming a free slot is refused rather than dereferenced" {
 
 test "a tile count and polygon count that leave Detour no salt are refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const grid = try zrecast.tileGrid(tiledConfig(), fixtureMesh());
@@ -2754,9 +2754,9 @@ test "a tile count and polygon count that leave Detour no salt are refused" {
     // before anything is taken.
     {
         var counting = std.testing.FailingAllocator.init(gpa, .{});
-        try zrecast.setAllocator(counting.allocator());
+        zrecast.setAllocator(counting.allocator());
         // unreachable: setAllocator refuses only a bridge missing a function, and the Zig bridge has both.
-        defer zrecast.setAllocator(gpa) catch unreachable;
+        defer zrecast.setAllocator(gpa);
         try std.testing.expectError(
             zrecast.Error.InvalidArgument,
             zrecast.NavMesh.initTiled(grid, 1 << 12, 1 << 12),
@@ -2782,7 +2782,7 @@ test "a tile count and polygon count that leave Detour no salt are refused" {
 
 test "findNearestPoly locates the ground and reports nothing off the mesh" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -2808,7 +2808,7 @@ test "findNearestPoly locates the ground and reports nothing off the mesh" {
 
 test "a filter that admits nothing finds nothing" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -2829,7 +2829,7 @@ test "a filter that admits nothing finds nothing" {
 
 test "a path across the wall has to round its end" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -2894,7 +2894,7 @@ test "a path across the wall has to round its end" {
 
 test "an unreachable goal yields a partial path rather than a lie" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -2925,7 +2925,7 @@ test "an unreachable goal yields a partial path rather than a lie" {
 
 test "a corridor buffer that is too small reports partial, not overflow" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -2950,7 +2950,7 @@ test "a corridor buffer that is too small reports partial, not overflow" {
 
 test "moveAlongSurface slides along the wall instead of through it" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -3013,7 +3013,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
 
 test "a raycast stops at the wall and passes through open ground" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -3093,7 +3093,7 @@ test "a raycast stops at the wall and passes through open ground" {
 
 test "queries reject the arguments that would fault inside Detour" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -3201,7 +3201,7 @@ test "queries reject the arguments that would fault inside Detour" {
 
 test "a stale polygon reference from another navmesh is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -3320,7 +3320,7 @@ fn corridorBetween(
 
 test "a costly area sends the path around it" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const volumes = [_]zrecast.AreaVolume{bandVolume(marked_area)};
@@ -3349,7 +3349,7 @@ test "a costly area sends the path around it" {
 
 test "a volume marked unwalkable carves a hole a path cannot cross" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const filter = zrecast.defaultFilter();
@@ -3375,7 +3375,7 @@ test "a volume marked unwalkable carves a hole a path cannot cross" {
 
 test "the area-to-flag table decides which polygons a filter admits" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     var table = @as([c.max_areas]u16, @splat(0));
@@ -3411,7 +3411,7 @@ test "the area-to-flag table decides which polygons a filter admits" {
 
 test "a polygon's area and flags can be rewritten after the bake" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -3438,7 +3438,7 @@ test "a polygon's area and flags can be rewritten after the bake" {
 
 test "the polygon accessors refuse a reference they cannot resolve" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -3473,7 +3473,7 @@ test "the polygon accessors refuse a reference they cannot resolve" {
 
 test "area authoring Recast could not read is refused before anything is baked" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const mesh = fixtureMesh();
@@ -3552,7 +3552,7 @@ test "area authoring Recast could not read is refused before anything is baked" 
 
 test "a tile bake applies the same authoring the whole-world bake does" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = tiledConfig();
@@ -3581,7 +3581,7 @@ test "a tile bake applies the same authoring the whole-world bake does" {
 
             const bytes = try zrecast.buildTileData(tile, x, z, 0, null);
             defer bytes.deinit();
-            _ = try mesh.addTile(bytes.bytes);
+            _ = try mesh.addTile(.init(bytes.bytes));
         }
     }
 
@@ -3691,7 +3691,7 @@ const LinkedWorld = struct {
 
 test "an off-mesh connection is a corner a path can be told to animate" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     // Without one, the only route is around the wall's end and nothing in the
@@ -3710,7 +3710,7 @@ test "an off-mesh connection is a corner a path can be told to animate" {
 
 test "a one-way connection cannot be discovered from the far end" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const links = [_]zrecast.OffMeshConnection{wallJump(false)};
@@ -3728,7 +3728,7 @@ test "a one-way connection cannot be discovered from the far end" {
 
 test "a connection reads back as it was authored" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const authored = wallJump(true);
@@ -3836,7 +3836,7 @@ test "a connection reads back as it was authored" {
 
 test "a connection Detour could not wire is refused before anything is built" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -3889,7 +3889,7 @@ test "a connection Detour could not wire is refused before anything is built" {
 
 test "an image whose off-mesh header fields disagree is rejected" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -3950,7 +3950,7 @@ test "an image whose off-mesh header fields disagree is rejected" {
     for (cases) |case| {
         @memcpy(copy, original);
         std.mem.writeInt(i32, copy[case.offset..][0..4], case.value, .little);
-        std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy)) catch |e| {
+        std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy))) catch |e| {
             std.debug.print("accepted: {s}\n", .{case.name});
             return e;
         };
@@ -3995,19 +3995,19 @@ test "an image whose off-mesh header fields disagree is rejected" {
         // incidental, and ci/probes carries nothing claiming otherwise.
         @memset(short[cut..][0..12], 0);
         short[cut + 9] = 1;
-        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(short));
+        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(short)));
     }
 
     // The untouched image must still load, or every rejection above proves
     // nothing.
     @memcpy(copy, original);
-    const reloaded = try zrecast.NavMesh.initFromBytes(copy);
+    const reloaded = try zrecast.NavMesh.initFromBytes(.init(copy));
     reloaded.deinit();
 }
 
 test "an image whose off-mesh connection lies about itself is rejected" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -4068,7 +4068,7 @@ test "an image whose off-mesh connection lies about itself is rejected" {
     for (patches) |patch| {
         @memcpy(copy, original);
         @memcpy(copy[patch.offset..][0..patch.bytes.len], patch.bytes);
-        std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy)) catch |e| {
+        std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy))) catch |e| {
             std.debug.print("accepted: {s}\n", .{patch.name});
             return e;
         };
@@ -4096,11 +4096,11 @@ test "an image whose off-mesh connection lies about itself is rejected" {
     try std.testing.expect(leaf != null);
     @memcpy(copy, original);
     std.mem.writeInt(i32, copy[leaf.?..][0..4], off_mesh_base, .little);
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(copy));
+    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
 
     // The untouched image must still load.
     @memcpy(copy, original);
-    const reloaded = try zrecast.NavMesh.initFromBytes(copy);
+    const reloaded = try zrecast.NavMesh.initFromBytes(.init(copy));
     reloaded.deinit();
 }
 
@@ -4110,7 +4110,7 @@ test "an image whose off-mesh connection lies about itself is rejected" {
 
 test "a tile's state saves and restores the flags a query can see" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -4137,7 +4137,7 @@ test "a tile's state saves and restores the flags a query can see" {
     const gone = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
     if (gone.ref) |other| try std.testing.expect(other != ref);
 
-    try world.mesh.restoreTileState(tile, saved);
+    try world.mesh.restoreTileState(tile, .init(saved));
     try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref));
     try std.testing.expectEqual(marked_area, try world.mesh.polyArea(ref));
 
@@ -4157,11 +4157,11 @@ test "a tile's state saves and restores the flags a query can see" {
     );
     try std.testing.expectError(
         zrecast.Error.BufferTooSmall,
-        world.mesh.restoreTileState(tile, saved[0 .. size - 1]),
+        world.mesh.restoreTileState(tile, .init(saved[0 .. size - 1])),
     );
     try std.testing.expectError(
         zrecast.Error.InvalidArgument,
-        world.mesh.restoreTileState(tile, oversized),
+        world.mesh.restoreTileState(tile, .init(oversized)),
     );
 
     // A reference to no tile at all.
@@ -4181,25 +4181,25 @@ test "a tile's state saves and restores the flags a query can see" {
     std.mem.writeInt(i32, doctored[0..4], 0, .little);
     try std.testing.expectError(
         zrecast.Error.BadFormat,
-        world.mesh.restoreTileState(tile, doctored),
+        world.mesh.restoreTileState(tile, .init(doctored)),
     );
 
     @memcpy(doctored, saved);
     std.mem.writeInt(i32, doctored[4..8], 99, .little);
     try std.testing.expectError(
         zrecast.Error.UnsupportedVersion,
-        world.mesh.restoreTileState(tile, doctored),
+        world.mesh.restoreTileState(tile, .init(doctored)),
     );
 
     // And the untouched blob still restores, so the two rejections above are
     // about what was changed rather than about the blob at large.
-    try world.mesh.restoreTileState(tile, saved);
+    try world.mesh.restoreTileState(tile, .init(saved));
     try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref));
 }
 
 test "state from one tile does not restore onto another" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try TiledWorld.init();
@@ -4222,10 +4222,10 @@ test "state from one tile does not restore onto another" {
     if (second_size == size) {
         try std.testing.expectError(
             zrecast.Error.InvalidArgument,
-            world.mesh.restoreTileState(second, saved),
+            world.mesh.restoreTileState(second, .init(saved)),
         );
     }
-    try world.mesh.restoreTileState(first, saved);
+    try world.mesh.restoreTileState(first, .init(saved));
 }
 
 //=============================================================================
@@ -4239,7 +4239,7 @@ test "state from one tile does not restore onto another" {
 
 test "a polygon read back is the polygon a query found" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -4290,7 +4290,7 @@ test "a polygon read back is the polygon a query found" {
 
 test "the links read back are the links a path walked" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -4335,7 +4335,7 @@ test "the links read back are the links a path walked" {
 
 test "a tile read back is the tile the bake placed" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try TiledWorld.init();
@@ -4387,7 +4387,7 @@ test "a tile read back is the tile the bake placed" {
 
 test "the detail mesh read back covers every polygon exactly once" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -4419,7 +4419,7 @@ test "the detail mesh read back covers every polygon exactly once" {
 
 test "a range outside an array is an error rather than a short read" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -4492,7 +4492,7 @@ test "a range outside an array is an error rather than a short read" {
 
 test "a tile built without a bounding-volume tree answers the same questions" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -4532,7 +4532,7 @@ test "a tile built without a bounding-volume tree answers the same questions" {
 
 test "a position no tile coordinate could name is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try TiledWorld.init();
@@ -4964,7 +4964,7 @@ fn polygonCorners(
 
 test "the point a query snapped to is inside the polygon it snapped to" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -4995,7 +4995,7 @@ test "the point a query snapped to is inside the polygon it snapped to" {
 
 test "a polygon read back has the winding Detour wraps in" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5024,7 +5024,7 @@ test "a polygon read back has the winding Detour wraps in" {
 
 test "a random point in a polygon is in the polygon" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5096,7 +5096,7 @@ test "a random point in a polygon is in the polygon" {
 
 test "a segment out of a polygon leaves it at the boundary" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5199,7 +5199,7 @@ test "a shrunk polygon lies inside the one it came from" {
 
 test "a bounding-volume node overlaps the leaves beneath it" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5242,7 +5242,7 @@ test "a bounding-volume node overlaps the leaves beneath it" {
 
 test "a tile overlaps itself and not a tile across the world" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try TiledWorld.init();
@@ -5361,7 +5361,7 @@ test "two polygons overlap when they share ground" {
 
 test "the tile layout is the one Detour derives from the same bytes" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -5371,7 +5371,7 @@ test "the tile layout is the one Detour derives from the same bytes" {
     const image = try mesh.serialize();
     defer image.deinit();
 
-    const layout = try zrecast.tileLayout(image.bytes);
+    const layout = try zrecast.tileLayout(.init(image.bytes));
     try std.testing.expectEqual(image.bytes.len, layout.total_size);
 
     // The oracle walks the same buffer with dtGetThenAdvanceBufferPointer, the
@@ -5409,7 +5409,7 @@ test "the tile layout is the one Detour derives from the same bytes" {
 
 test "the vertices at the layout's offset are the vertices the accessor reports" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -5419,12 +5419,12 @@ test "the vertices at the layout's offset are the vertices the accessor reports"
     const image = try mesh.serialize();
     defer image.deinit();
 
-    const loaded = try zrecast.NavMesh.initFromBytes(image.bytes);
+    const loaded = try zrecast.NavMesh.initFromBytes(.init(image.bytes));
     defer loaded.deinit();
     const tile = try loaded.tileRefAtIndex(0);
     const info = try loaded.tileInfo(tile);
 
-    const layout = try zrecast.tileLayout(image.bytes);
+    const layout = try zrecast.tileLayout(.init(image.bytes));
     try std.testing.expectEqual(
         @as(usize, @intCast(info.vert_count)) * 3 * @sizeOf(f32),
         layout.verts.len,
@@ -5449,12 +5449,12 @@ test "the vertices at the layout's offset are the vertices the accessor reports"
 
 test "a buffer that is not a tile image has no layout" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     var junk = @as([256]u8, @splat(0));
-    try std.testing.expectError(error.BadFormat, zrecast.tileLayout(&junk));
-    try std.testing.expectError(error.BadFormat, zrecast.tileLayout(junk[0..4]));
+    try std.testing.expectError(error.BadFormat, zrecast.tileLayout(.init(&junk)));
+    try std.testing.expectError(error.BadFormat, zrecast.tileLayout(.init(junk[0..4])));
 }
 
 //=============================================================================
@@ -5463,7 +5463,7 @@ test "a buffer that is not a tile image has no layout" {
 
 test "a block from the allocator seam is the host's own block" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     // The test allocator fails the test if this leaks or is freed wrongly,
@@ -5518,7 +5518,7 @@ test "the assertion seam reports the build it was compiled into" {
 
 test "a query box no tile range could hold is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5591,7 +5591,7 @@ const Endpoints = struct {
 
 test "a sliced path is the path found all at once" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5646,7 +5646,7 @@ test "a sliced path is the path found all at once" {
 
 test "a search that would clear the pool under a slice is refused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5662,7 +5662,7 @@ test "a search that would clear the pool under a slice is refused" {
         .{},
     );
     // unreachable: cancel refuses only a query without a handle, and `world.query` holds one.
-    defer world.query.slicedFindPathCancel() catch unreachable;
+    defer world.query.slicedFindPathCancel();
 
     // The five that begin by clearing the shared node pool. Detour's own class
     // comment says every const method is safe alongside a slice; these are the
@@ -5763,7 +5763,7 @@ test "a search that would clear the pool under a slice is refused" {
 
 test "a slice finalised twice is refused, and cancelling releases it" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5807,10 +5807,10 @@ test "a slice finalised twice is refused, and cancelling releases it" {
     try std.testing.expectError(error.InvalidArgument, world.query.slicedFindPathFinalize(&.{}));
     try std.testing.expect(world.query.slicedFindPathActive());
 
-    try world.query.slicedFindPathCancel();
+    world.query.slicedFindPathCancel();
     try std.testing.expect(!world.query.slicedFindPathActive());
     // Cancelling twice is not an error, and the pool is free again.
-    try world.query.slicedFindPathCancel();
+    world.query.slicedFindPathCancel();
     _ = try world.query.findPath(
         ends.start.ref.?,
         ends.goal.ref.?,
@@ -5823,7 +5823,7 @@ test "a slice finalised twice is refused, and cancelling releases it" {
 
 test "a slice finalised early keeps the corridor it was re-planning" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5881,7 +5881,7 @@ const fixed_random = zrecast.RandomSource{ .next = fixedRandomNext };
 
 test "a random point is on the navmesh, and the same numbers give the same point" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5939,7 +5939,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
 
 test "every polygon a box returns overlaps the box" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -5979,7 +5979,7 @@ test "every polygon a box returns overlaps the box" {
 
 test "the batched box query finds what the buffered one finds" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6044,7 +6044,7 @@ fn onClosedPolygon(point: zrecast.Vec3, corners: []const [3]f32) !bool {
 
 test "the closest point on a polygon is on that polygon" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6096,7 +6096,7 @@ test "the closest point on a polygon is on that polygon" {
 
 test "the polygons around a circle form a tree the corridor walks back up" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6192,7 +6192,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
 
 test "the distance to a wall is the distance to the segments the wall is made of" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6235,7 +6235,7 @@ test "the distance to a wall is the distance to the segments the wall is made of
 
 test "an option a query takes changes what it answers" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6304,7 +6304,7 @@ test "an option a query takes changes what it answers" {
 
 test "the node pool remembers the corridor the search walked" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6362,7 +6362,7 @@ test "the node pool remembers the corridor the search walked" {
 
 test "a polygon reference splits into the fields packed into it" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6413,9 +6413,9 @@ test "a polygon reference splits into the fields packed into it" {
 fn runOwnedArc(mesh: zrecast.NavMesh) !void {
     const image = try mesh.serialize();
     defer image.deinit();
-    try zrecast.validate(image.bytes);
+    try zrecast.validate(.init(image.bytes));
 
-    const loaded = try zrecast.NavMesh.initFromBytes(image.bytes);
+    const loaded = try zrecast.NavMesh.initFromBytes(.init(image.bytes));
     defer loaded.deinit();
 
     if (loaded.polyCount() == 0) return error.EmptyReload;
@@ -6449,7 +6449,7 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     // remains below is the part zrecast is actually responsible for, and it is
     // held to the full standard.
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -6469,9 +6469,9 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
 
     const total = count: {
         var counting = std.testing.FailingAllocator.init(sweep_gpa, .{});
-        try zrecast.setAllocator(counting.allocator());
+        zrecast.setAllocator(counting.allocator());
         // unreachable: setAllocator refuses only a bridge missing a function, and the Zig bridge has both.
-        defer zrecast.setAllocator(gpa) catch unreachable;
+        defer zrecast.setAllocator(gpa);
         try runOwnedArc(mesh);
         break :count counting.alloc_index;
     };
@@ -6481,9 +6481,9 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     var index: usize = 0;
     while (index < total) : (index += 1) {
         var failing = std.testing.FailingAllocator.init(sweep_gpa, .{ .fail_index = index });
-        try zrecast.setAllocator(failing.allocator());
+        zrecast.setAllocator(failing.allocator());
         const outcome = runOwnedArc(mesh);
-        try zrecast.setAllocator(gpa);
+        zrecast.setAllocator(gpa);
 
         if (outcome) |_| {
             std.debug.print(
@@ -6526,7 +6526,7 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
 
 test "a query that reaches no polygon reports none" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6584,7 +6584,7 @@ fn crowdAgentParams(radius: f32) zrecast.CrowdAgentParams {
 
 test "an agent reference outlives its slot only until the slot is reused" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6654,7 +6654,7 @@ test "an agent reference outlives its slot only until the slot is reused" {
 
 test "an agent's parameters are checked where upstream indexes unchecked" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6756,7 +6756,7 @@ fn expectNoTunnel(prev: [3]f32, now: [3]f32) !void {
 
 test "two agents on the same spot separate, and neither crosses the wall" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6843,7 +6843,7 @@ test "two agents on the same spot separate, and neither crosses the wall" {
 
 test "a debug view that outlived its agent does not stop the crowd" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -6887,7 +6887,7 @@ test "a debug view that outlived its agent does not stop the crowd" {
 
 test "an agent removed mid-jump does not carry the next agent with it" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const links = [_]zrecast.OffMeshConnection{wallJump(true)};
@@ -6948,7 +6948,7 @@ test "an agent removed mid-jump does not carry the next agent with it" {
 
 test "a crowd's borrowed pieces are the ones it is driving" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
@@ -7198,7 +7198,7 @@ fn fixtureNormals(gpa: std.mem.Allocator, mesh: zrecast.TriMesh) ![]f32 {
 
 test "every Recast container draws into a Zig renderer, and the counts hold" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const stages = try DrawStages.init(gpa);
@@ -7287,7 +7287,7 @@ test "every Recast container draws into a Zig renderer, and the counts hold" {
 
 test "a draw call refuses a renderer with a hook missing" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -7314,7 +7314,7 @@ test "a draw call refuses a renderer with a hook missing" {
 
 test "a renderer's own area colours are used when it supplies them" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const stages = try DrawStages.init(gpa);
@@ -7378,7 +7378,7 @@ test "a renderer's own area colours are used when it supplies them" {
 
 test "every Detour container draws into a Zig renderer" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -7473,7 +7473,7 @@ test "every Detour container draws into a Zig renderer" {
 
 test "the layered heightfield and a tile cache rebuild draw into a Zig renderer" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const stages = try DrawStages.init(gpa);
@@ -7541,7 +7541,7 @@ test "the layered heightfield and a tile cache rebuild draw into a Zig renderer"
     const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons);
     defer bytes.deinit();
 
-    const decoded = try zrecast.TileCacheLayer.initFromBytes(&codec, null, bytes.bytes);
+    const decoded = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes.bytes));
     defer decoded.deinit();
 
     try draw.tileCacheLayerAreas(decoded, config.cell_size, config.cell_height);
@@ -7723,7 +7723,7 @@ test "the colour helpers pack the channels upstream packs" {
 
 test "a display list records a run and replays it into another renderer" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const list = try zrecast.DisplayList.init(16);
@@ -7837,7 +7837,7 @@ pub const MemoryStream = struct {
 
 test "a polygon mesh and its detail mesh dump to OBJ through a Zig stream" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
@@ -7892,7 +7892,7 @@ test "a polygon mesh and its detail mesh dump to OBJ through a Zig stream" {
 
 test "a contour set survives a dump and a read" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const stages = try DrawStages.init(gpa);
@@ -7959,7 +7959,7 @@ test "a contour set survives a dump and a read" {
 
 test "a compact heightfield survives a dump and a read" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const stages = try DrawStages.init(gpa);
@@ -8007,7 +8007,7 @@ test "a compact heightfield survives a dump and a read" {
 
 test "a dump refuses a stream with a hook missing" {
     const gpa = std.testing.allocator;
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);

@@ -2,6 +2,7 @@
 //! one side of a build, and a queryable navmesh on the other.
 
 const std = @import("std");
+const aegis = @import("aegis");
 const c = @import("c.zig");
 const err = @import("error.zig");
 const PolyMesh = @import("bake.zig").PolyMesh;
@@ -67,7 +68,7 @@ pub const TileAuthoring = struct {
     skip_bv_tree: bool = false,
 
     fn toC(self: TileAuthoring) err.Error!c.TileAuthoring {
-        const connection_count = std.math.cast(i32, self.connections.len) orelse
+        const connection_count = aegis.int.cast(i32, self.connections.len) catch
             return err.Error.InvalidArgument;
         return .{
             .connections = if (self.connections.len == 0) null else self.connections.ptr,
@@ -79,385 +80,408 @@ pub const TileAuthoring = struct {
 };
 
 /// A navigation mesh ready to be queried, holding one tile or a grid of them.
-pub const NavMesh = struct {
-    handle: *c.NavMesh,
+/// Bytes read as a serialised navmesh or tile image. They can come from a
+/// file, the network or another build, so every function that takes them
+/// checks them before upstream reads any of them.
+pub const Image = aegis.input.Untrusted([]const u8);
 
-    /// Converts a baked polygon mesh into a queryable navmesh. The navmesh
-    /// takes its own copy, so `mesh` may be destroyed straight afterwards.
-    ///
-    /// `authoring` is optional and supplies the off-mesh connections and the
-    /// opaque user id the single tile this creates is built with.
-    pub fn initFromPolyMesh(mesh: PolyMesh, authoring: ?TileAuthoring) err.Error!NavMesh {
-        var authoring_storage: c.TileAuthoring = undefined;
-        if (authoring) |a| authoring_storage = try a.toC();
-        const c_authoring: ?*const c.TileAuthoring =
-            if (authoring != null) &authoring_storage else null;
-        var handle: *c.NavMesh = undefined;
-        try err.check(c.zrcNavMeshCreate(mesh.handle, c_authoring, &handle));
-        return .{ .handle = handle };
-    }
+pub const NavMesh = NavMeshOf(.owned);
 
-    /// Creates an empty navmesh sized for a tile grid.
-    ///
-    /// `max_tiles` bounds how many tiles may be resident at once and
-    /// `max_polys_per_tile` how many polygons any one may hold. Both feed
-    /// Detour's 32-bit polygon reference, which needs 10 bits of salt left
-    /// over: rounded up to powers of two, the two together may claim at most
-    /// 22 bits, and `InvalidArgument` says they did not.
-    pub fn initTiled(
-        grid: TileGrid,
-        max_tiles: u32,
-        max_polys_per_tile: u32,
-    ) err.Error!NavMesh {
-        const tiles = std.math.cast(i32, max_tiles) orelse
-            return err.Error.InvalidArgument;
-        const polys = std.math.cast(i32, max_polys_per_tile) orelse
-            return err.Error.InvalidArgument;
-        var handle: *c.NavMesh = undefined;
-        try err.check(c.zrcNavMeshCreateTiled(&grid, tiles, polys, &handle));
-        return .{ .handle = handle };
-    }
+/// A navmesh another object lent, read-only: what `NavMeshQuery.attachedNavMesh`
+/// returns. It cannot be written or freed, and it lives as long as its owner.
+pub const BorrowedNavMesh = NavMeshOf(.borrowed);
 
-    /// Adds a tile, checking the bytes in full first and then copying them, so
-    /// `bytes` stays the caller's and may be freed immediately.
-    pub fn addTile(self: NavMesh, bytes: []const u8) err.Error!TileRef {
-        var ref: TileRef = 0;
-        try err.check(c.zrcNavMeshAddTile(self.handle, bytes.ptr, bytes.len, &ref));
-        return ref;
-    }
+fn NavMeshOf(comptime access: c.Access) type {
+    return struct {
+        const Self = @This();
 
-    /// Removes a tile and releases the copy the navmesh made of it.
-    pub fn removeTile(self: NavMesh, ref: TileRef) err.Error!void {
-        try err.check(c.zrcNavMeshRemoveTile(self.handle, ref));
-    }
+        handle: c.Handle(c.NavMesh, access),
 
-    /// The tile at a grid position, or 0 when the slot is empty — a fact about
-    /// the world rather than an error.
-    pub fn tileRefAt(
-        self: NavMesh,
-        tile_x: i32,
-        tile_z: i32,
-        tile_layer: i32,
-    ) err.Error!TileRef {
-        var ref: TileRef = 0;
-        try err.check(c.zrcNavMeshTileRefAt(
-            self.handle,
-            tile_x,
-            tile_z,
-            tile_layer,
-            &ref,
-        ));
-        return ref;
-    }
+        /// Converts a baked polygon mesh into a queryable navmesh. The navmesh
+        /// takes its own copy, so `mesh` may be destroyed straight afterwards.
+        ///
+        /// `authoring` is optional and supplies the off-mesh connections and the
+        /// opaque user id the single tile this creates is built with.
+        pub fn initFromPolyMesh(mesh: PolyMesh, authoring: ?TileAuthoring) err.Error!NavMesh {
+            comptime c.ownedOnly(access);
+            var authoring_storage: c.TileAuthoring = undefined;
+            if (authoring) |a| authoring_storage = try a.toC();
+            const c_authoring: ?*const c.TileAuthoring =
+                if (authoring != null) &authoring_storage else null;
+            var handle: *c.NavMesh = undefined;
+            try err.check(c.zrcNavMeshCreate(mesh.handle, c_authoring, &handle));
+            return .{ .handle = handle };
+        }
 
-    /// Tiles currently resident.
-    pub fn tileCount(self: NavMesh) u32 {
-        return @intCast(c.zrcNavMeshTileCount(self.handle));
-    }
+        /// Creates an empty navmesh sized for a tile grid.
+        ///
+        /// `max_tiles` bounds how many tiles may be resident at once and
+        /// `max_polys_per_tile` how many polygons any one may hold. Both feed
+        /// Detour's 32-bit polygon reference, which needs 10 bits of salt left
+        /// over: rounded up to powers of two, the two together may claim at most
+        /// 22 bits, and `InvalidArgument` says they did not.
+        pub fn initTiled(
+            grid: TileGrid,
+            max_tiles: u32,
+            max_polys_per_tile: u32,
+        ) err.Error!NavMesh {
+            comptime c.ownedOnly(access);
+            const tiles = aegis.int.cast(i32, max_tiles) catch
+                return err.Error.InvalidArgument;
+            const polys = aegis.int.cast(i32, max_polys_per_tile) catch
+                return err.Error.InvalidArgument;
+            var handle: *c.NavMesh = undefined;
+            try err.check(c.zrcNavMeshCreateTiled(&grid, tiles, polys, &handle));
+            return .{ .handle = handle };
+        }
 
-    /// The tile in slot `index`, or 0 when the slot is empty.
-    ///
-    /// Slots are the navmesh's own storage, `maxTiles` of them; walking them is
-    /// how a host enumerates what is resident without knowing where to look.
-    /// Every tile stacked at a grid position, across all layers, lowest
-    /// first, and how many are resident there in total.
-    ///
-    /// `out` receives however many fit; the total is always the return value,
-    /// so a caller compares it against `out.len` to see whether a second,
-    /// larger call is needed rather than treating a short buffer as failure.
-    /// An empty `out` asks only for the count. A tile cache is what stacks
-    /// layers at one position.
-    pub fn tileRefsAt(
-        self: NavMesh,
-        tile_x: i32,
-        tile_z: i32,
-        out: []TileRef,
-    ) err.Error!usize {
-        const max_tiles = std.math.cast(i32, out.len) orelse
-            return err.Error.InvalidArgument;
-        const ptr: ?[*]TileRef = if (out.len == 0) null else out.ptr;
-        var count: i32 = 0;
-        const result = c.zrcNavMeshTileRefsAt(self.handle, tile_x, tile_z, ptr, max_tiles, &count);
-        if (result == .buffer_too_small) return @intCast(count);
-        try err.check(result);
-        return @intCast(count);
-    }
+        /// Adds a tile, checking the bytes in full first and then copying them, so
+        /// `image` stays the caller's and may be freed immediately.
+        pub fn addTile(self: Self, image: Image) err.Error!TileRef {
+            const bytes = image.readForParse();
+            var ref: TileRef = 0;
+            try err.check(c.zrcNavMeshAddTile(self.handle, bytes.ptr, bytes.len, &ref));
+            return ref;
+        }
 
-    pub fn tileRefAtIndex(self: NavMesh, index: u32) err.Error!TileRef {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        var ref: TileRef = 0;
-        try err.check(c.zrcNavMeshTileRefAtIndex(self.handle, i, &ref));
-        return ref;
-    }
+        /// Removes a tile and releases the copy the navmesh made of it.
+        pub fn removeTile(self: Self, ref: TileRef) err.Error!void {
+            try err.check(c.zrcNavMeshRemoveTile(self.handle, ref));
+        }
 
-    /// Tiles this navmesh was sized to hold.
-    pub fn maxTiles(self: NavMesh) u32 {
-        return @intCast(c.zrcNavMeshMaxTiles(self.handle));
-    }
+        /// The tile at a grid position, or 0 when the slot is empty — a fact about
+        /// the world rather than an error.
+        pub fn tileRefAt(
+            self: Self,
+            tile_x: i32,
+            tile_z: i32,
+            tile_layer: i32,
+        ) err.Error!TileRef {
+            var ref: TileRef = 0;
+            try err.check(c.zrcNavMeshTileRefAt(
+                self.handle,
+                tile_x,
+                tile_z,
+                tile_layer,
+                &ref,
+            ));
+            return ref;
+        }
 
-    /// World-space bounds of one resident tile, `.{ min, max }`.
-    pub fn tileBounds(self: NavMesh, ref: TileRef) err.Error![2][3]f32 {
-        var result: [2][3]f32 = undefined;
-        try err.check(c.zrcNavMeshTileBounds(
-            self.handle,
-            ref,
-            &result[0],
-            &result[1],
-        ));
-        return result;
-    }
+        /// Tiles currently resident.
+        pub fn tileCount(self: Self) u32 {
+            return c.reported(u32, c.zrcNavMeshTileCount(self.handle));
+        }
 
-    /// The area id of one polygon, 0 to `max_areas - 1`.
-    ///
-    /// The area is what a query filter charges to cross the polygon, through
-    /// `Filter.area_cost`; the flags are what it admits or refuses outright.
-    /// Both are per polygon and both are a write into the tile the reference
-    /// names, so a world can change shape without being re-cooked.
-    pub fn polyArea(self: NavMesh, ref: c.PolyRef) err.Error!i32 {
-        var area: i32 = 0;
-        try err.check(c.zrcNavMeshGetPolyArea(self.handle, ref, &area));
-        return area;
-    }
+        /// The tile in slot `index`, or 0 when the slot is empty.
+        ///
+        /// Slots are the navmesh's own storage, `maxTiles` of them; walking them is
+        /// how a host enumerates what is resident without knowing where to look.
+        /// Every tile stacked at a grid position, across all layers, lowest
+        /// first, and how many are resident there in total.
+        ///
+        /// `out` receives however many fit; the total is always the return value,
+        /// so a caller compares it against `out.len` to see whether a second,
+        /// larger call is needed rather than treating a short buffer as failure.
+        /// An empty `out` asks only for the count. A tile cache is what stacks
+        /// layers at one position.
+        pub fn tileRefsAt(
+            self: Self,
+            tile_x: i32,
+            tile_z: i32,
+            out: []TileRef,
+        ) err.Error!usize {
+            const max_tiles = aegis.int.cast(i32, out.len) catch
+                return err.Error.InvalidArgument;
+            const ptr: ?[*]TileRef = if (out.len == 0) null else out.ptr;
+            var count: i32 = 0;
+            const result = c.zrcNavMeshTileRefsAt(self.handle, tile_x, tile_z, ptr, max_tiles, &count);
+            if (result == .buffer_too_small) return c.reported(usize, count);
+            try err.check(result);
+            return c.reported(usize, count);
+        }
 
-    /// Rewrites the area id of one polygon. `InvalidArgument` outside
-    /// `0..max_areas`.
-    pub fn setPolyArea(self: NavMesh, ref: c.PolyRef, area: i32) err.Error!void {
-        try err.check(c.zrcNavMeshSetPolyArea(self.handle, ref, area));
-    }
+        pub fn tileRefAtIndex(self: Self, index: u32) err.Error!TileRef {
+            const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+            var ref: TileRef = 0;
+            try err.check(c.zrcNavMeshTileRefAtIndex(self.handle, i, &ref));
+            return ref;
+        }
 
-    /// The query flags of one polygon.
-    pub fn polyFlags(self: NavMesh, ref: c.PolyRef) err.Error!u16 {
-        var flags: u16 = 0;
-        try err.check(c.zrcNavMeshGetPolyFlags(self.handle, ref, &flags));
-        return flags;
-    }
+        /// Tiles this navmesh was sized to hold.
+        pub fn maxTiles(self: Self) u32 {
+            return c.reported(u32, c.zrcNavMeshMaxTiles(self.handle));
+        }
 
-    /// Rewrites the query flags of one polygon. Zero makes it invisible to
-    /// every query.
-    pub fn setPolyFlags(self: NavMesh, ref: c.PolyRef, flags: u16) err.Error!void {
-        try err.check(c.zrcNavMeshSetPolyFlags(self.handle, ref, flags));
-    }
+        /// World-space bounds of one resident tile, `.{ min, max }`.
+        pub fn tileBounds(self: Self, ref: TileRef) err.Error![2][3]f32 {
+            var result: [2][3]f32 = undefined;
+            try err.check(c.zrcNavMeshTileBounds(
+                self.handle,
+                ref,
+                &result[0],
+                &result[1],
+            ));
+            return result;
+        }
 
-    /// Which kind of polygon a reference names.
-    ///
-    /// There is no setter: a polygon's type decides how every query treats it
-    /// and which of a tile's arrays it may index, so a host chooses it by
-    /// supplying connections at build time instead.
-    pub fn polyType(self: NavMesh, ref: c.PolyRef) err.Error!PolyType {
-        var out_type: i32 = 0;
-        try err.check(c.zrcNavMeshGetPolyType(self.handle, ref, &out_type));
-        return @fromBackingInt(@intCast(out_type));
-    }
+        /// The area id of one polygon, 0 to `max_areas - 1`.
+        ///
+        /// The area is what a query filter charges to cross the polygon, through
+        /// `Filter.area_cost`; the flags are what it admits or refuses outright.
+        /// Both are per polygon and both are a write into the tile the reference
+        /// names, so a world can change shape without being re-cooked.
+        pub fn polyArea(self: Self, ref: c.PolyRef) err.Error!i32 {
+            var area: i32 = 0;
+            try err.check(c.zrcNavMeshGetPolyArea(self.handle, ref, &area));
+            return area;
+        }
 
-    /// The two endpoints of an off-mesh connection, `.{ start, end }`, in the
-    /// direction of travel.
-    ///
-    /// `prev_ref` is the polygon the path arrives from, and decides which
-    /// endpoint is reported first: pass the polygon immediately before the
-    /// connection in the corridor. Anything else — including 0 — reports them
-    /// reversed, because arriving from anywhere that is not endpoint A's
-    /// landing polygon means arriving from endpoint B.
-    pub fn offMeshConnectionEndPoints(
-        self: NavMesh,
-        prev_ref: c.PolyRef,
-        poly_ref: c.PolyRef,
-    ) err.Error![2][3]f32 {
-        var result: [2][3]f32 = undefined;
-        try err.check(c.zrcNavMeshOffMeshConnectionEndPoints(
-            self.handle,
-            prev_ref,
-            poly_ref,
-            &result[0],
-            &result[1],
-        ));
-        return result;
-    }
+        /// Rewrites the area id of one polygon. `InvalidArgument` outside
+        /// `0..max_areas`.
+        pub fn setPolyArea(self: Self, ref: c.PolyRef, area: i32) err.Error!void {
+            try err.check(c.zrcNavMeshSetPolyArea(self.handle, ref, area));
+        }
 
-    /// The connection a polygon reference names, as it is stored.
-    ///
-    /// `.flags` and `.area` come from the connection's polygon, so a
-    /// `setPolyFlags` since the tile was added is reflected here. The
-    /// endpoints are the stored ones, which is not always where the
-    /// connection attached: `offMeshConnectionEndPoints` reports where it
-    /// landed.
-    pub fn offMeshConnection(self: NavMesh, ref: c.PolyRef) err.Error!OffMeshConnection {
-        var out: OffMeshConnection = undefined;
-        try err.check(c.zrcNavMeshOffMeshConnection(self.handle, ref, &out));
-        return out;
-    }
+        /// The query flags of one polygon.
+        pub fn polyFlags(self: Self, ref: c.PolyRef) err.Error!u16 {
+            var flags: u16 = 0;
+            try err.check(c.zrcNavMeshGetPolyFlags(self.handle, ref, &flags));
+            return flags;
+        }
 
-    /// The tile's opaque user id, as given to `buildTileData` or
-    /// `initFromPolyMesh`.
-    pub fn tileUserId(self: NavMesh, ref: TileRef) err.Error!u32 {
-        var out_user_id: u32 = 0;
-        try err.check(c.zrcNavMeshTileUserId(self.handle, ref, &out_user_id));
-        return out_user_id;
-    }
+        /// Rewrites the query flags of one polygon. Zero makes it invisible to
+        /// every query.
+        pub fn setPolyFlags(self: Self, ref: c.PolyRef, flags: u16) err.Error!void {
+            try err.check(c.zrcNavMeshSetPolyFlags(self.handle, ref, flags));
+        }
 
-    /// How this navmesh's tile grid was sized, as `initTiled` set it up.
-    pub fn params(self: NavMesh) err.Error!NavMeshParams {
-        var out: NavMeshParams = undefined;
-        try err.check(c.zrcNavMeshParams(self.handle, &out));
-        return out;
-    }
+        /// Which kind of polygon a reference names.
+        ///
+        /// There is no setter: a polygon's type decides how every query treats it
+        /// and which of a tile's arrays it may index, so a host chooses it by
+        /// supplying connections at build time instead.
+        pub fn polyType(self: Self, ref: c.PolyRef) err.Error!PolyType {
+            var out_type: i32 = 0;
+            try err.check(c.zrcNavMeshGetPolyType(self.handle, ref, &out_type));
+            return std.enums.fromInt(PolyType, out_type) orelse
+                aegis.assert.never("the C boundary reports only the polygon types Detour defines");
+        }
 
-    /// Which tile of the grid `pos` falls in.
-    ///
-    /// Answers for any position, including one outside the grid: the result is
-    /// the coordinate the position would have, not a promise that a tile is
-    /// there.
-    pub fn calcTileLoc(self: NavMesh, pos: [3]f32) err.Error!TileLoc {
-        var loc: TileLoc = undefined;
-        try err.check(c.zrcNavMeshCalcTileLoc(self.handle, &pos, &loc.x, &loc.z));
-        return loc;
-    }
+        /// The two endpoints of an off-mesh connection, `.{ start, end }`, in the
+        /// direction of travel.
+        ///
+        /// `prev_ref` is the polygon the path arrives from, and decides which
+        /// endpoint is reported first: pass the polygon immediately before the
+        /// connection in the corridor. Anything else — including 0 — reports them
+        /// reversed, because arriving from anywhere that is not endpoint A's
+        /// landing polygon means arriving from endpoint B.
+        pub fn offMeshConnectionEndPoints(
+            self: Self,
+            prev_ref: c.PolyRef,
+            poly_ref: c.PolyRef,
+        ) err.Error![2][3]f32 {
+            var result: [2][3]f32 = undefined;
+            try err.check(c.zrcNavMeshOffMeshConnectionEndPoints(
+                self.handle,
+                prev_ref,
+                poly_ref,
+                &result[0],
+                &result[1],
+            ));
+            return result;
+        }
 
-    /// Everything a tile's header says about it, copied out.
-    pub fn tileInfo(self: NavMesh, ref: TileRef) err.Error!TileInfo {
-        var out: TileInfo = undefined;
-        try err.check(c.zrcNavMeshTileInfo(self.handle, ref, &out));
-        return out;
-    }
+        /// The connection a polygon reference names, as it is stored.
+        ///
+        /// `.flags` and `.area` come from the connection's polygon, so a
+        /// `setPolyFlags` since the tile was added is reflected here. The
+        /// endpoints are the stored ones, which is not always where the
+        /// connection attached: `offMeshConnectionEndPoints` reports where it
+        /// landed.
+        pub fn offMeshConnection(self: Self, ref: c.PolyRef) err.Error!OffMeshConnection {
+            var out: OffMeshConnection = undefined;
+            try err.check(c.zrcNavMeshOffMeshConnection(self.handle, ref, &out));
+            return out;
+        }
 
-    /// One polygon, copied out of the tile that holds it.
-    pub fn polyInfo(self: NavMesh, ref: c.PolyRef) err.Error!PolyInfo {
-        var out: PolyInfo = undefined;
-        try err.check(c.zrcNavMeshPolyInfo(self.handle, ref, &out));
-        return out;
-    }
+        /// The tile's opaque user id, as given to `buildTileData` or
+        /// `initFromPolyMesh`.
+        pub fn tileUserId(self: Self, ref: TileRef) err.Error!u32 {
+            var out_user_id: u32 = 0;
+            try err.check(c.zrcNavMeshTileUserId(self.handle, ref, &out_user_id));
+            return out_user_id;
+        }
 
-    /// The reference naming one polygon of a tile, by index.
-    ///
-    /// Without this a polygon is reachable only through a reference a query
-    /// already returned, so a tile's polygons could not be walked at all. The
-    /// index runs over the whole tile: the first `TileInfo.ground_poly_count`
-    /// are ground, the rest belong to off-mesh connections.
-    pub fn tilePolyRef(self: NavMesh, ref: TileRef, index: u32) err.Error!c.PolyRef {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        var out: c.PolyRef = 0;
-        try err.check(c.zrcNavMeshTilePolyRef(self.handle, ref, i, &out));
-        return out;
-    }
+        /// How this navmesh's tile grid was sized, as `initTiled` set it up.
+        pub fn params(self: Self) err.Error!NavMeshParams {
+            var out: NavMeshParams = undefined;
+            try err.check(c.zrcNavMeshParams(self.handle, &out));
+            return out;
+        }
 
-    /// One of a tile's links by index.
-    ///
-    /// Indices come from `PolyInfo.first_link` and from `Link.next`; there is
-    /// no reason to walk the array itself, and a link not on any polygon's
-    /// chain is free storage rather than an edge.
-    pub fn tileLink(self: NavMesh, ref: TileRef, index: u32) err.Error!Link {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        var out: Link = undefined;
-        try err.check(c.zrcNavMeshTileLink(self.handle, ref, i, &out));
-        return out;
-    }
+        /// Which tile of the grid `pos` falls in.
+        ///
+        /// Answers for any position, including one outside the grid: the result is
+        /// the coordinate the position would have, not a promise that a tile is
+        /// there.
+        pub fn calcTileLoc(self: Self, pos: [3]f32) err.Error!TileLoc {
+            var loc: TileLoc = undefined;
+            try err.check(c.zrcNavMeshCalcTileLoc(self.handle, &pos, &loc.x, &loc.z));
+            return loc;
+        }
 
-    /// One node of a tile's bounding-volume tree by index.
-    pub fn tileBvNode(self: NavMesh, ref: TileRef, index: u32) err.Error!BvNode {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        var out: BvNode = undefined;
-        try err.check(c.zrcNavMeshTileBvNode(self.handle, ref, i, &out));
-        return out;
-    }
+        /// Everything a tile's header says about it, copied out.
+        pub fn tileInfo(self: Self, ref: TileRef) err.Error!TileInfo {
+            var out: TileInfo = undefined;
+            try err.check(c.zrcNavMeshTileInfo(self.handle, ref, &out));
+            return out;
+        }
 
-    /// Copies vertices into `out`, starting at `first`, one `[3]f32` each.
-    ///
-    /// `out.len` is the count read; a range partly outside the tile's vertex
-    /// array is `InvalidArgument` rather than a short read, since a silently
-    /// short read is indistinguishable from an empty tile.
-    pub fn tileVerts(self: NavMesh, ref: TileRef, first: u32, out: [][3]f32) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr);
-        try err.check(c.zrcNavMeshTileVerts(self.handle, ref, first_i, count, ptr));
-    }
+        /// One polygon, copied out of the tile that holds it.
+        pub fn polyInfo(self: Self, ref: c.PolyRef) err.Error!PolyInfo {
+            var out: PolyInfo = undefined;
+            try err.check(c.zrcNavMeshPolyInfo(self.handle, ref, &out));
+            return out;
+        }
 
-    /// Copies detail vertices into `out`, starting at `first`, one `[3]f32`
-    /// each. Same range rule as `tileVerts`.
-    pub fn tileDetailVerts(self: NavMesh, ref: TileRef, first: u32, out: [][3]f32) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr);
-        try err.check(c.zrcNavMeshTileDetailVerts(self.handle, ref, first_i, count, ptr));
-    }
+        /// The reference naming one polygon of a tile, by index.
+        ///
+        /// Without this a polygon is reachable only through a reference a query
+        /// already returned, so a tile's polygons could not be walked at all. The
+        /// index runs over the whole tile: the first `TileInfo.ground_poly_count`
+        /// are ground, the rest belong to off-mesh connections.
+        pub fn tilePolyRef(self: Self, ref: TileRef, index: u32) err.Error!c.PolyRef {
+            const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+            var out: c.PolyRef = 0;
+            try err.check(c.zrcNavMeshTilePolyRef(self.handle, ref, i, &out));
+            return out;
+        }
 
-    /// Copies detail triangles into `out`, starting at `first`, one `[4]u8`
-    /// each: three corner indices and an edge-flag byte. Same range rule as
-    /// `tileVerts`.
-    ///
-    /// A corner below the owning polygon's `vert_count` names one of its own
-    /// corners; at or above it, name `detail_vert_base + corner - vert_count`
-    /// in the detail vertex array.
-    pub fn tileDetailTris(self: NavMesh, ref: TileRef, first: u32, out: [][4]u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr);
-        try err.check(c.zrcNavMeshTileDetailTris(self.handle, ref, first_i, count, ptr));
-    }
+        /// One of a tile's links by index.
+        ///
+        /// Indices come from `PolyInfo.first_link` and from `Link.next`; there is
+        /// no reason to walk the array itself, and a link not on any polygon's
+        /// chain is free storage rather than an edge.
+        pub fn tileLink(self: Self, ref: TileRef, index: u32) err.Error!Link {
+            const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+            var out: Link = undefined;
+            try err.check(c.zrcNavMeshTileLink(self.handle, ref, i, &out));
+            return out;
+        }
 
-    /// Bytes `storeTileState` needs for this tile.
-    pub fn tileStateSize(self: NavMesh, ref: TileRef) err.Error!usize {
-        var out_size: usize = 0;
-        try err.check(c.zrcNavMeshTileStateSize(self.handle, ref, &out_size));
-        return out_size;
-    }
+        /// One node of a tile's bounding-volume tree by index.
+        pub fn tileBvNode(self: Self, ref: TileRef, index: u32) err.Error!BvNode {
+            const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+            var out: BvNode = undefined;
+            try err.check(c.zrcNavMeshTileBvNode(self.handle, ref, i, &out));
+            return out;
+        }
 
-    /// Writes the tile's polygon areas and flags into `data`.
-    ///
-    /// `data.len` must equal `tileStateSize`'s answer exactly, not merely be
-    /// at least it: too small is `BufferTooSmall`, too large is
-    /// `InvalidArgument`. See `ZrcTileAuthoring`'s tile-state section in
-    /// zrecast.h for why the length has to be exact.
-    pub fn storeTileState(self: NavMesh, ref: TileRef, data: []u8) err.Error!void {
-        try err.check(c.zrcNavMeshStoreTileState(self.handle, ref, data.ptr, data.len));
-    }
+        /// Copies vertices into `out`, starting at `first`, one `[3]f32` each.
+        ///
+        /// `out.len` is the count read; a range partly outside the tile's vertex
+        /// array is `InvalidArgument` rather than a short read, since a silently
+        /// short read is indistinguishable from an empty tile.
+        pub fn tileVerts(self: Self, ref: TileRef, first: u32, out: [][3]f32) err.Error!void {
+            const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+            const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+            const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+            try err.check(c.zrcNavMeshTileVerts(self.handle, ref, first_i, count, ptr));
+        }
 
-    /// Puts stored areas and flags back onto the tile they came from.
-    ///
-    /// `data.len` must equal `tileStateSize`'s answer exactly, the same rule
-    /// `storeTileState` enforces. A tile removed and re-added gets a new
-    /// salt, so its old state no longer applies to it.
-    pub fn restoreTileState(self: NavMesh, ref: TileRef, data: []const u8) err.Error!void {
-        try err.check(c.zrcNavMeshRestoreTileState(self.handle, ref, data.ptr, data.len));
-    }
+        /// Copies detail vertices into `out`, starting at `first`, one `[3]f32`
+        /// each. Same range rule as `tileVerts`.
+        pub fn tileDetailVerts(self: Self, ref: TileRef, first: u32, out: [][3]f32) err.Error!void {
+            const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+            const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+            const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+            try err.check(c.zrcNavMeshTileDetailVerts(self.handle, ref, first_i, count, ptr));
+        }
 
-    /// Rebuilds a navmesh from bytes produced by `serialize`.
-    ///
-    /// The bytes are checked before Detour sees any of them, then copied, so
-    /// the slice need not outlive the call. See `validate` for exactly what
-    /// that check does and does not cover.
-    pub fn initFromBytes(bytes: []const u8) err.Error!NavMesh {
-        var handle: *c.NavMesh = undefined;
-        try err.check(c.zrcNavMeshDeserialize(bytes.ptr, bytes.len, &handle));
-        return .{ .handle = handle };
-    }
+        /// Copies detail triangles into `out`, starting at `first`, one `[4]u8`
+        /// each: three corner indices and an edge-flag byte. Same range rule as
+        /// `tileVerts`.
+        ///
+        /// A corner below the owning polygon's `vert_count` names one of its own
+        /// corners; at or above it, name `detail_vert_base + corner - vert_count`
+        /// in the detail vertex array.
+        pub fn tileDetailTris(self: Self, ref: TileRef, first: u32, out: [][4]u8) err.Error!void {
+            const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+            const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+            const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+            try err.check(c.zrcNavMeshTileDetailTris(self.handle, ref, first_i, count, ptr));
+        }
 
-    pub fn deinit(self: NavMesh) void {
-        c.zrcNavMeshDestroy(self.handle);
-    }
+        /// Bytes `storeTileState` needs for this tile.
+        pub fn tileStateSize(self: Self, ref: TileRef) err.Error!usize {
+            var out_size: usize = 0;
+            try err.check(c.zrcNavMeshTileStateSize(self.handle, ref, &out_size));
+            return out_size;
+        }
 
-    /// Serialises a single-tile navmesh into a buffer owned by the caller.
-    ///
-    /// A tiled navmesh has no single image and this is `InvalidArgument` for
-    /// one; cook each tile with `buildTileData` instead.
-    pub fn serialize(self: NavMesh) err.Error!Serialized {
-        var data: ?*anyopaque = null;
-        var size: usize = 0;
-        try err.check(c.zrcNavMeshSerialize(self.handle, &data, &size));
-        const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult);
-        return .{ .bytes = ptr[0..size] };
-    }
+        /// Writes the tile's polygon areas and flags into `data`.
+        ///
+        /// `data.len` must equal `tileStateSize`'s answer exactly, not merely be
+        /// at least it: too small is `BufferTooSmall`, too large is
+        /// `InvalidArgument`. See `ZrcTileAuthoring`'s tile-state section in
+        /// zrecast.h for why the length has to be exact.
+        pub fn storeTileState(self: Self, ref: TileRef, data: []u8) err.Error!void {
+            try err.check(c.zrcNavMeshStoreTileState(self.handle, ref, data.ptr, data.len));
+        }
 
-    pub fn polyCount(self: NavMesh) u32 {
-        return @intCast(c.zrcNavMeshPolyCount(self.handle));
-    }
+        /// Puts stored areas and flags back onto the tile they came from.
+        ///
+        /// `state`'s length must equal `tileStateSize`'s answer exactly, the same rule
+        /// `storeTileState` enforces. A tile removed and re-added gets a new
+        /// salt, so its old state no longer applies to it.
+        pub fn restoreTileState(self: Self, ref: TileRef, state: Image) err.Error!void {
+            const data = state.readForParse();
+            try err.check(c.zrcNavMeshRestoreTileState(self.handle, ref, data.ptr, data.len));
+        }
 
-    /// World-space bounds, `.{ min, max }`.
-    pub fn bounds(self: NavMesh) err.Error![2][3]f32 {
-        var result: [2][3]f32 = undefined;
-        try err.check(c.zrcNavMeshBounds(self.handle, &result[0], &result[1]));
-        return result;
-    }
-};
+        /// Rebuilds a navmesh from bytes produced by `serialize`.
+        ///
+        /// The bytes are checked before Detour sees any of them, then copied, so
+        /// the slice need not outlive the call. See `validate` for exactly what
+        /// that check does and does not cover.
+        pub fn initFromBytes(image: Image) err.Error!NavMesh {
+            comptime c.ownedOnly(access);
+            const bytes = image.readForParse();
+            var handle: *c.NavMesh = undefined;
+            try err.check(c.zrcNavMeshDeserialize(bytes.ptr, bytes.len, &handle));
+            return .{ .handle = handle };
+        }
+
+        pub fn deinit(self: Self) void {
+            comptime c.ownedOnly(access);
+            c.zrcNavMeshDestroy(self.handle);
+        }
+
+        /// Serialises a single-tile navmesh into a buffer owned by the caller.
+        ///
+        /// A tiled navmesh has no single image and this is `InvalidArgument` for
+        /// one; cook each tile with `buildTileData` instead.
+        pub fn serialize(self: Self) err.Error!Serialized {
+            var data: ?*anyopaque = null;
+            var size: usize = 0;
+            try err.check(c.zrcNavMeshSerialize(self.handle, &data, &size));
+            const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult); // safe: the C boundary allocates the image as bytes, through the allocator seam
+            return .{ .bytes = ptr[0..size] };
+        }
+
+        pub fn polyCount(self: Self) u32 {
+            return c.reported(u32, c.zrcNavMeshPolyCount(self.handle));
+        }
+
+        /// World-space bounds, `.{ min, max }`.
+        pub fn bounds(self: Self) err.Error![2][3]f32 {
+            var result: [2][3]f32 = undefined;
+            try err.check(c.zrcNavMeshBounds(self.handle, &result[0], &result[1]));
+            return result;
+        }
+    };
+}
 
 /// A buffer the library allocated, and the right to free it.
 ///
@@ -513,11 +537,11 @@ pub fn buildTileData(
         &data,
         &size,
     ));
-    const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult);
+    const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult); // safe: the C boundary allocates the image as bytes, through the allocator seam
     return .{ .bytes = ptr[0..size] };
 }
 
-/// Checks that `bytes` is a tile image this build can load, without building
+/// Checks that `image` is a tile image this build can load, without building
 /// anything.
 ///
 /// One rule, and it is about memory safety rather than about which navmesh the
@@ -539,7 +563,8 @@ pub fn buildTileData(
 /// It does not decide whether the mesh is *sensible*. An in-bounds image can
 /// still describe a degenerate or useless navmesh. This is a guarantee about
 /// memory safety, not about trustworthiness.
-pub fn validate(bytes: []const u8) err.Error!void {
+pub fn validate(image: Image) err.Error!void {
+    const bytes = image.readForParse();
     try err.check(c.zrcNavMeshValidate(bytes.ptr, bytes.len));
 }
 
@@ -579,13 +604,14 @@ pub const TileLayout = struct {
 ///
 /// The image is validated first, so every range this returns is inside
 /// `image` and every array it names is fully contained.
-pub fn tileLayout(image: []const u8) err.Error!TileLayout {
+pub fn tileLayout(image: Image) err.Error!TileLayout {
+    const bytes = image.readForParse();
     var out: c.TileLayout = undefined;
-    try err.check(c.zrcTileLayout(image.ptr, image.len, &out));
+    try err.check(c.zrcTileLayout(bytes.ptr, bytes.len, &out));
 
     const cast = struct {
         fn toUsize(x: i64) err.Error!usize {
-            return std.math.cast(usize, x) orelse return err.Error.BadFormat;
+            return aegis.int.cast(usize, x) catch return err.Error.BadFormat;
         }
         fn range(offset: i64, len: i64) err.Error!Range {
             return .{ .offset = try toUsize(offset), .len = try toUsize(len) };
@@ -610,11 +636,12 @@ pub fn tileLayout(image: []const u8) err.Error!TileLayout {
 /// byte order converts on one side or the other; this is that conversion. The
 /// input is never modified, and the caller owns the result.
 ///
-/// `from_native` says which way round: true when `bytes` is an image this build
-/// can load and the result is for the other machine, false when `bytes` came
+/// `from_native` says which way round: true when `image` is one this build
+/// can load and the result is for the other machine, false when `image` came
 /// from that machine and the result is for this one. Either way the result is
 /// validated in full before it is handed back.
-pub fn swapImageEndian(bytes: []const u8, from_native: bool) err.Error!Serialized {
+pub fn swapImageEndian(image: Image, from_native: bool) err.Error!Serialized {
+    const bytes = image.readForParse();
     var data: ?*anyopaque = null;
     var size: usize = 0;
     try err.check(c.zrcNavMeshImageSwapEndian(
@@ -624,7 +651,7 @@ pub fn swapImageEndian(bytes: []const u8, from_native: bool) err.Error!Serialize
         &data,
         &size,
     ));
-    const raw: [*]u8 = @ptrCast(data.?);
+    const raw: [*]u8 = @ptrCast(data.?); // safe: the C boundary allocates the image as bytes, through the allocator seam
     return .{ .bytes = raw[0..size] };
 }
 
@@ -661,9 +688,9 @@ pub fn detailTriEdgeFlags(tri_flags: u8, edge_index: u2) u8 {
 test "obvious non-navmesh bytes are rejected" {
     const line = "this is not a navigation mesh, not even a little bit";
     const garbage = line ++ line ++ line ++ line;
-    try std.testing.expectError(err.Error.BadFormat, validate(garbage));
-    try std.testing.expectError(err.Error.BadFormat, validate(""));
-    try std.testing.expectError(err.Error.BadFormat, NavMesh.initFromBytes(garbage));
+    try std.testing.expectError(err.Error.BadFormat, validate(.init(garbage)));
+    try std.testing.expectError(err.Error.BadFormat, validate(.init("")));
+    try std.testing.expectError(err.Error.BadFormat, NavMesh.initFromBytes(.init(garbage)));
 }
 
 test "the data version is a real number the C side agrees on" {

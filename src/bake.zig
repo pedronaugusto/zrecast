@@ -5,6 +5,7 @@
 //! runtime that only queries never needs anything in this file.
 
 const std = @import("std");
+const aegis = @import("aegis");
 const c = @import("c.zig");
 const err = @import("error.zig");
 
@@ -51,7 +52,7 @@ pub fn convexVolume(
     verts: []const f32,
 ) err.Error!AreaVolume {
     if (verts.len % 3 != 0) return err.Error.InvalidArgument;
-    const vert_count = std.math.cast(i32, verts.len / 3) orelse
+    const vert_count = aegis.int.cast(i32, verts.len / 3) catch
         return err.Error.InvalidArgument;
     if (vert_count < 3) return err.Error.InvalidArgument;
     return .{
@@ -127,7 +128,7 @@ pub const AreaAuthoring = struct {
     area_flags: ?*const [c.max_areas]u16 = null,
 
     pub fn toC(self: AreaAuthoring) err.Error!c.AreaAuthoring {
-        const volume_count = std.math.cast(i32, self.volumes.len) orelse
+        const volume_count = aegis.int.cast(i32, self.volumes.len) catch
             return err.Error.InvalidArgument;
         return .{
             .volumes = if (self.volumes.len == 0) null else self.volumes.ptr,
@@ -165,9 +166,9 @@ pub const TriMesh = struct {
         // struct cannot express — into an error rather than a silent truncation.
         if (self.verts.len == 0 or self.verts.len % 3 != 0) return err.Error.InvalidArgument;
         if (self.tris.len == 0 or self.tris.len % 3 != 0) return err.Error.InvalidArgument;
-        const vert_count = std.math.cast(i32, self.verts.len / 3) orelse
+        const vert_count = aegis.int.cast(i32, self.verts.len / 3) catch
             return err.Error.InvalidArgument;
-        const tri_count = std.math.cast(i32, self.tris.len / 3) orelse
+        const tri_count = aegis.int.cast(i32, self.tris.len / 3) catch
             return err.Error.InvalidArgument;
         return .{
             .verts = self.verts.ptr,
@@ -303,9 +304,9 @@ pub const PolyMesh = struct {
     /// cells above the mesh's minimum corner. A range outside the array is an
     /// error rather than a short read.
     pub fn verts(self: PolyMesh, first: u32, out: [][3]u16) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]u16 = if (out.len == 0) null else @ptrCast(out.ptr);
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const ptr: ?[*]u16 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(c.zrcPolyMeshVerts(self.handle, first_i, count, ptr));
     }
 
@@ -317,10 +318,10 @@ pub const PolyMesh = struct {
     /// polygon array is `max_polys` long rather than `poly_count` — that is
     /// what indexes it.
     pub fn polys(self: PolyMesh, first: u32, out: []u16) err.Error!void {
-        const stride = 2 * @as(usize, @intCast((try self.info()).verts_per_poly));
+        const stride = 2 * c.reported(usize, (try self.info()).verts_per_poly);
         if (stride == 0 or out.len % stride != 0) return err.Error.InvalidArgument;
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len / stride) orelse
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len / stride) catch
             return err.Error.InvalidArgument;
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcPolyMeshPolys(self.handle, first_i, count, ptr));
@@ -329,16 +330,16 @@ pub const PolyMesh = struct {
     /// Copies region ids into `out`, one per polygon. `multiple_regs` marks a
     /// polygon merged from more than one region.
     pub fn regions(self: PolyMesh, first: u32, out: []u16) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcPolyMeshRegions(self.handle, first_i, count, ptr));
     }
 
     /// Copies area ids into `out`, one per polygon.
     pub fn polyAreas(self: PolyMesh, first: u32, out: []u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcPolyMeshPolyAreas(self.handle, first_i, count, ptr));
     }
@@ -346,16 +347,16 @@ pub const PolyMesh = struct {
     /// Writes area ids back, starting at `first`. Each must be below
     /// `max_areas`; a batch with one that is not is refused whole.
     pub fn setPolyAreas(self: PolyMesh, first: u32, areas: []const u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, areas.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, areas.len) catch return err.Error.InvalidArgument;
         const ptr: [*]const u8 = if (areas.len == 0) undefined else areas.ptr;
         try err.check(c.zrcPolyMeshSetPolyAreas(self.handle, first_i, count, ptr));
     }
 
     /// Copies polygon flags into `out`, one per polygon.
     pub fn polyFlags(self: PolyMesh, first: u32, out: []u16) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcPolyMeshPolyFlags(self.handle, first_i, count, ptr));
     }
@@ -366,8 +367,8 @@ pub const PolyMesh = struct {
     /// which no nonzero query filter admits, so this is not optional for one.
     /// `bake` assigns them already.
     pub fn setPolyFlags(self: PolyMesh, first: u32, flags: []const u16) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, flags.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, flags.len) catch return err.Error.InvalidArgument;
         const ptr: [*]const u16 = if (flags.len == 0) undefined else flags.ptr;
         try err.check(c.zrcPolyMeshSetPolyFlags(self.handle, first_i, count, ptr));
     }
@@ -376,26 +377,26 @@ pub const PolyMesh = struct {
     /// vertex and vertex count, then the first triangle and triangle count, of
     /// the polygon at the same index.
     pub fn detailMeshes(self: PolyMesh, first: u32, out: [][4]u32) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]u32 = if (out.len == 0) null else @ptrCast(out.ptr);
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const ptr: ?[*]u32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(c.zrcPolyMeshDetailMeshes(self.handle, first_i, count, ptr));
     }
 
     /// Copies detail vertices into `out`, one `[3]f32` each, in world units.
     pub fn detailVerts(self: PolyMesh, first: u32, out: [][3]f32) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr);
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(c.zrcPolyMeshDetailVerts(self.handle, first_i, count, ptr));
     }
 
     /// Copies detail triangles into `out`, one `[4]u8` each: three corner
     /// indices into the owning sub-mesh's vertices, then the edge flags.
     pub fn detailTris(self: PolyMesh, first: u32, out: [][4]u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr);
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(c.zrcPolyMeshDetailTris(self.handle, first_i, count, ptr));
     }
 };

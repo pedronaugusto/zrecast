@@ -16,6 +16,21 @@ not express, so a port has the reason and not only the diff.
   sanitizer emits calls into a runtime linked only into a compilation that is
   itself sanitized, so defaulting it on in Debug handed a consumer who forgot
   to forward `optimize` a link failure naming a `__ubsan` symbol.
+- The functions that parse bytes take a `zrecast.Image`, aegis's
+  untrusted-input type: `NavMesh.initFromBytes`, `NavMesh.addTile`,
+  `NavMesh.restoreTileState`, `validate`, `tileLayout`, `swapImageEndian`,
+  `TileCache.addTile` and `TileCacheLayer.initFromBytes`. Wrap the bytes with
+  `.init(bytes)`.
+- A handle another object owns is lent as a borrowed type:
+  `Crowd.grid`, `Crowd.pathQueue` and `Crowd.navMeshQuery`,
+  `PathQueue.navMeshQuery` and `NavMeshQuery.attachedNavMesh` return
+  `BorrowedProximityGrid`, `BorrowedPathQueue`, `BorrowedNavMeshQuery` and
+  `BorrowedNavMesh`. They returned the owning types, built by casting away the
+  boundary's `const`, so a caller could free the crowd's own grid, a double
+  free, or clear and fill it.
+- `setAllocator` and `NavMeshQuery.slicedFindPathCancel` return `void`. The
+  boundary refuses only a bridge missing a function and a query never made,
+  and the Zig side can pass neither.
 
 ### Added
 
@@ -48,6 +63,9 @@ not express, so a port has the reason and not only the diff.
 
 ### Changed
 
+- zrecast depends on [aegis](https://github.com/pedronaugusto/aegis) 0.1.17
+  for its untrusted-input type, its checked conversions and its contracts,
+  and glint's aegis rules are part of the gate.
 - The development gate is preflight's, run with `bay test`: formatting,
   structure layers, lint, documentation drift, the suite three times (under
   the C sanitizer, without it, and with the asserts flipped), the C smoke test
@@ -77,6 +95,9 @@ not express, so a port has the reason and not only the diff.
 
 ### Fixed
 
+- A count the C boundary reports is checked in every build. It was
+  `@intCast`, which is undefined behaviour in ReleaseFast and ReleaseSmall
+  for a value that does not fit.
 - `-Denable_asserts=true` keeps Recast's and Detour's asserts in ReleaseFast
   and ReleaseSmall. Zig defines `NDEBUG` for C by itself in those two modes, so
   the option had no effect there and `assertsEnabled()` reported the asserts

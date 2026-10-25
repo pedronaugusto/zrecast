@@ -8,6 +8,37 @@
 //! field moves on either side, the test fails loudly instead of corrupting
 //! memory quietly.
 
+const aegis = @import("aegis");
+
+/// `value`, a count, length or index the boundary reported, as `T`. The
+/// boundary reports none below zero and none past the buffer the caller gave
+/// it, so one that does not fit is a broken boundary rather than input to
+/// refuse, and it stops in every build.
+/// Who frees a handle: the caller, or the object that lent it.
+pub const Access = enum { owned, borrowed };
+
+/// A handle to `T` as `access` allows. A borrowed one is read-only, so the C
+/// functions that write through a handle or free it take only an owned one.
+pub fn Handle(comptime T: type, comptime access: Access) type {
+    return switch (access) {
+        .owned => *T,
+        .borrowed => *const T,
+    };
+}
+
+/// Refuses, at compile time, creating or freeing through a borrowed handle.
+pub fn ownedOnly(comptime access: Access) void {
+    if (access != .owned) @compileError("a borrowed handle is lent read-only: its owner creates, writes and frees it");
+}
+
+pub fn reported(comptime T: type, value: anytype) T {
+    const converted = aegis.int.cast(T, value);
+    return if (@typeInfo(@TypeOf(converted)) == .error_union)
+        converted catch aegis.assert.never("the C boundary reported a count its type cannot hold")
+    else
+        converted;
+}
+
 //=============================================================================
 // Results
 //=============================================================================

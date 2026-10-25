@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
     const target_pos = [3]f32{ 8, 0, 8 };
 
     // --- README:usage ---
-    try zrecast.setAllocator(gpa);
+    zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     // In the cook: geometry in, bytes out. `log` is optional, and the
@@ -42,7 +42,7 @@ pub fn main(init: std.process.Init) !void {
     // ...write `image.bytes` wherever the pipeline puts build artefacts.
 
     // In the game: bytes in, answers out.
-    const mesh = try zrecast.NavMesh.initFromBytes(image.bytes);
+    const mesh = try zrecast.NavMesh.initFromBytes(.init(image.bytes));
     defer mesh.deinit();
     const query = try zrecast.NavMeshQuery.init(mesh, 2048);
     defer query.deinit();

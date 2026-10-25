@@ -16,7 +16,7 @@
 //! `readContourSet` and `readCompactHeightfield` build a container back out of
 //! what one of them wrote.
 
-const std = @import("std");
+const aegis = @import("aegis");
 const c = @import("c.zig");
 const err = @import("error.zig");
 const Vec3 = @import("vec.zig").Vec3;
@@ -59,8 +59,8 @@ pub fn intToCol(i: i32, a: i32) u32 {
 /// and inverts them, so the two produce different colours for the same `i`.
 pub fn intToColFloat(i: i32) [3]f32 {
     var out: [3]f32 = undefined;
-    // unreachable: the only refusal is a null `out`, and this passes a local.
-    err.check(c.zrcDebugIntToColFloat(i, &out)) catch unreachable;
+    // The only refusal is a null `out`, and this passes a local.
+    err.check(c.zrcDebugIntToColFloat(i, &out)) catch aegis.assert.never("the boundary refuses only a null argument");
     return out;
 }
 
@@ -88,8 +88,8 @@ pub fn transCol(col: u32, a: u32) u32 {
 /// colour, and the four darkened variants.
 pub fn boxColors(top: u32, side: u32) [6]u32 {
     var out: [6]u32 = undefined;
-    // unreachable: the only refusal is a null `out`, and this passes a local.
-    err.check(c.zrcDebugCalcBoxColors(&out, top, side)) catch unreachable;
+    // The only refusal is a null `out`, and this passes a local.
+    err.check(c.zrcDebugCalcBoxColors(&out, top, side)) catch aegis.assert.never("the boundary refuses only a null argument");
     return out;
 }
 
@@ -215,7 +215,7 @@ pub const DebugDraw = struct {
 
         const adapt = struct {
             fn self(user: ?*anyopaque) Ptr {
-                return @ptrCast(@alignCast(user.?));
+                return @ptrCast(@alignCast(user.?)); // safe: user is the pointer this function installs in .user below, a Ptr
             }
             fn depthMask(user: ?*anyopaque, state: c.Bool) callconv(.c) void {
                 self(user).depthMask(state != c.c_false);
@@ -274,7 +274,7 @@ pub const DebugDraw = struct {
         };
 
         return .{
-            .user = @constCast(@as(*const anyopaque, renderer)),
+            .user = @constCast(@as(*const anyopaque, renderer)), // safe: the C side only hands user back to these adapters and never writes through it
             .depth_mask = adapt.depthMask,
             .texture = adapt.texture,
             .begin = adapt.begin,
@@ -445,8 +445,8 @@ pub const DebugDraw = struct {
         col: u32,
         line_width: f32,
     ) err.Error!void {
-        const w = std.math.cast(i32, width) orelse return err.Error.InvalidArgument;
-        const h = std.math.cast(i32, height) orelse return err.Error.InvalidArgument;
+        const w = aegis.int.cast(i32, width) catch return err.Error.InvalidArgument;
+        const h = aegis.int.cast(i32, height) catch return err.Error.InvalidArgument;
         const dd = self.toC();
         try err.check(c.zrcDebugDrawGridXZ(
             &dd,
@@ -691,7 +691,7 @@ pub const DebugDraw = struct {
 
     /// One sheet of a layered heightfield, coloured by its index.
     pub fn heightfieldLayer(self: DebugDraw, layers: HeightfieldLayerSet, index: u32) err.Error!void {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
+        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
         const dd = self.toC();
         try err.check(c.zrcDebugDrawHeightfieldLayer(&dd, layers.handle, i));
     }
@@ -882,7 +882,7 @@ pub const DisplayList = struct {
     /// [Limit: 0 <= capacity <= 0x10000000; upstream raises anything under
     /// 8 to 8]
     pub fn init(capacity: u32) err.Error!DisplayList {
-        const cap = std.math.cast(i32, capacity) orelse return err.Error.InvalidArgument;
+        const cap = aegis.int.cast(i32, capacity) catch return err.Error.InvalidArgument;
         var handle: *c.DisplayList = undefined;
         try err.check(c.zrcDisplayListCreate(cap, &handle));
         return .{ .handle = handle };
@@ -897,8 +897,8 @@ pub const DisplayList = struct {
     pub fn recorder(self: DisplayList) DebugDraw {
         var out: c.DebugDraw = undefined;
         // A DisplayList holds a live handle.
-        // unreachable: the only refusal is a null list or `out`, and neither is.
-        err.check(c.zrcDisplayListRecorder(self.handle, &out)) catch unreachable;
+        // The only refusal is a null list or `out`, and neither is.
+        err.check(c.zrcDisplayListRecorder(self.handle, &out)) catch aegis.assert.never("the boundary refuses only a null argument");
         return .{
             .user = out.user,
             .depth_mask = out.depth_mask,
@@ -956,7 +956,7 @@ pub const DisplayList = struct {
     pub fn count(self: DisplayList) err.Error!u32 {
         var out: i32 = 0;
         try err.check(c.zrcDisplayListVertexCount(self.handle, &out));
-        return @intCast(out);
+        return c.reported(u32, out);
     }
 };
 
@@ -1013,7 +1013,7 @@ pub const FileIO = struct {
 
         const adapt = struct {
             fn self(user: ?*anyopaque) Ptr {
-                return @ptrCast(@alignCast(user.?));
+                return @ptrCast(@alignCast(user.?)); // safe: user is the pointer this function installs in .user below, a Ptr
             }
             fn isWriting(user: ?*anyopaque) callconv(.c) c.Bool {
                 return if (self(user).isWriting()) c.c_true else c.c_false;
@@ -1022,17 +1022,17 @@ pub const FileIO = struct {
                 return if (self(user).isReading()) c.c_true else c.c_false;
             }
             fn write(user: ?*anyopaque, ptr: *const anyopaque, size: usize) callconv(.c) c.Bool {
-                const bytes: [*]const u8 = @ptrCast(ptr);
+                const bytes: [*]const u8 = @ptrCast(ptr); // safe: the hook's buffer is size bytes
                 return if (self(user).write(bytes[0..size])) c.c_true else c.c_false;
             }
             fn read(user: ?*anyopaque, ptr: *anyopaque, size: usize) callconv(.c) c.Bool {
-                const bytes: [*]u8 = @ptrCast(ptr);
+                const bytes: [*]u8 = @ptrCast(ptr); // safe: the hook's buffer is size bytes
                 return if (self(user).read(bytes[0..size])) c.c_true else c.c_false;
             }
         };
 
         return .{
-            .user = @constCast(@as(*const anyopaque, stream)),
+            .user = @constCast(@as(*const anyopaque, stream)), // safe: the C side only hands user back to these adapters and never writes through it
             .is_writing = adapt.isWriting,
             .is_reading = adapt.isReading,
             .write = adapt.write,

@@ -13,7 +13,7 @@
 //!
 //! ```zig
 //! // Cook:
-//! try zrecast.setAllocator(gpa);
+//! zrecast.setAllocator(gpa);
 //! defer zrecast.resetAllocator();
 //!
 //! const poly = try zrecast.PolyMesh.bake(zrecast.defaultConfig(), .{
@@ -88,7 +88,9 @@ pub const BuildCells = bake_mod.BuildCells;
 pub const buildCells = bake_mod.buildCells;
 
 // The seam.
+pub const Image = navmesh_mod.Image;
 pub const NavMesh = navmesh_mod.NavMesh;
+pub const BorrowedNavMesh = navmesh_mod.BorrowedNavMesh;
 pub const Serialized = navmesh_mod.Serialized;
 pub const validate = navmesh_mod.validate;
 pub const swapImageEndian = navmesh_mod.swapImageEndian;
@@ -126,6 +128,7 @@ pub const detailTriEdgeFlags = navmesh_mod.detailTriEdgeFlags;
 pub const PolyRef = query_mod.PolyRef;
 pub const Filter = query_mod.Filter;
 pub const NavMeshQuery = query_mod.NavMeshQuery;
+pub const BorrowedNavMeshQuery = query_mod.BorrowedNavMeshQuery;
 pub const NearestPoly = query_mod.NearestPoly;
 pub const PathResult = query_mod.PathResult;
 pub const RaycastHit = query_mod.RaycastHit;
@@ -234,6 +237,7 @@ pub const CrowdAgentDebug = crowd_mod.CrowdAgentDebug;
 pub const UpdateFlags = crowd_mod.UpdateFlags;
 pub const Crowd = crowd_mod.Crowd;
 pub const ProximityGrid = crowd_mod.ProximityGrid;
+pub const BorrowedProximityGrid = crowd_mod.BorrowedProximityGrid;
 pub const AvoidanceParams = crowd_mod.AvoidanceParams;
 pub const AvoidanceCircle = crowd_mod.AvoidanceCircle;
 pub const AvoidanceSegment = crowd_mod.AvoidanceSegment;
@@ -249,6 +253,7 @@ pub const mergeCorridorStartShortcut = crowd_mod.mergeCorridorStartShortcut;
 pub const LocalBoundary = crowd_mod.LocalBoundary;
 pub const PathRequestState = crowd_mod.PathRequestState;
 pub const PathQueue = crowd_mod.PathQueue;
+pub const BorrowedPathQueue = crowd_mod.BorrowedPathQueue;
 pub const crowd_max_neighbours = crowd_mod.crowd_max_neighbours;
 pub const crowd_max_corners = crowd_mod.crowd_max_corners;
 pub const crowd_max_avoidance_params = crowd_mod.crowd_max_avoidance_params;
@@ -1486,5 +1491,14 @@ test "result names are never empty" {
     inline for (@typeInfo(c.Result).@"enum".field_values) |value| {
         const name = resultName(@fromBackingInt(@intCast(value)));
         try std.testing.expect(name.len > 0);
+    }
+}
+
+test "a borrowed handle is read-only" {
+    inline for (.{ BorrowedNavMesh, BorrowedNavMeshQuery, BorrowedProximityGrid, BorrowedPathQueue }) |Borrowed| {
+        try std.testing.expect(@typeInfo(@FieldType(Borrowed, "handle")).pointer.attrs.@"const");
+    }
+    inline for (.{ NavMesh, NavMeshQuery, ProximityGrid, PathQueue }) |Owned| {
+        try std.testing.expect(!@typeInfo(@FieldType(Owned, "handle")).pointer.attrs.@"const");
     }
 }

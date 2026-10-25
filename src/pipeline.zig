@@ -12,6 +12,7 @@
 //! the whole pipeline.
 
 const std = @import("std");
+const aegis = @import("aegis");
 const c = @import("c.zig");
 const err = @import("error.zig");
 const memory = @import("memory.zig");
@@ -171,7 +172,7 @@ pub fn markWalkableTriangles(
     out_areas: []u8,
 ) err.Error!void {
     const c_mesh = try mesh.toC();
-    if (out_areas.len != @as(usize, @intCast(c_mesh.tri_count))) return err.Error.InvalidArgument;
+    if (out_areas.len != c.reported(usize, c_mesh.tri_count)) return err.Error.InvalidArgument;
     var context_storage: c.BuildContext = undefined;
     try err.check(c.zrcMarkWalkableTriangles(
         toCContext(context, &context_storage),
@@ -192,7 +193,7 @@ pub fn clearUnwalkableTriangles(
     io_areas: []u8,
 ) err.Error!void {
     const c_mesh = try mesh.toC();
-    if (io_areas.len != @as(usize, @intCast(c_mesh.tri_count))) return err.Error.InvalidArgument;
+    if (io_areas.len != c.reported(usize, c_mesh.tri_count)) return err.Error.InvalidArgument;
     var context_storage: c.BuildContext = undefined;
     try err.check(c.zrcClearUnwalkableTriangles(
         toCContext(context, &context_storage),
@@ -282,13 +283,13 @@ pub const Heightfield = struct {
     /// rather than treating a short column as failure. An empty `out` asks
     /// only for the count.
     pub fn column(self: Heightfield, x: i32, z: i32, out: []Span) err.Error!usize {
-        const max_spans = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const max_spans = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]Span = if (out.len == 0) null else out.ptr;
         var count: i32 = 0;
         const result = c.zrcHeightfieldColumn(self.handle, x, z, ptr, max_spans, &count);
-        if (result == .buffer_too_small) return @intCast(count);
+        if (result == .buffer_too_small) return c.reported(usize, count);
         try err.check(result);
-        return @intCast(count);
+        return c.reported(usize, count);
     }
 
     /// Total spans across every column. Walks the whole field.
@@ -296,7 +297,7 @@ pub const Heightfield = struct {
         var context_storage: c.BuildContext = undefined;
         var out: i32 = 0;
         try err.check(c.zrcHeightfieldSpanCount(toCContext(context, &context_storage), self.handle, &out));
-        return @intCast(out);
+        return c.reported(u32, out);
     }
 
     /// Adds one span to the column at (`x`, `z`), merging it with any it
@@ -363,7 +364,7 @@ pub const Heightfield = struct {
         flag_merge_threshold: i32,
     ) err.Error!void {
         const c_mesh = try mesh.toC();
-        if (tri_areas.len != @as(usize, @intCast(c_mesh.tri_count))) return err.Error.InvalidArgument;
+        if (tri_areas.len != c.reported(usize, c_mesh.tri_count)) return err.Error.InvalidArgument;
         var context_storage: c.BuildContext = undefined;
         try err.check(c.zrcHeightfieldRasterizeTriangles(
             toCContext(context, &context_storage),
@@ -388,8 +389,8 @@ pub const Heightfield = struct {
     ) err.Error!void {
         if (verts.len == 0 or verts.len % 3 != 0) return err.Error.InvalidArgument;
         if (tris.len == 0 or tris.len % 3 != 0) return err.Error.InvalidArgument;
-        const vert_count = std.math.cast(i32, verts.len / 3) orelse return err.Error.InvalidArgument;
-        const tri_count = std.math.cast(i32, tris.len / 3) orelse return err.Error.InvalidArgument;
+        const vert_count = aegis.int.cast(i32, verts.len / 3) catch return err.Error.InvalidArgument;
+        const tri_count = aegis.int.cast(i32, tris.len / 3) catch return err.Error.InvalidArgument;
         if (tri_areas.len != tris.len / 3) return err.Error.InvalidArgument;
         var context_storage: c.BuildContext = undefined;
         try err.check(c.zrcHeightfieldRasterizeTrianglesU16(
@@ -415,7 +416,7 @@ pub const Heightfield = struct {
         tri_areas: []const u8,
         flag_merge_threshold: i32,
     ) err.Error!void {
-        const tri_count = std.math.cast(i32, tri_areas.len) orelse return err.Error.InvalidArgument;
+        const tri_count = aegis.int.cast(i32, tri_areas.len) catch return err.Error.InvalidArgument;
         if (verts.len != tri_areas.len * 9) return err.Error.InvalidArgument;
         var context_storage: c.BuildContext = undefined;
         try err.check(c.zrcHeightfieldRasterizeTriangleSoup(
@@ -528,8 +529,8 @@ pub const CompactHeightfield = struct {
     /// `width * height` long, row-major: the cell at (x, z) is at
     /// `x + z * width`.
     pub fn cells(self: CompactHeightfield, first: u32, out: []CompactCell) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]CompactCell = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcCompactHeightfieldCells(self.handle, first_i, count, ptr));
     }
@@ -537,8 +538,8 @@ pub const CompactHeightfield = struct {
     /// Copies spans into `out`, starting at `first`. The array is
     /// `info().span_count` long.
     pub fn spans(self: CompactHeightfield, first: u32, out: []CompactSpan) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]CompactSpan = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcCompactHeightfieldSpans(self.handle, first_i, count, ptr));
     }
@@ -548,8 +549,8 @@ pub const CompactHeightfield = struct {
     /// fit is silently truncated on the way into the bitfield and reads
     /// back as a different span otherwise.
     pub fn setSpans(self: CompactHeightfield, first: u32, spans_in: []const CompactSpan) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, spans_in.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, spans_in.len) catch return err.Error.InvalidArgument;
         try err.check(c.zrcCompactHeightfieldSetSpans(self.handle, first_i, count, spans_in.ptr));
     }
 
@@ -557,16 +558,16 @@ pub const CompactHeightfield = struct {
     /// `first`. `error.NotFound` before `buildDistanceField` has run: the
     /// array does not exist yet.
     pub fn distances(self: CompactHeightfield, first: u32, out: []u16) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcCompactHeightfieldDistances(self.handle, first_i, count, ptr));
     }
 
     /// Copies area ids into `out`, one per span, starting at `first`.
     pub fn areas(self: CompactHeightfield, first: u32, out: []u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
         try err.check(c.zrcCompactHeightfieldAreas(self.handle, first_i, count, ptr));
     }
@@ -576,8 +577,8 @@ pub const CompactHeightfield = struct {
     /// shapes cannot express: a painted mask, a per-triangle table carried
     /// through rasterisation.
     pub fn setAreas(self: CompactHeightfield, first: u32, areas_in: []const u8) err.Error!void {
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, areas_in.len) orelse return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, areas_in.len) catch return err.Error.InvalidArgument;
         try err.check(c.zrcCompactHeightfieldSetAreas(self.handle, first_i, count, areas_in.ptr));
     }
 
@@ -717,7 +718,7 @@ pub const ContourSet = struct {
     }
 
     pub fn at(self: ContourSet, index: u32) err.Error!ContourInfo {
-        const i = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
+        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
         var out: ContourInfo = undefined;
         try err.check(c.zrcContourAt(self.handle, i, &out));
         return out;
@@ -726,19 +727,19 @@ pub const ContourSet = struct {
     /// Copies simplified vertices of contour `index` into `out`, starting
     /// at `first`.
     pub fn verts(self: ContourSet, index: u32, first: u32, out: []ContourVertex) err.Error!void {
-        const idx = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr);
+        const idx = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(c.zrcContourVerts(self.handle, idx, first_i, count, ptr));
     }
 
     /// The same, for the raw traced outline before simplification.
     pub fn rawVerts(self: ContourSet, index: u32, first: u32, out: []ContourVertex) err.Error!void {
-        const idx = std.math.cast(i32, index) orelse return err.Error.InvalidArgument;
-        const first_i = std.math.cast(i32, first) orelse return err.Error.InvalidArgument;
-        const count = std.math.cast(i32, out.len) orelse return err.Error.InvalidArgument;
-        const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr);
+        const idx = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(c.zrcContourRawVerts(self.handle, idx, first_i, count, ptr));
     }
 };
@@ -811,12 +812,12 @@ pub fn polyMeshMerge(
     out: PolyMesh,
 ) err.Error!void {
     if (meshes.len == 0) return err.Error.InvalidArgument;
-    const count = std.math.cast(i32, meshes.len) orelse return err.Error.InvalidArgument;
-    const bytes_len = std.math.mul(usize, meshes.len, @sizeOf(*const c.PolyMesh)) catch
-        return err.Error.InvalidArgument;
+    const count = aegis.int.cast(i32, meshes.len) catch return err.Error.InvalidArgument;
+    const bytes_len = (aegis.int.Checked(usize).init(meshes.len).mul(@sizeOf(*const c.PolyMesh)) catch
+        return err.Error.InvalidArgument).raw();
     const handle_bytes = try memory.alloc(bytes_len, .temp);
     defer memory.free(handle_bytes);
-    const handles: [*]*const c.PolyMesh = @ptrCast(@alignCast(handle_bytes.ptr));
+    const handles: [*]*const c.PolyMesh = @ptrCast(@alignCast(handle_bytes.ptr)); // safe: memory.alloc aligns every block to alloc_alignment, which a pointer's alignment divides
     for (meshes, 0..) |mesh, i| handles[i] = mesh.handle;
 
     var context_storage: c.BuildContext = undefined;
