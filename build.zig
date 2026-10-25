@@ -357,7 +357,17 @@ pub fn dev(b: *std.Build, tools: type) void {
 
     // The hardened tier fuzzes the properties in src/integration_test.zig,
     // which live in the test step; zrecast runs no threads of its own.
-    preflight.addCi(b, p, .{ .tests = test_step, .hardened = .{} });
+    preflight.addCi(b, p, .{
+        .tests = test_step,
+        .hardened = .{},
+        // Each binding against the same Detour work written in C++.
+        .bench = .{
+            .programs = &.{.{ .name = "zrecast-bench", .source = "bench/binding.zig" }},
+            .imports = benchImports,
+            .target = target,
+            .optimize = optimize,
+        },
+    });
     // The build a consumer gets: the module, the library and aegis, fetching
     // nothing.
     preflight.addConsumerCheck(b, p, .{
@@ -365,6 +375,30 @@ pub fn dev(b: *std.Build, tools: type) void {
         .program = p.path("ci/consumer.zig"),
         .packages = &.{p.dependency("aegis", .{})},
     });
+}
+
+/// What the bench imports, in the mode it builds in: an imported module keeps
+/// its own mode, so a ReleaseFast bench over a Debug zrecast would time the
+/// Debug one. `baseline` is the bench's C++ twin, bench/baseline.cpp, compiled
+/// against the vendored headers with the library's flags and linked to the
+/// same library.
+fn benchImports(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.lang.Optimize) []const std.Build.Module.Import {
+    const package = b.dependency("zrecast", .{ .target = target, .optimize = optimize });
+    const p = package.builder;
+    const baseline = b.createModule(.{
+        .root_source_file = p.path("bench/baseline.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    if (target.result.abi != .msvc) baseline.link_libcpp = true;
+    for (upstream_includes) |path| baseline.addIncludePath(p.path(path));
+    baseline.addCSourceFile(.{ .file = p.path("bench/baseline.cpp"), .flags = compileFlags(b, target, true, optimize == .debug) });
+    baseline.linkLibrary(package.artifact("zrecast"));
+    return b.allocator.dupe(std.Build.Module.Import, &.{
+        .{ .name = "zrecast", .module = package.module("zrecast") },
+        .{ .name = "baseline", .module = baseline },
+    }) catch @panic("OOM");
 }
 
 /// The suite, against the package's library built with `options`.

@@ -1432,6 +1432,7 @@ bay probe [-- name]         # the mutation probes, or the ones whose name matche
 bay determinism             # cook digests across the targets this host can run
 bay coverage -- --summary   # the coverage record, per area
 bay measurements            # README's numbers, from the tree
+bay dev bench               # each binding beside the same work in C++
 ```
 
 `bay test` is preflight's gate over the package: formatting, the module
@@ -1444,7 +1445,7 @@ The suite runs three times: against the C++ under Zig's undefined-behaviour
 sanitizer, as a consumer builds it, and with the asserts flipped from the
 mode's default, so both sides of every `NDEBUG` seam run in every mode. The
 gate also builds the library shared, and with the asserts flipped under the
-sanitizer, and runs the examples.
+sanitizer, runs the examples, and runs the bench once.
 
 ### Untrusted bytes
 
@@ -1533,6 +1534,35 @@ on Linux, macOS and Windows, compile and link checks for every target in
 ReleaseSafe and ReleaseFast as well, a ReleaseSmall compile, the arm64
 runners, and riscv64 under QEMU. The probes and the
 cross-target cook comparison run on a developer's machine, not in CI.
+
+## Measured cost
+
+`bay dev bench` times each binding beside the same Detour work written in C++
+(`bench/baseline.cpp`), which loops inside C++ and sets Detour up as the
+boundary does. The level is generated: open ground with a grid of box pillars,
+baked into one tile, and a lattice of query points between the pillars, each
+paired with one across the level. ReleaseFast, Windows laptop, 2026-10-25,
+medians of three runs:
+
+| row | Zig | C++ |
+|---|---|---|
+| load the level's image, per navmesh | 6.1–6.4 µs | 2.1–2.2 µs |
+| the same through `setAllocator` | 5.5–5.8 µs | |
+| `findNearestPoly`, per query | 143–150 ns | 99–101 ns |
+| `findPath` then `findStraightPath`, per route | 2.13–2.17 µs | 2.08–2.12 µs |
+| `raycast`, per ray | 110–119 ns | 64–65 ns |
+| a crowd frame, an agent at every query point, first second after each is sent | 145–147 µs | 146–152 µs |
+
+The crowd frame is level with C++. Every query entry point builds Detour's
+filter from the caller's on each call, checking all `DT_MAX_AREAS` costs, and
+that is the nearest and raycast gaps: the C++ twin building its filter the
+same way per call measured within the binding's spread on both rows the same
+day. A route pays it once, the 2% the route row shows in every run. A load
+pays for the image check: the boundary validates the whole image before
+Detour reads any of it, and the C++ twin calling `zrcNavMeshValidate` first
+measured 5.4 µs against the binding's 6.1 µs in the same run. Through the Zig
+allocator a load measured faster than through upstream's `malloc`, on this
+machine.
 
 ## Contributing
 

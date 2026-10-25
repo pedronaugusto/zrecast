@@ -25,6 +25,18 @@ const allowed = [_]struct { number: []const u8, reason: []const u8 }{
     .{ .number = "127", .reason = "arithmetic: the largest erosion radius whose doubled threshold an unsigned char can hold" },
     .{ .number = "512", .reason = "MSG_SIZE, the log-message buffer at the pinned commit (Recast.cpp)" },
     .{ .number = "511", .reason = "arithmetic: MSG_SIZE minus the terminator, where a longer message is cut" },
+    .{ .number = "143", .reason = "measured 2026-10-25: bench row nearest_zig, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "150", .reason = "measured 2026-10-25: bench row nearest_zig, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "99", .reason = "measured 2026-10-25: bench row nearest_c, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "101", .reason = "measured 2026-10-25: bench row nearest_c, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "110", .reason = "measured 2026-10-25: bench row raycast_zig, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "119", .reason = "measured 2026-10-25: bench row raycast_zig, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "64", .reason = "measured 2026-10-25: bench row raycast_c, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "65", .reason = "measured 2026-10-25: bench row raycast_c, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "145", .reason = "measured 2026-10-25: bench row crowd_zig, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "147", .reason = "measured 2026-10-25: bench row crowd_zig, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "146", .reason = "measured 2026-10-25: bench row crowd_c, a median of three runs, dated in docs/design.md's Measured cost" },
+    .{ .number = "152", .reason = "measured 2026-10-25: bench row crowd_c, a median of three runs, dated in docs/design.md's Measured cost" },
 };
 
 /// Documents beyond the top-level `*.md` files.

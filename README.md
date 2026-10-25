@@ -160,6 +160,7 @@ asserts flipped from the mode's default. The suite generates its own geometry,
 so no third-party meshes are shipped. `bay probe` breaks each invariant in
 `ci/probes/` on purpose and requires the failure it names, and
 `bay determinism` compares cook digests across the targets the host can run.
+`bay dev bench` times each binding beside the same Detour work in C++.
 
 ## By the numbers
 
