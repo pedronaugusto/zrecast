@@ -8,6 +8,8 @@
 //! test-only `zrecast-fixture` library.
 
 const std = @import("std");
+const builtin = @import("builtin");
+const shakedown = @import("shakedown");
 const zrecast = @import("zrecast.zig");
 const c = @import("c.zig");
 
@@ -639,87 +641,137 @@ test "every truncation of a valid navmesh image is rejected" {
     whole.deinit();
 }
 
-test "random image mutations never fault the validator, the loader or the queries" {
-    // Most of the validator's interior checks were FOUND by fuzzing, not by
-    // reading Detour — a development campaign of random mutations surfaced
-    // three holes the hand-written checks had missed. This is that fuzzer,
-    // kept in the suite at a size every CI leg can afford and seeded so a
-    // failure reproduces. The assertions are mostly implicit: a mutant that
-    // validates must also survive loading and querying, and the sanitizers
-    // and the leak-checking allocator are what would object.
-    const gpa = std.testing.allocator;
-    zrecast.setAllocator(gpa);
-    defer zrecast.resetAllocator();
+/// Copies a seed out of every test allocator. Under the fuzzer each input has
+/// an allocator of its own and the property's seeds outlive them all, so they
+/// live in pages instead.
+fn keep(bytes: []const u8) ![]const u8 {
+    return std.heap.page_allocator.dupe(u8, bytes);
+}
 
-    const poly = try bakeFixture(null);
-    defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
-    defer mesh.deinit();
-    const image = try mesh.serialize();
-    defer image.deinit();
+fn release(bytes: []const u8) void {
+    std.heap.page_allocator.free(bytes);
+}
 
-    // A point known to be on the pristine mesh, so the mutant queries start
-    // from coordinates that mean something.
-    const filter = zrecast.defaultFilter();
+/// A case's bytes: a seed mutated, or bytes of its own, at an odd address,
+/// because a host's bytes have any alignment.
+fn caseBytes(case: *shakedown.Case, seeds: []const []const u8) ![]u8 {
+    var longest: usize = 0;
+    for (seeds) |seed| longest = @max(longest, seed.len);
+    // The mutation adds at most eight bytes to a seed.
+    const storage = try case.gpa.alignedAlloc(u8, .@"2", longest + 9);
+    return shakedown.gen.mutated(case.source, storage[1..], seeds);
+}
+
+/// The fixture's navmesh image and a point on it, for the image property.
+const ImageSeed = struct {
+    image: []const u8,
+    anchor: [3]f32,
+    /// Cases run, and those whose bytes loaded and reached the queries.
+    cases: u32 = 0,
+    loaded: u32 = 0,
+
     const extents = [3]f32{ 100, 100, 100 };
-    const pristine = try zrecast.NavMeshQuery.init(mesh, 256);
-    defer pristine.deinit();
-    const anchor = try pristine.findNearestPoly(.{ 0, 0, 0 }, extents, &filter);
-    try std.testing.expect(anchor.ref != null);
 
-    const mutant = try gpa.alloc(u8, image.bytes.len);
-    defer gpa.free(mutant);
-
-    var prng = std.Random.DefaultPrng.init(0x5eed);
-    const random = prng.random();
-    const rounds = 2000;
-    var accepted: u32 = 0;
-    for (0..rounds) |_| {
-        @memcpy(mutant, image.bytes);
-        for (0..random.intRangeAtMost(usize, 1, 4)) |_| {
-            mutant[random.uintLessThan(usize, mutant.len)] = random.int(u8);
-        }
-
-        _ = zrecast.validate(.init(mutant)) catch continue;
-        const loaded = zrecast.NavMesh.initFromBytes(.init(mutant)) catch continue;
-        defer loaded.deinit();
-        accepted += 1;
-
-        const query = try zrecast.NavMeshQuery.init(loaded, 256);
+    fn init() !ImageSeed {
+        zrecast.setAllocator(std.testing.allocator);
+        defer zrecast.resetAllocator();
+        const poly = try bakeFixture(null);
+        defer poly.deinit();
+        const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+        defer mesh.deinit();
+        const image = try mesh.serialize();
+        defer image.deinit();
+        const query = try zrecast.NavMeshQuery.init(mesh, 256);
         defer query.deinit();
-        const near = query.findNearestPoly(anchor.point, extents, &filter) catch continue;
-        const ref = near.ref orelse continue;
-        var corridor: [64]zrecast.PolyRef = undefined;
-        const path = query.findPath(
-            ref,
-            ref,
-            near.point,
-            anchor.point,
-            &filter,
-            &corridor,
-        ) catch continue;
-        var corners: [16][3]f32 = undefined;
-        _ = query.findStraightPath(
-            near.point,
-            anchor.point,
-            corridor[0..path.len],
-            .{},
-            &corners,
-            null,
-            null,
-            // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-        ) catch {};
-        // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-        _ = query.raycast(ref, near.point, anchor.point, &filter, .{}, null, null) catch {};
-        // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-        _ = query.moveAlongSurface(ref, near.point, anchor.point, &filter, null) catch {};
+        // A point on the pristine mesh, so a mutant's queries start from
+        // coordinates that mean something.
+        const filter = zrecast.defaultFilter();
+        const anchor = try query.findNearestPoly(.{ 0, 0, 0 }, extents, &filter);
+        if (anchor.ref == null) return error.OffMesh;
+        return .{ .image = try keep(image.bytes), .anchor = anchor.point };
     }
 
-    // A fuzzer whose mutants all die at the magic check exercises nothing.
-    // Measured with this seed: 783 of the 2000 mutants validate, load and
-    // reach the queries. The floor is far below that on purpose — it exists
-    // to notice the exercised share collapsing, not to pin the exact count.
-    try std.testing.expect(accepted * 6 >= rounds);
+    fn deinit(seed: ImageSeed) void {
+        release(seed.image);
+    }
+};
+
+/// Any bytes as a navmesh image: the validator, the loader, the layout, the
+/// byte-order swap and the queries over whatever loads.
+fn anyImage(seed: *ImageSeed, case: *shakedown.Case) !void {
+    zrecast.setAllocator(std.testing.allocator);
+    defer zrecast.resetAllocator();
+    const bytes = try caseBytes(case, &.{seed.image});
+    seed.cases += 1;
+
+    const valid = if (zrecast.validate(.init(bytes))) |_| true else |_| false;
+
+    // Every range the layout names is inside the bytes, and an image the
+    // validator accepts has one.
+    if (zrecast.tileLayout(.init(bytes))) |layout| {
+        inline for (@typeInfo(zrecast.TileLayout).@"struct".field_names) |name| {
+            const field = @field(layout, name);
+            if (@TypeOf(field) == zrecast.Range) {
+                if (field.offset > bytes.len or field.len > bytes.len - field.offset) return error.RangeOutsideImage;
+            }
+        }
+        if (layout.total_size > bytes.len) return error.RangeOutsideImage;
+    } else |_| if (valid) return error.NoLayoutForValidImage;
+
+    // A valid image swaps to the other byte order and back byte for byte,
+    // and whatever swaps into this one's order is an image it can load.
+    if (valid) {
+        const foreign = try zrecast.swapImageEndian(.init(bytes), true);
+        defer foreign.deinit();
+        const home = try zrecast.swapImageEndian(.init(foreign.bytes), false);
+        defer home.deinit();
+        try std.testing.expectEqualSlices(u8, bytes, home.bytes);
+    }
+    if (zrecast.swapImageEndian(.init(bytes), false)) |native| {
+        defer native.deinit();
+        try zrecast.validate(.init(native.bytes));
+    } else |_| {}
+
+    // Nothing the validator refuses loads.
+    const loaded = zrecast.NavMesh.initFromBytes(.init(bytes)) catch return;
+    defer loaded.deinit();
+    if (!valid) return error.LoadedInvalidImage;
+    seed.loaded += 1;
+
+    // A refusal is an accepted answer to every query; reaching it without a
+    // fault is the property, and the sanitizer and the leak check are what
+    // would object.
+    const filter = zrecast.defaultFilter();
+    const query = try zrecast.NavMeshQuery.init(loaded, 256);
+    defer query.deinit();
+    const near = query.findNearestPoly(seed.anchor, ImageSeed.extents, &filter) catch return;
+    const ref = near.ref orelse return;
+    var corridor: [64]zrecast.PolyRef = undefined;
+    const path = query.findPath(ref, ref, near.point, seed.anchor, &filter, &corridor) catch return;
+    var corners: [16][3]f32 = undefined;
+    // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
+    _ = query.findStraightPath(near.point, seed.anchor, corridor[0..path.len], .{}, &corners, null, null) catch {};
+    // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
+    _ = query.raycast(ref, near.point, seed.anchor, &filter, .{}, null, null) catch {};
+    // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
+    _ = query.moveAlongSurface(ref, near.point, seed.anchor, &filter, null) catch {};
+}
+
+test "any bytes as a navmesh image are refused, or load and answer every query" {
+    // Most of the validator's interior checks were FOUND by fuzzing, not by
+    // reading Detour: a development campaign of random mutations surfaced
+    // three holes the hand-written checks had missed. This is that fuzzer as
+    // a property, and under `bay fuzz` Zig's fuzzer drives it.
+    var seed = try ImageSeed.init();
+    defer seed.deinit();
+    try shakedown.check(std.testing.allocator, &seed, anyImage, .{ .cases = 2000 });
+
+    // A property whose mutants all die at the magic check exercises nothing.
+    // Measured with seeds 1, 2 and 3: 642, 680 and 651 of the 2000 cases load
+    // and reach the queries. The floor is half that on purpose, to notice the
+    // share collapsing rather than to pin it. The fuzzer's inputs are its
+    // own, so it is not held to it.
+    if (!builtin.fuzz) try std.testing.expect(seed.loaded * 6 >= seed.cases);
 }
 
 test "a navmesh image with a doctored header is rejected" {
@@ -2103,6 +2155,80 @@ test "a build context's hooks reach the host, and the flags gate them" {
     );
 }
 
+/// The fixture's tile images and the grid they were baked for, for the tile
+/// property.
+const TileSeeds = struct {
+    grid: zrecast.TileGrid,
+    max_tiles: u32,
+    tiles: [8][]const u8 = undefined,
+    count: usize = 0,
+
+    fn init() !TileSeeds {
+        zrecast.setAllocator(std.testing.allocator);
+        defer zrecast.resetAllocator();
+        const config = tiledConfig();
+        const geometry = fixtureMesh();
+        const grid = try zrecast.tileGrid(config, geometry);
+        var seeds: TileSeeds = .{ .grid = grid, .max_tiles = @intCast(grid.tile_count_x * grid.tile_count_z) };
+        errdefer seeds.deinit();
+        var z: i32 = 0;
+        while (z < grid.tile_count_z) : (z += 1) {
+            var x: i32 = 0;
+            while (x < grid.tile_count_x and seeds.count < seeds.tiles.len) : (x += 1) {
+                const tile = try zrecast.PolyMesh.bakeTile(config, geometry, grid, x, z, null, null) orelse continue;
+                defer tile.deinit();
+                const bytes = try zrecast.buildTileData(tile, x, z, 0, null);
+                defer bytes.deinit();
+                seeds.tiles[seeds.count] = try keep(bytes.bytes);
+                seeds.count += 1;
+            }
+        }
+        if (seeds.count < 2) return error.TooFewTiles;
+        return seeds;
+    }
+
+    fn deinit(seeds: TileSeeds) void {
+        for (seeds.tiles[0..seeds.count]) |tile| release(tile);
+    }
+};
+
+/// Any bytes as a tile added to a tiled navmesh: refused, or resident,
+/// answering queries, and removed again.
+fn anyTile(seeds: *const TileSeeds, case: *shakedown.Case) !void {
+    zrecast.setAllocator(std.testing.allocator);
+    defer zrecast.resetAllocator();
+    const bytes = try caseBytes(case, seeds.tiles[0..seeds.count]);
+    const mesh = try zrecast.NavMesh.initTiled(seeds.grid, seeds.max_tiles, 1 << 14);
+    defer mesh.deinit();
+
+    const ref = mesh.addTile(.init(bytes)) catch return;
+    try std.testing.expectEqual(@as(u32, 1), mesh.tileCount());
+    const bounds = try mesh.tileBounds(ref);
+    var centre: [3]f32 = undefined;
+    for (&centre, bounds[0], bounds[1]) |*m, lo, hi| m.* = lo + (hi - lo) / 2;
+
+    const filter = zrecast.defaultFilter();
+    const query = try zrecast.NavMeshQuery.init(mesh, 256);
+    defer query.deinit();
+    if (query.findNearestPoly(centre, .{ 10, 10, 10 }, &filter)) |near| {
+        if (near.ref) |poly| {
+            var corridor: [64]zrecast.PolyRef = undefined;
+            // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
+            _ = query.findPath(poly, poly, near.point, centre, &filter, &corridor) catch {};
+            // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
+            _ = query.raycast(poly, near.point, centre, &filter, .{}, null, null) catch {};
+        }
+    } else |_| {}
+    try mesh.removeTile(ref);
+    try std.testing.expectEqual(@as(u32, 0), mesh.tileCount());
+}
+
+test "any bytes added as a tile are refused, or resident until removed" {
+    var seeds = try TileSeeds.init();
+    defer seeds.deinit();
+    try shakedown.check(std.testing.allocator, &seeds, anyTile, .{});
+}
+
 //=============================================================================
 // The tile cache
 //=============================================================================
@@ -2583,6 +2709,88 @@ test "bytes that are not a compressed layer never reach the tile cache" {
     try std.testing.expectError(zrecast.Error.NotFound, world.cache.obstacleInfo(doomed));
 }
 
+/// Compressed layers the fixture cooks, and the cache and grid they were
+/// cooked for, for the layer property.
+const LayerSeeds = struct {
+    params: zrecast.TileCacheParams,
+    grid: zrecast.TileGrid,
+    layers: [4][]const u8 = undefined,
+    count: usize = 0,
+
+    fn init() !LayerSeeds {
+        const gpa = std.testing.allocator;
+        zrecast.setAllocator(gpa);
+        defer zrecast.resetAllocator();
+        var world = try CachedWorld.init(gpa);
+        defer world.deinit();
+        var seeds: LayerSeeds = .{
+            .params = try world.cache.params(),
+            .grid = try zrecast.tileGrid(tiledConfig(), fixtureMesh()),
+        };
+        errdefer seeds.deinit();
+        const slots: u32 = @intCast(seeds.params.max_tiles);
+        var slot: u32 = 0;
+        while (slot < slots and seeds.count < seeds.layers.len) : (slot += 1) {
+            const ref = try world.cache.tileRefAt(slot);
+            if (ref == 0) continue;
+            const bytes = try world.cache.removeTileTakingData(ref);
+            defer bytes.deinit();
+            seeds.layers[seeds.count] = try keep(bytes.bytes);
+            seeds.count += 1;
+        }
+        if (seeds.count < 2) return error.TooFewLayers;
+        return seeds;
+    }
+
+    fn deinit(seeds: LayerSeeds) void {
+        for (seeds.layers[0..seeds.count]) |layer| release(layer);
+    }
+};
+
+/// Any bytes as a compressed layer: decompressed, swapped, added to a tile
+/// cache and built into a navmesh tile, each refused or done whole.
+fn anyLayer(seeds: *const LayerSeeds, case: *shakedown.Case) !void {
+    const gpa = std.testing.allocator;
+    zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+    const bytes = try caseBytes(case, seeds.layers[0..seeds.count]);
+    var codec = StoreCodec.compressor();
+
+    // A layer that decompresses reads back grids of the size its header
+    // names.
+    if (zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes))) |layer| {
+        defer layer.deinit();
+        const header = try layer.header();
+        const cells = try case.gpa.alloc(u8, std.math.cast(usize, @as(i64, header.width) * header.height) orelse
+            return error.NegativeLayer);
+        try layer.heights(0, cells);
+        try layer.areas(0, cells);
+        try layer.cons(0, cells);
+    } else |_| {}
+
+    // A header that swaps swaps back to the bytes it was.
+    const swapped = try case.gpa.dupe(u8, bytes);
+    if (zrecast.swapTileCacheHeaderEndian(swapped)) |_| {
+        try zrecast.swapTileCacheHeaderEndian(swapped);
+        try std.testing.expectEqualSlices(u8, bytes, swapped);
+    } else |_| {}
+
+    const cache = try zrecast.TileCache.init(seeds.params, &codec, null, .{ .process = WalkableFlags.process });
+    defer cache.deinit();
+    const mesh = try zrecast.NavMesh.initTiled(seeds.grid, @intCast(seeds.params.max_tiles), 1 << 14);
+    defer mesh.deinit();
+    const ref = cache.addTile(.init(bytes)) catch return;
+    // glint-ignore: Z026 -- the property is that a stored layer never crashes a rebuild; a refusal is an accepted outcome
+    cache.buildNavMeshTile(ref, mesh) catch {};
+    try cache.removeTile(ref);
+}
+
+test "any bytes as a compressed layer are refused, or decompress and build whole" {
+    var seeds = try LayerSeeds.init();
+    defer seeds.deinit();
+    try shakedown.check(std.testing.allocator, &seeds, anyLayer, .{});
+}
+
 test "an obstacle touching more tiles than the cache can track is refused" {
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
@@ -2766,15 +2974,14 @@ test "a tile count and polygon count that leave Detour no salt are refused" {
     // allocations is what tells the two apart: the check here has to happen
     // before anything is taken.
     {
-        var counting = std.testing.FailingAllocator.init(gpa, .{});
+        var counting: shakedown.alloc.Counting = .init(gpa);
         zrecast.setAllocator(counting.allocator());
-        // unreachable: setAllocator refuses only a bridge missing a function, and the Zig bridge has both.
         defer zrecast.setAllocator(gpa);
         try std.testing.expectError(
             zrecast.Error.InvalidArgument,
             zrecast.NavMesh.initTiled(grid, 1 << 12, 1 << 12),
         );
-        try std.testing.expectEqual(@as(usize, 0), counting.alloc_index);
+        try std.testing.expectEqual(@as(u64, 0), counting.allocations);
     }
     // One bit less on each side fits exactly.
     {
@@ -4248,6 +4455,59 @@ test "state from one tile does not restore onto another" {
         );
     }
     try world.mesh.restoreTileState(first, .init(saved));
+}
+
+/// The fixture's image and the state its one tile stores, for the
+/// tile-state property.
+const StateSeed = struct {
+    image: []const u8,
+    state: []const u8,
+
+    fn init() !StateSeed {
+        zrecast.setAllocator(std.testing.allocator);
+        defer zrecast.resetAllocator();
+        const world = try World.init();
+        defer world.deinit();
+        const tile = try world.mesh.tileRefAtIndex(0);
+        const state = try std.testing.allocator.alloc(u8, try world.mesh.tileStateSize(tile));
+        defer std.testing.allocator.free(state);
+        try world.mesh.storeTileState(tile, state);
+        const image = try world.mesh.serialize();
+        defer image.deinit();
+        const image_copy = try keep(image.bytes);
+        errdefer release(image_copy);
+        return .{ .image = image_copy, .state = try keep(state) };
+    }
+
+    fn deinit(seed: StateSeed) void {
+        release(seed.image);
+        release(seed.state);
+    }
+};
+
+/// Any bytes restored as a tile's state: refused, or exactly the tile's
+/// size and onto a navmesh that still answers.
+fn anyState(seed: *const StateSeed, case: *shakedown.Case) !void {
+    zrecast.setAllocator(std.testing.allocator);
+    defer zrecast.resetAllocator();
+    const bytes = try caseBytes(case, &.{seed.state});
+    const mesh = try zrecast.NavMesh.initFromBytes(.init(seed.image));
+    defer mesh.deinit();
+    const tile = try mesh.tileRefAtIndex(0);
+
+    mesh.restoreTileState(tile, .init(bytes)) catch return;
+    try std.testing.expectEqual(try mesh.tileStateSize(tile), bytes.len);
+    const query = try zrecast.NavMeshQuery.init(mesh, 256);
+    defer query.deinit();
+    const filter = zrecast.defaultFilter();
+    // glint-ignore: Z026 -- the property is that restored state never crashes a query; a refusal is an accepted outcome
+    _ = query.findNearestPoly(fixture.start, search_extents, &filter) catch {};
+}
+
+test "any bytes restored as a tile's state are refused, or fit the tile exactly" {
+    var seed = try StateSeed.init();
+    defer seed.deinit();
+    try shakedown.check(std.testing.allocator, &seed, anyState, .{});
 }
 
 //=============================================================================
@@ -6443,11 +6703,54 @@ fn runOwnedArc(mesh: zrecast.NavMesh) !void {
     if (loaded.polyCount() == 0) return error.EmptyReload;
 }
 
+/// The arc for `everyFault`: each allocation it makes refused once.
+pub const OwnedArc = struct {
+    mesh: zrecast.NavMesh,
+    /// What the counting allocator draws from: an arena, because exactly one
+    /// refusal leaks by design (see the test), and the testing allocator
+    /// would report that upstream limitation as this test's leak. The arena
+    /// reclaims it at the end; the counts still see every byte.
+    child: std.mem.Allocator,
+    counting: shakedown.alloc.Counting = undefined,
+    /// Faulted runs that left bytes live.
+    leaks: u32 = 0,
+
+    pub fn setUp(arc: *OwnedArc, fio: *shakedown.FaultIo) !void {
+        arc.counting = .init(arc.child);
+        zrecast.setAllocator(try fio.allocator(arc.counting.allocator()));
+    }
+
+    pub fn run(arc: *OwnedArc, io: std.Io) !void {
+        _ = io;
+        try runOwnedArc(arc.mesh);
+    }
+
+    pub fn check(arc: *OwnedArc, io: std.Io, result: anyerror!void, injected: ?shakedown.Injected) !void {
+        _ = io;
+        if (injected == null) {
+            try result;
+        } else if (result) |_| {
+            return error.SwallowedOutOfMemory;
+        } else |e| if (e != error.OutOfMemory) return e;
+        if (arc.counting.live_bytes != 0) {
+            arc.leaks += 1;
+            // The first is upstream's and expected; anything beyond it is a
+            // regression here, so only then is the detail worth printing.
+            if (arc.leaks > 1) std.debug.print("{any} leaked {d} bytes\n", .{ injected, arc.counting.live_bytes });
+        }
+    }
+
+    pub fn tearDown(arc: *OwnedArc) void {
+        _ = arc;
+        zrecast.setAllocator(std.testing.allocator);
+    }
+};
+
 test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     // What makes the OutOfMemory paths more than decorative. The sweep runs the
-    // arc once per allocation site, failing that site and every one after it,
-    // and requires three things each time: an error rather than a success, the
-    // error the API documents, and every byte taken given back. It is the test
+    // arc once per allocation, refusing that one, and requires three things
+    // each time: an error rather than a success, the error the API documents,
+    // and every byte taken given back. It is the test
     // that exercises the multi-step rollback inside zrcNavMeshDeserialize,
     // where a buffer, a handle and a dtNavMesh are acquired in turn and any of
     // the three can fail.
@@ -6477,64 +6780,21 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     const poly = try bakeFixture(null);
     defer poly.deinit();
     const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
-    // Both are freed through `gpa`, which the loop restores every iteration.
+    // Both are freed through `gpa`, which every run's tearDown restores.
     defer mesh.deinit();
 
-    // The sweep's own allocations are backed by an arena rather than by the
-    // testing allocator, because exactly one index leaks by design (see the
-    // tally at the end) and the testing allocator would report that upstream
-    // limitation as a defect in this test. The arena reclaims it wholesale at
-    // scope exit; `failing`'s byte counters still catch any leak from zrecast.
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
-    const sweep_gpa = arena.allocator();
-
-    const total = count: {
-        var counting = std.testing.FailingAllocator.init(sweep_gpa, .{});
-        zrecast.setAllocator(counting.allocator());
-        // unreachable: setAllocator refuses only a bridge missing a function, and the Zig bridge has both.
-        defer zrecast.setAllocator(gpa);
-        try runOwnedArc(mesh);
-        break :count counting.alloc_index;
+    var arc: OwnedArc = .{ .mesh = mesh, .child = arena.allocator() };
+    var diagnostics: shakedown.EveryFaultReport = .{};
+    defer diagnostics.deinit();
+    const report = shakedown.everyFault(gpa, std.testing.io, &arc, .{ .diagnostics = &diagnostics }) catch |e| {
+        if (diagnostics.failure) |failure| std.debug.print("{t} with {any} injected; the run:\n{s}", .{ failure.err, failure.injected, failure.trace });
+        return e;
     };
-    try std.testing.expect(total > 0);
+    try std.testing.expect(report.steps > 0);
 
-    var leaking_indices: usize = 0;
-    var index: usize = 0;
-    while (index < total) : (index += 1) {
-        var failing = std.testing.FailingAllocator.init(sweep_gpa, .{ .fail_index = index });
-        zrecast.setAllocator(failing.allocator());
-        const outcome = runOwnedArc(mesh);
-        zrecast.setAllocator(gpa);
-
-        if (outcome) |_| {
-            std.debug.print(
-                "allocation {d}/{d} failed but the arc reported success\n",
-                .{ index, total },
-            );
-            return error.SwallowedOutOfMemory;
-        } else |e| switch (e) {
-            error.OutOfMemory => {},
-            else => {
-                std.debug.print("allocation {d}/{d} gave {t}\n", .{ index, total, e });
-                return e;
-            },
-        }
-
-        if (failing.allocated_bytes != failing.freed_bytes) {
-            leaking_indices += 1;
-            // The first one is upstream's and expected; anything beyond it is
-            // a regression here, so only then is the detail worth printing.
-            if (leaking_indices > 1) {
-                std.debug.print(
-                    "allocation {d}/{d} leaked: {d} allocated, {d} freed\n",
-                    .{ index, total, failing.allocated_bytes, failing.freed_bytes },
-                );
-            }
-        }
-    }
-
-    // Exactly one index may leak, and it is upstream's, pinned here so that a
+    // Exactly one refusal may leak, and it is upstream's, pinned here so that a
     // regression in zrecast's own rollback still shows up as a second one.
     //
     // dtNavMesh::init allocates m_tiles and then m_posLookup, and memsets
@@ -6543,7 +6803,7 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     // flags and free the garbage pointers behind them, so
     // ffi/zrecast_navmesh.cpp releases the object without its destructor and
     // accepts the one array. See docs/design.md.
-    try std.testing.expectEqual(@as(usize, 1), leaking_indices);
+    try std.testing.expectEqual(@as(u32, 1), arc.leaks);
 }
 
 test "a query that reaches no polygon reports none" {

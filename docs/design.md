@@ -439,11 +439,11 @@ otherwise trust.
 Most of the interior checks came from a mutation fuzzer: random bytes anywhere
 in the image, then validate, deserialise and query. It found three holes that
 reading the validator had not suggested, including one that had been reasoned
-about and gotten wrong. That fuzzer is a test in the suite now — deterministic,
-sized so every CI leg can afford it, and asserting that a meaningful share of
-its mutants get past validation and into the queries, so it cannot decay into
-an exerciser of the magic check. The development campaign behind the checks was
-larger; the in-suite run is the regression net.
+about and gotten wrong. That fuzzer is a shakedown property in the suite now,
+one of four (see [Untrusted bytes](#untrusted-bytes)), asserting that a
+meaningful share of its cases get past validation and into the queries, so it
+cannot decay into an exerciser of the magic check. The development campaign
+behind the checks was larger; the in-suite run is the regression net.
 
 Neither library is hardened against arbitrary hostile input, and zrecast cannot
 make them so from the outside. The fuzzer found three holes after the first
@@ -1416,6 +1416,32 @@ sanitizer, as a consumer builds it, and with the asserts flipped from the
 mode's default, so both sides of every `NDEBUG` seam run in every mode. The
 gate also builds the library shared, and with the asserts flipped under the
 sanitizer, and runs the examples.
+
+### Untrusted bytes
+
+Every function that parses bytes a host hands it has a property in
+`src/integration_test.zig`, run on [shakedown](https://github.com/pedronaugusto/shakedown):
+the navmesh image (the validator, the loader, the layout, the byte-order swap
+and the queries over whatever loads), a tile added to a tiled navmesh, a
+tile's stored state, and a compressed layer (decompressed, swapped, added to a
+tile cache and built into a tile). Each case is a seed the fixture cooks,
+mutated, or bytes of its own, placed at an odd address because a host's
+bytes have any alignment; that is how the misaligned reads under
+[Known upstream behaviour](#known-upstream-behaviour) were found. A case
+either is refused or holds the property, and the sanitizer and the leak check
+see every one. Under `bay fuzz`, and the hardened tier's campaign, Zig's
+fuzzer drives the same properties.
+
+`readContourSet` and `readCompactHeightfield` are not among them: upstream
+reads a dump field by field, with no length to check a count against, so they
+take only bytes this package wrote, as recorded under
+[Known upstream behaviour](#known-upstream-behaviour).
+
+The allocation sweep in the same file is shakedown's `everyFault`: the
+serialise, validate and load arc runs once clean, then once per allocation
+with that one refused, and each run must report `OutOfMemory` and give every
+byte back but the one upstream leak recorded below. zrecast makes no `std.Io`
+call, so there is no I/O to fault.
 
 ### The fixture
 

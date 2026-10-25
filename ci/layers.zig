@@ -21,6 +21,7 @@ pub const references: []const gantry.rules.ReferenceRule = &.{
     .{ .name = "named dependencies", .unresolved_only = true, .except_targets = &.{
         "aegis",
         "builtin",
+        "shakedown",
         "std",
         "zrecast_options",
     } },

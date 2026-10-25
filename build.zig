@@ -355,7 +355,9 @@ pub fn dev(b: *std.Build, tools: type) void {
         determinism.addArtifactArg2(suite(b, p, resolved, .debug, b.fmt("zrecast-tests-{s}", .{entry.triple}), .{ .shared = false, .enable_asserts = true, .sanitize_c = false }, &.{}), .{});
     }
 
-    preflight.addCi(b, p, .{ .tests = test_step });
+    // The hardened tier fuzzes the properties in src/integration_test.zig,
+    // which live in the test step; zrecast runs no threads of its own.
+    preflight.addCi(b, p, .{ .tests = test_step, .hardened = .{} });
     // The build a consumer gets: the module, the library and aegis, fetching
     // nothing.
     preflight.addConsumerCheck(b, p, .{
@@ -383,6 +385,7 @@ fn suite(b: *std.Build, p: *std.Build, target: std.Build.ResolvedTarget, optimiz
             .imports = &.{
                 .{ .name = "zrecast_options", .module = optionsModule(b, options) },
                 .{ .name = "aegis", .module = p.dependency("aegis", .{ .target = target, .optimize = optimize }).module("aegis") },
+                .{ .name = "shakedown", .module = b.dependency("shakedown", .{ .target = target, .optimize = optimize }).module("shakedown") },
             },
         }),
     });

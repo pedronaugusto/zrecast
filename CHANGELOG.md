@@ -81,6 +81,11 @@ not express, so a port has the reason and not only the diff.
   README's numbers come from `bay measurements`, and the gate refuses a stale
   block.
 
+- The tests run on [shakedown](https://github.com/pedronaugusto/shakedown):
+  every parser of a host's bytes has a property, under the fuzzer too, and
+  the allocation sweep is `everyFault`. The suite's random image mutations
+  were a fixed-seed loop, and its failing allocator a hand-written double.
+  The hardened tier is on.
 - The documentation is two files. README.md says what the package is and
   what it does; `docs/design.md` holds the layers, the bound surface, the
   boundary's checks, the cook's determinism, the record of upstream's

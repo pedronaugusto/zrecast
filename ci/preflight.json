@@ -1,6 +1,7 @@
 {
   "sources": ["src"],
   "test_roots": ["src/zrecast.zig"],
+  "test_dependencies": ["shakedown"],
   "shipped": {
     "ffi": "the C boundary: the library compiles its translation units, and the installed header is ffi/zrecast.h",
     "libs": "the vendored Recast and Detour, which the library compiles"
@@ -23,6 +24,21 @@
     ["zig", "build", "check-numbers"],
     ["zig", "build", "check-vendor"]
   ],
+  "fuzz": {
+    "parsers": [
+      "initFromBytes",
+      "addTile",
+      "restoreTileState",
+      "validate",
+      "tileLayout",
+      "swapImageEndian",
+      "swapTileCacheHeaderEndian"
+    ],
+    "trusted": {
+      "readContourSet": "a dump this package wrote: upstream reads it field by field with no length to check a count against",
+      "readCompactHeightfield": "a dump this package wrote: upstream reads it field by field with no length to check a count against"
+    }
+  },
   "glint_paths": ["src", "examples", "ci", "build.zig"],
   "glint": {
     "rules": [
