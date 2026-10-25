@@ -93,7 +93,7 @@ T* RcNew() {
 /// detail mesh, silently, because nothing in the type system distinguishes it
 /// from the other four. Deferring to upstream's own free function per type
 /// keeps that asymmetry upstream's business instead of something this package
-/// has to remember. See UPSTREAM.md.
+/// has to remember. See docs/design.md.
 inline void RcFree(rcHeightfield* p) { rcFreeHeightField(p); }
 inline void RcFree(rcCompactHeightfield* p) { rcFreeCompactHeightfield(p); }
 inline void RcFree(rcContourSet* p) { rcFreeContourSet(p); }
@@ -655,7 +655,7 @@ class HostTileCacheAlloc : public dtTileCacheAlloc {
 /// feeds the result straight to dtNavMesh::addTile, which is the one path into
 /// a navmesh that skips zrcNavMeshAddTile's validation. This shows the caller
 /// only the fields the callback is for, validates what comes back, and writes
-/// it into the params itself. See UPSTREAM.md.
+/// it into the params itself. See docs/design.md.
 class HostMeshProcess : public dtTileCacheMeshProcess {
  public:
   HostMeshProcess(ZrcTileCacheMeshProcess hook, void* user);

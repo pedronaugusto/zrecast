@@ -63,6 +63,12 @@ not express, so a port has the reason and not only the diff.
   README's numbers come from `bay measurements`, and the gate refuses a stale
   block.
 
+- The documentation is two files. README.md says what the package is and
+  what it does; `docs/design.md` holds the layers, the bound surface, the
+  boundary's checks, the cook's determinism, the record of upstream's
+  behaviour and how the package is tested, folding in BINDING.md, UPSTREAM.md
+  and the six files under `docs/`.
+
 ### Removed
 
 - `ci/*.sh`, `tools/` and `tests/consumer`. The consumer build is preflight's

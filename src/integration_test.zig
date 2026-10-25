@@ -471,7 +471,7 @@ fn cookAuthoredDigest() ![64]u8 {
 // suite. Targets sharing a C library also agree; `bay determinism` cooks
 // on both architectures of musl and glibc and compares. Two DIFFERENT C
 // libraries may disagree: upstream sorts BV items, holes and diagonals with
-// qsort, and ties fall to the implementation — UPSTREAM.md has the entry.
+// qsort, and ties fall to the implementation — docs/design.md has the entry.
 test "a cook is deterministic" {
     const gpa = std.testing.allocator;
     try zrecast.setAllocator(gpa);
@@ -2673,7 +2673,7 @@ test "a tile baked from one config into another config's grid is refused" {
 }
 
 test "a reference naming a free slot is refused rather than dereferenced" {
-    // The upstream hazard UPSTREAM.md records. dtNavMesh::getTileByRef checks
+    // The upstream hazard docs/design.md records. dtNavMesh::getTileByRef checks
     // the slot index and the salt and stops there, so it returns free slots as
     // well as occupied ones — and a free slot's header is null, which
     // removeTile then reads through (DetourNavMesh.cpp:1253). Every slot of a
@@ -2749,7 +2749,7 @@ test "a tile count and polygon count that leave Detour no salt are refused" {
 
     // Refused at the door, not by Detour. dtNavMesh::init reaches the same
     // verdict, but only after allocating a navmesh and half-initialising it,
-    // and unwinding that is the delicate path UPSTREAM.md describes. Counting
+    // and unwinding that is the delicate path docs/design.md describes. Counting
     // allocations is what tells the two apart: the check here has to happen
     // before anything is taken.
     {
@@ -5213,7 +5213,7 @@ test "a bounding-volume node overlaps the leaves beneath it" {
 
     // A tile reserves two nodes per polygon and the tree fills 2n - 1 of them,
     // so the last is spare. zrecast seals it as an internal node; upstream
-    // leaves it zeroed, which reads as a leaf naming polygon 0. See UPSTREAM.md.
+    // leaves it zeroed, which reads as a leaf naming polygon 0. See docs/design.md.
     const tree_nodes: u32 = @intCast(info.bv_node_count - 1);
     const sealed = try world.mesh.tileBvNode(tile, tree_nodes);
     try std.testing.expect(sealed.i < 0);
@@ -6445,7 +6445,7 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     //     `dtAssert` and then memset the result, which under NDEBUG is the same
     //     null dereference. So is building a `NavMeshQuery`.
     //
-    // None of this is silenced; all of it is recorded in UPSTREAM.md. What
+    // None of this is silenced; all of it is recorded in docs/design.md. What
     // remains below is the part zrecast is actually responsible for, and it is
     // held to the full standard.
     const gpa = std.testing.allocator;
@@ -6520,7 +6520,7 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     // cannot be reclaimed: running ~dtNavMesh would read uninitialised tile
     // flags and free the garbage pointers behind them, so
     // ffi/zrecast_navmesh.cpp releases the object without its destructor and
-    // accepts the one array. See UPSTREAM.md.
+    // accepts the one array. See docs/design.md.
     try std.testing.expectEqual(@as(usize, 1), leaking_indices);
 }
 

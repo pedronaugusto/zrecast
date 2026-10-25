@@ -1,4 +1,571 @@
-# Vendored upstream
+# zrecast design
+
+How the package is built, what each layer holds, what upstream does that the
+boundary stands in front of, and how each claim the README makes is checked.
+
+## Layers
+
+Upstream is C++, and C++ does not cross a linking boundary intact, so the
+package is three layers and a new capability lands in each.
+
+1. **`libs/recastnavigation` is upstream, byte for byte.** Nothing is added or
+   changed there; `bay check-vendor` compares it against the pinned commit,
+   both ways, and fails on a local edit or a file upstream does not have.
+   Behaviour upstream lacks belongs in the next layer.
+2. **`ffi/` is the C boundary.** One translation unit per concern
+   (`zrecast_bake.cpp`, `zrecast_query.cpp`, …), each entry point `ZRC_API` and
+   `zrc`-prefixed, declared in the one public header `ffi/zrecast.h` with
+   `Zrc`-prefixed types. A mirrored struct or constant gets a `static_assert`
+   in `ffi/zrecast_abi.cpp` against upstream's definition, so a re-vendor that
+   moves anything fails the build. Validation lives here too: an index, a
+   length or a reference upstream would trust is checked before upstream sees
+   it, and each refusal is recorded under
+   [Known upstream behaviour](#known-upstream-behaviour).
+3. **`src/` is the Zig layer.** The externs (`pub extern fn zrc…`) sit in the
+   module that owns them (`bake.zig`, `navmesh.zig`, `query.zig`, `crowd.zig`,
+   `tilecache.zig`, `pipeline.zig`), next to the wrapper that calls them.
+   Nothing translates the header; the ABI is held by the layout test and the
+   C smoke test instead.
+
+`ci/layers.zig` holds the order of the Zig modules: the C boundary, errors and
+memory, geometry and bake, navmesh and pipeline, query and tile cache, crowd,
+debug draw, and the root. A module imports only from the layers below it, and
+only `src/c.zig` and the integration tests declare `extern` functions.
+
+## Bake time and run time are different programs
+
+Recast voxelises a triangle soup, filters it for what an agent of a given size
+can stand on, and emits a polygon mesh: slow, allocation-heavy, and its output
+an artefact a cook step checks into a content pipeline. Detour loads that
+artefact and answers questions about it (nearest polygon, route, what a
+character hits walking that way), allocating once, at load. So a tool uses
+`bake.zig` and `navmesh.zig`; a game uses `navmesh.zig` and `query.zig`.
+
+Because the boundary is one C entry point per concern in its own translation
+unit, a host that never calls the bake never links it: a ReleaseFast C program
+that deserialises a navmesh and queries it contains none of
+`rcCreateHeightfield`, `rcRasterizeTriangles`, `rcBuildContours`,
+`rcErodeWalkableArea` or `rcBuildPolyMesh`, and comes out about 170 KB smaller
+than the same program with a bake call added (measured 2026-09-02 with `zig
+c++ -O2` on x86_64-windows).
+
+### Partial is a result, not an error
+
+`findPath` returns a corridor and a `partial` flag. Detour sets it when the
+goal was unreachable, when the node pool ran out, or when the caller's buffer
+filled, and in all three cases the corridor is a real, walkable best effort
+towards the goal. Collapsing that into an error makes every caller treat "no
+route" and "long route" identically, which freezes agents at the edge of a
+map. It is a field, and the caller decides.
+
+### The bake assigns the polygon flags
+
+Recast leaves `rcPolyMesh::flags` zeroed, and Detour's default filter admits a
+polygon only if it shares a bit with `include_flags`. Bake, build, query, the
+obvious sequence, therefore returns an empty result from every query, with
+nothing reporting a problem. `zrcPolyMeshBake` assigns `ZRC_AREA_WALKABLE` /
+`ZRC_POLY_FLAG_WALKABLE` to every walkable polygon, so the obvious sequence
+works. The suite checks both directions: a default filter finds the ground,
+and a filter excluding exactly that flag finds nothing.
+
+### A failed bake says which stage failed
+
+Recast's eleven build stages each return a bare `bool` and send the reason to a
+virtual log callback with no default implementation. Pass a buffer as
+`ZrcBakeLog` and it is filled with those messages; without one, a failed bake
+is undiagnosable by construction. `rcBuildPolyMesh` succeeding with zero
+polygons is not an error upstream, but it produces a navmesh that answers every
+query with "nowhere to go", so here it is `EmptyResult`, with an explanation of
+the two things that usually cause it.
+
+### Drawing is a renderer the host supplies
+
+`DebugUtils` decides what a heightfield, a region, a contour set or a navmesh
+looks like as points, lines, triangles and quads; what those become is the
+host's. `DebugDraw` is that seam as a Zig struct, built from a renderer type's
+own methods at compile time, so a renderer is a Zig struct rather than a table
+of C callbacks, and the four hooks of `FileIO` are the same for bytes, so a
+dump reaches whatever a host calls a file. Nothing in that half allocates,
+mutates a container, or affects a navmesh a query will see. The two read
+entry points are the exception and say so.
+
+### Allocators
+
+`setAllocator` routes every Recast and Detour allocation through a
+`std.mem.Allocator`. It is process-wide, because both upstream seams are:
+`rcAllocSetCustom` and `dtAllocSetCustom` take a bare pair of function pointers
+with nowhere to thread a host pointer through. Both libraries also free with
+`free(ptr)`, no size, while Zig requires the size back, so `src/memory.zig`
+stores a header ahead of each block. Neither `rcAlloc` nor `dtAlloc` has an
+alignment parameter, so there is one compile-time alignment
+(`ZRC_ALLOC_ALIGNMENT`) rather than a per-call one. The C API keeps upstream's
+shape, so a plain C host can still pass `malloc`/`free` in two lines.
+
+zrecast's own allocations are checked and rolled back on every path, tested by
+inducing a failure at every allocation site in turn. Upstream's are not, and
+that cannot be fixed from outside the library; the cases are recorded with file
+and line under [Known upstream behaviour](#known-upstream-behaviour). Recast's
+own vector placement-news into the result of a failed allocation, Detour's
+BV-tree builder indexes an unchecked array, and its node pool asserts and then
+writes through the null. One case, a `dtNavMesh` whose `init` ran out of memory
+and which cannot then be destroyed, is worked around narrowly, and the bounded
+cost of that workaround is stated there. Run the bake somewhere an allocation
+failure is fatal anyway, which is where a cook already lives. The runtime half
+behaves far better, and that is the half a game links.
+
+## Binding conventions
+
+An entry point operating on an object is named object-first
+(`zrcPolyMeshBake`, `zrcHeightfieldAddSpan`), so the header groups by the
+thing operated on; a query or free helper keeps upstream's own verb
+(`zrcFindNearestPoly`, `zrcCalcBounds`). The Zig layer turns a handle-taking
+entry point into a method on the owning wrapper (`NavMeshQuery.findPath`) and
+keeps upstream's terminology for concepts (polys, contours, regions,
+corridors), so upstream's documentation stays usable as this package's.
+
+- Slices in, typed results out. Counts and capacities stay inside the wrapper;
+  a caller passes `[]PolyRef` and gets `.len` back.
+- `ZrcResult` becomes the error set in `src/error.zig`; a partial outcome that
+  upstream reports as success stays a success with a `.partial` field.
+- Optionals mean what they say: a nullable pointer parameter is `?`, a
+  reference that can be "none" is `?PolyRef`, never a magic zero at the
+  surface.
+- Flags are named option structs (`StraightPathOptions`), never bare `u32`s.
+- Memory routes through the process-wide allocator seam
+  (`setAllocator`/`resetAllocator`), which `tests/c_smoke.c` proves is in use
+  by counting.
+- The version has one home, `build.zig.zon`. The `ZRC_VERSION_*` macros in
+  `ffi/zrecast.h` restate it for C consumers, and the "version reporting is
+  wired up" test compares what they compiled to against the `.zon` string.
+- Build options are declared once and mirrored into a Zig `options` module,
+  so the wrapper cannot disagree with how the C++ was compiled.
+
+## The bound surface
+
+`ci/coverage/unbound_*.txt` is the record and `bay check-coverage` is the
+gate; this is the same answer in prose, grouped by what a host is trying to do.
+[Coverage](#coverage) has how the record is derived.
+
+- **Bake** — the full Recast pipeline over a triangle soup: heightfield,
+  filters, compact heightfield, erosion, regions (all three partitioning
+  strategies), contours, polygon mesh, detail mesh.
+- **Tiles** — a tile grid computed from the geometry, a per-tile bake whose empty
+  tiles are a success rather than an error, each tile cooked to bytes of its own,
+  and add/remove/lookup/enumerate against a live navmesh. A path crosses tile
+  boundaries through the portal edges a tiled bake emits.
+- **Areas and flags** — convex, box and cylinder volumes applied between erosion
+  and region building, colouring the surface with area ids a query filter charges
+  for; a table mapping each area id to the polygon flags a filter admits or
+  refuses; and `get`/`set` for both on a live navmesh, so a door opening or a
+  zone flooding is a write rather than a re-cook.
+- **Off-mesh connections** — point-to-point links across ground the surface does
+  not join: a jump, a ladder, a door. One-way or two-way, carrying an area, flags
+  and an opaque id, supplied when a tile is built and read back from a live
+  navmesh. A path through one produces a straight-path corner flagged
+  `ZRC_STRAIGHTPATH_OFFMESH_CONNECTION`, which is how a game knows to play an
+  animation instead of walking.
+- **Tile state** — one tile's polygon areas and flags as bytes, for a save file.
+  The blob is only restorable onto the tile it came from, and only at exactly the
+  length that tile reports.
+- **Reading a navmesh back** — the grid parameters, a tile's header, its
+  polygons, links, detail sub-meshes, vertices and bounding-volume nodes, all
+  copied out **by value** so a read survives the tile's removal. Ranges are
+  half-open and a range outside an array is an error, never a short read, since
+  a short read is indistinguishable from an empty tile.
+- **Navmesh** — a `dtNavMesh` from that bake, single-tile or tiled; a single-tile
+  one serialises to and from bytes, with the image validated before it is
+  trusted.
+- **Queries** — the whole of `dtNavMeshQuery`: nearest polygon, path,
+  string-pulled corners, surface movement, walkability raycast, the polygons in
+  a box (into a buffer or through a callback), the three outward searches and
+  the corridor one leaves behind, wall segments and distance to the nearest
+  wall, closest point and height on a single polygon, and reproducible random
+  placement. Every one that fills a caller's buffer reports whether it had to
+  stop short.
+- **Sliced pathfinding** — the same search driven a few iterations at a time so
+  a frame can spend a fixed budget on it. The filter is copied for the slice's
+  lifetime, because upstream keeps only a pointer to it; a second search that
+  would clear the node pool underneath a slice is refused; and finalising twice
+  is refused rather than answering with a one-element path holding the null
+  reference.
+- **What a reference means** — validity against a filter or on its own, whether
+  the last search closed it, and the salt/tile/polygon fields packed into it,
+  split and rebuilt with the widths that navmesh actually uses.
+- **The search's own node pool** — how full it is and what the last search
+  concluded about a given polygon, which is what makes `max_nodes` tunable
+  rather than guessed.
+- **Geometry** — the computational geometry Detour runs on, callable directly:
+  point-in-polygon, closest point on a triangle, distance to a polygon's edges,
+  segment/polygon and segment/segment intersection, the two overlap tests a
+  BV-tree walk needs, polygon offsetting and a reproducible random point in a
+  convex polygon. Each one checks the array bound upstream leaves to the caller.
+- **Vector math** — the `dtV`/`rcV` families and the scalar helpers around them,
+  in Zig rather than across the boundary, and asserted **bit-identical** to the
+  C over a table that includes zeros, negative zeros and denormals. Six of
+  them answer differently from Zig's obvious spelling at an edge, and the tests
+  pin all six.
+- **Seams** — the allocator, reachable for a host's own allocations, and one
+  assertion handler installed into both halves of upstream, with a way to ask
+  whether this build kept the assertions that would call it.
+- **Tile images** — the byte offset and length of each of a tile's eight
+  arrays, so a host can parse or patch a cooked image with the layout Detour
+  itself derives rather than one it guessed.
+- **The Recast pipeline, stage by stage** — the same bake taken apart. Each
+  stage is its own call, each intermediate container is a handle a host owns,
+  and every one can be read, edited or replaced between one stage and the next:
+  spans added by hand, areas painted from data no volume shape can express,
+  polygon flags written before the mesh becomes a tile. A staged mesh goes into
+  `zrcTileDataBuild` exactly as a baked one does, and the suite asserts the two
+  produce identical bytes from identical input.
+- **A build context** — the log and timer hooks Recast calls during a build,
+  with the two enable flags upstream consults before it reaches one, so a host
+  measuring a bake measures the phases a C++ host measures.
+- **Dynamic obstacles** — a tile cache: each tile's walkable surface kept in a
+  compressed layer beside the navmesh, and rebuilt whenever an obstacle over it
+  appears or goes away. Cylinders, boxes and boxes rotated about y, queued and
+  carved a tile per update so a frame can spend a fixed budget on it. The codec
+  is the host's — none is bundled and no container format is invented — and so
+  is the callback that decides each rebuilt polygon's flags, narrowed to the
+  fields it is for because the tile it produces reaches the navmesh without the
+  validation an added tile gets. The suite carves an obstacle into the fixture's
+  only gap, watches the route close, removes it, and watches it open.
+- **Drawing** — every container a bake or a load produces, rendered through a
+  renderer the host supplies: the input soup shaded by slope, the heightfield,
+  the compact heightfield solid, by region and by distance, the layered
+  heightfield, the traced and simplified contours, the polygon and detail
+  meshes, a navmesh's polygons, bounding-volume tree, portals and off-mesh
+  connections, a search's node pool and closed list, and a tile cache's layers,
+  contours and rebuilt mesh. Plus the shapes upstream draws them out of —
+  boxes, cylinders, arcs, arrows, circles, crosses and a grid — each in a form
+  that opens its own run and a form that appends to one the caller opened. The
+  renderer is a Zig struct whose methods are read at compile time; a display
+  list records one run of primitives and replays it into any other renderer.
+- **Dumping a build** — the polygon mesh and the detail mesh as Wavefront OBJ,
+  and the contour set and compact heightfield as upstream's own binary form,
+  written through four hooks a host fills rather than to a file this package
+  opens. Both binary forms read back into a container this package creates, so
+  a failed read destroys a half-built one rather than handing it over. The
+  format is upstream's struct layout copied to the stream, so it is neither
+  endian- nor padding-portable and carries no length to check a count against:
+  feed a read only bytes this package wrote.
+- **Crowds** — many agents steering around each other and the world: a local
+  re-plan per agent per frame, neighbours from a proximity grid, walls from a
+  cached local boundary, a velocity chosen by an obstacle-avoidance sampler, and
+  a position integrated under acceleration and speed limits. An agent is named
+  by a reference carrying a serial rather than by its pool slot, so a slot
+  reused after a removal cannot be driven by a stale handle — upstream has no
+  identity at all and every setter it offers takes a bare index. The two
+  parameter fields that index the crowd's filter and avoidance tables are
+  refused at the door; unchecked, they read tens of kilobytes past those tables
+  every frame. Long searches go through a path queue whose filters this package
+  owns for the request's lifetime, because upstream keeps only a pointer to the
+  caller's. The corridor, the local boundary, the proximity grid and the
+  avoidance sampler are each usable on their own, which is what a host steering
+  one character wants.
+
+## Coverage
+
+The suite says the code works. It says nothing about how much of Recast and
+Detour a host can get at. That is answered by a generated record, one line per
+public upstream name, and by a gate that re-derives the name list from the
+vendored headers so a name cannot go missing quietly.
+
+### The verdicts
+
+Every public name in `Recast/`, `Detour/`, `DetourCrowd/`, `DetourTileCache/`
+and `DebugUtils/` carries exactly one:
+
+- **`BOUND`**: reachable through the C boundary. The evidence names the `zrc`
+  symbol that carries it, and the gate checks `ffi/zrecast.h` declares it.
+- **`LANGUAGE`**: C++-only surface a C boundary cannot carry: `rcVectorBase`,
+  `rcIntArray`, `rcTempVector`, `rcPermVector`, `rcScopedDelete`,
+  `rcScopedTimer`, `dtNodeQueue`, the `dtMath*` wrappers over libm, the
+  `dtSwapEndian` overloads, `rcSqrt`, `RC_PI`. The evidence says what a C or
+  Zig host does instead.
+- **`ZIG`**: reimplemented on the Zig side: the `dtV`/`rcV` vector families
+  and the scalar helpers around them. The evidence names the mirror in
+  `src/vec.zig`, and that file's bit-identity test against linkable shims over
+  upstream's own `inline` definitions is what makes a mirror true.
+- **`UNDEFINED`**: a header declares it and no vendored source defines it, so
+  there is no symbol for any host to call. The evidence names the header and
+  line, and the gate rechecks both halves against the tree: a re-vendor that
+  supplies the definition fails until the name is bound. One name carries it,
+  `duDebugDrawHeightfieldLayersRegions`, which would also have nothing to draw:
+  `rcHeightfieldLayer` carries no region ids.
+
+A name with none of these is a gap, and a gap fails the gate unless it names
+the tranche of work that closes it. None is open.
+
+### The commands
+
+```sh
+bay check-coverage                    # the gate
+bay coverage -- --list                # the gate, and the open gaps
+bay coverage -- --record              # rewrite the record from its inputs
+bay coverage -- --check-record        # the record matches its inputs
+bay coverage -- --names               # every public name upstream declares
+bay coverage -- --summary [AREA]      # verdicts per area, and one area's names
+bay coverage -- --audit               # every line the harvester did not understand
+bay coverage -- --collapsed           # symbols covering more than one declaration
+```
+
+The record is generated by `ci/coverage.zig` from the harvest, from
+`ci/coverage/bindings.tsv` (the names that are answered, the only half kept by
+hand) and from the rule that says which tranche closes each of the rest, so a
+name cannot carry one verdict in one place and another somewhere else, and a
+gap's reason is a rule that is re-read rather than a sentence that rots. The
+gate refuses any verdict it cannot check: a `BOUND` line has to name a symbol
+`ffi/zrecast.h` declares, and a gap has to say which tranche closes it. Every
+order in the record is byte order, so it is the same file on every host.
+
+### What the harvester counts
+
+The harvester enumerates functions, data members, enum constants, `static
+const` values and type names; keeps overloads apart by arity and, where arity
+is not enough (`dtSwapEndian`'s five one-argument forms), by parameter type;
+and prints what it could not parse. Counting only an identifier followed by
+`(` would miss `dtNavMeshCreateParams`' must-populate fields, the `dtStatus`
+detail bits that are `static const unsigned int` rather than an enum, and the
+constants of the enums whose names carry no `rc` or `dt` prefix.
+
+`DetourNavMeshQuery` is its own area rather than part of `Detour`:
+`dtNavMeshQuery` is the pathfinding engine, large enough to want its own line.
+`DebugUtils` is one area covering its four headers. Preprocessor macros are not
+names here (`rcLikely`, the assert macros), and operator overloads carry no name
+a C ABI can spell; `--summary` prints both blind spots.
+
+### The documented numbers
+
+No number in README.md or this file is typed in by hand without a reason.
+`bay measurements` (`ci/measurements.zig`) recomputes the README's block from
+the tree, the docs check fails while the committed block differs, and
+`bay check-numbers` (`ci/numbers.zig`) refuses any other number in prose
+unless its allowlist says why it cannot go stale. An allowance nothing uses
+fails too. Adding a claim means adding its measurement.
+
+A count is a count. Matching entry-point counts prove presence, not
+correctness; the behavioural tests, the C smoke test and the mutation probes
+hold that, and the coverage gate holds each verdict one name at a time. The
+number check has three blind spots: a number spelled as a word, a number inside
+`code`, where it is an identifier or a citation rather than a claim, and a
+sentence that is wrong without any number in it.
+
+## Validation at the boundary
+
+Recast and Detour assert in debug and read on regardless in release. `ffi/`
+checks an index, a length or a reference before upstream sees it. This is what
+is checked and why.
+
+### Geometry
+
+Recast indexes `verts[tris[i] * 3]` with no range test of its own. An index
+past the end of the vertex array is an out-of-bounds read inside the rasteriser
+in every build configuration. A NaN coordinate is worse: `rcCalcBounds`
+propagates it into the grid size, and the heightfield allocation is then
+computed from garbage. Both are rejected at the door.
+
+### The spare bounding-volume node
+
+A tile reserves two bounding-volume nodes per polygon and the tree fills
+`2n - 1` of them. Detour's own traversal ends one node past the tree and reads
+the spare, zeroed one as a leaf naming polygon 0. A box of all zeroes overlaps
+every query clamped to the tile's minimum corner, so `findNearestPoly` at a
+navmesh's own corner came back with a polygon nine metres outside the
+half-extents it was given. Nothing faults; the answer is simply wrong. That
+node is sealed as an internal node in every image this package cooks and in
+every image it loads. See [Known upstream behaviour](#known-upstream-behaviour).
+
+### Serialised navmeshes
+
+`dtNavMesh::init` dereferences the buffer to read the magic and version
+*before* it looks at the length, which it then never compares against anything.
+`addTile` derives eight array pointers from counts in that header and never
+bounds-checks them either — and it writes `links[maxLinkCount - 1]` before any
+loop guard, so a zero there is an out-of-bounds *write*.
+
+`zrcNavMeshValidate` closes that: it copies the header out (so a misaligned
+caller buffer is not a struct read either), sanity-checks every count, and
+requires the size implied by those counts to equal the buffer length exactly.
+
+Header checks alone are not enough. A `dtPoly::vertCount` of `200` — one byte,
+in an otherwise untouched image — passes every count check, loads without
+complaint, and then overruns a fixed `float verts[DT_VERTS_PER_POLYGON*3]`
+stack array in four separate Detour functions, with coordinates read from the
+image. So the validator makes a second pass and bounds everything the image can
+point at:
+
+- **Polygon corner counts and corner indices**, which is the case above.
+- **Neighbour indices.** `connectIntLinks` turns each into a link reference
+  with no range test, and every traversal query resolves that reference with
+  `getTileAndPolyByRefUnsafe` — unsafe as named. The safe accessor guards the
+  *caller's* references; the unsafe one is used on references the tile made for
+  itself, so this is the same overrun reached the long way round.
+- **Vertex and detail-vertex coordinates**, which must be finite.
+  `closestPointOnDetailEdges` keeps its nearest edge with `if (d < dmin)` and
+  lerps through the result unconditionally, so one NaN — against which every
+  comparison is false — leaves it dereferencing null.
+- **Detail sub-mesh bases, extents and triangle corners**, plus a triangle
+  count of at least one and at least one boundary edge flag per sub-mesh: both
+  are further ways that same nearest-edge pointer stays null.
+- **BV-tree polygon indices and escape jumps.**
+- **Off-mesh connections.** `baseOffMeshLinks` indexes `tile->polys` by a
+  connection's polygon field and writes through the vertex it finds there, with
+  no bound on either. Each connection must own exactly the polygon the builder
+  assigns it, name finite endpoints and a non-negative radius, and carry only
+  the side codes and flags Detour itself emits.
+
+None of that rejects anything a real bake produces; the round-trip test is the
+control. What it buys is memory safety, not trustworthiness: an entirely
+in-bounds image can still describe a degenerate or useless navmesh.
+
+Every truncation of a valid navmesh image — every prefix of the test fixture's,
+byte by byte — is verified to be rejected by both the validator and the loader,
+while the whole image still loads. So is each targeted header and interior
+corruption in the suite, every one aimed at a specific field Detour would
+otherwise trust.
+
+Most of the interior checks came from a mutation fuzzer: random bytes anywhere
+in the image, then validate, deserialise and query. It found three holes that
+reading the validator had not suggested, including one that had been reasoned
+about and gotten wrong. That fuzzer is a test in the suite now — deterministic,
+sized so every CI leg can afford it, and asserting that a meaningful share of
+its mutants get past validation and into the queries, so it cannot decay into
+an exerciser of the magic check. The development campaign behind the checks was
+larger; the in-suite run is the regression net.
+
+Neither library is hardened against arbitrary hostile input, and zrecast cannot
+make them so from the outside. The fuzzer found three holes after the first
+round of hand-written checks, so a fourth is possible. Load a navmesh from an
+untrusted source behind a length-and-signature container, and validate that
+first.
+
+### The ABI guard
+
+The Zig side hand-writes `extern struct`s mirroring `zrecast.h`. Nothing in
+either compiler checks those two declarations still agree — a field reordered
+on one side and not the other is silent corruption. `zrcAbiLayout()` reports
+what the C++ actually compiled to, and a test asserts every size and offset
+against the Zig declarations.
+
+Every offset, looked up **by name**. Sampling a few is not a guard:
+`ZrcBakeConfig` is ten consecutive floats followed by seven more 4-byte fields,
+so swapping any two leaves the size, the alignment and the whole *sequence* of
+offsets identical — each side renumbers together — while every bake uses the
+wrong agent dimensions. Asking where the field called X lives on each side is
+the only comparison that sees it, and each of those swaps is verified to fail
+the test.
+
+In the other direction, `static_assert`s in `ffi/zrecast_abi.cpp` fail the
+build if a re-vendored upstream changes:
+
+- a constant this package mirrors into its own header (`DT_MAX_AREAS`,
+  `DT_VERTS_PER_POLYGON`, `RC_WALKABLE_AREA`, the allocator hint enumerators);
+- the size of any struct that appears in a serialised navmesh, because
+  `zrc::ValidateNavMeshImage` reproduces Detour's own pointer arithmetic over
+  exactly those six types in order to locate and bounds-check every array;
+- the serialised format version, because every previously written image becomes
+  unreadable;
+- the polygon reference type, which the query layer passes through with no
+  cast.
+
+### Build hygiene
+
+- Source lists are explicit, never globs — a re-vendor cannot silently change
+  what compiles.
+- No `-fno-access-control`. The FFI layer uses only public upstream API.
+- The C undefined-behaviour sanitizer is not switched off to make anything
+  pass. A package build leaves it off unless `-Dsanitize_c` asks for it, and
+  the suite runs one of its three arms against the C++ compiled with it, in
+  every optimize mode; [What the sanitizer found](#what-the-sanitizer-found-nothing)
+  says what that does and does not prove.
+- `-fno-exceptions` / `-fno-rtti` everywhere except the MSVC ABI, where
+  disabling them through Clang flags breaks the Microsoft standard library
+  headers. Neither Recast nor Detour contains a single `throw`, `try`,
+  `dynamic_cast` or `typeid`, so nothing is lost.
+- One translation unit per concern on both sides of the boundary.
+
+## Cook determinism
+
+A navmesh is a shipped asset. If two machines cooking the same geometry produce
+different bytes, the asset cannot be built once and trusted, and a bug that
+reproduces on one of them may not reproduce on the other. What this package
+guarantees is scoped to what it measures, in three rings.
+
+- **One target, cooked twice, is the same bytes.** Asserted by the suite
+  (untiled, tiled and area-authored cooks, hashed and compared) on every target
+  that runs it.
+- **Two targets sharing a C library are the same bytes.** `bay determinism`
+  cooks on both architectures of musl and glibc and fails if a pair sharing a
+  library disagrees. With contraction pinned and no libm in the bake,
+  architecture is not allowed to move a byte.
+- **Two different C libraries are compared, not promised.** Upstream sorts BV
+  items, contour holes and diagonals with `qsort`, ties fall to the
+  implementation, and any order the ties land in is a valid navmesh;
+  [Known upstream behaviour](#known-upstream-behaviour) records the five sites.
+  `bay determinism` prints the digests side by side, so a divergence is seen,
+  named and attributed rather than asserted away. Ship cooks from one platform,
+  or key the asset cache by cook platform.
+
+### What the first two rings rest on
+
+Each of these was a real gap rather than a precaution.
+
+- **`-ffp-contract=off`, for every target.** Clang fuses a multiply and an add
+  into a single instruction wherever the target has one, and the fused form
+  rounds once where the separate form rounds twice. AArch64 mandates FMA; the
+  x86-64 baseline has none. The same source line in Recast therefore produced
+  different floats on the two architectures. With contraction off, every
+  remaining operation in the bake path is one IEEE-754 specifies exactly: add,
+  subtract, multiply, divide, `sqrtf`, `floorf`, `ceilf`, `fabsf`.
+- **`zrc::CosDegrees` instead of `cosf`.** The slope limit becomes a cosine
+  through `rcMarkWalkableTriangles`, and that was the only transcendental the
+  bake reached. The C standard does not require a correctly rounded cosine, so
+  the threshold, which decides per triangle whether a surface is navigable,
+  depended on the host's C library. It is now a polynomial in double over the
+  bounded range a slope limit can occupy, and the triangles are marked with
+  upstream's own vector helpers. No other transcendental occurs anywhere in
+  `Recast/Source` or `Detour/Source`; `DetourMath.h`'s wrappers are query-path
+  only. The staged pipeline reaches the same substitution:
+  `zrcMarkWalkableTriangles` and `zrcClearUnwalkableTriangles` are the
+  replacements rather than upstream's functions, so a mesh a host assembles a
+  stage at a time is the same bytes on every platform a baked one is.
+- **The Zig vector math is asserted bit-identical to the C.** `src/vec.zig`
+  reimplements the `dtV`/`rcV` families rather than calling across the boundary
+  to add three floats, which only holds if the two agree everywhere, so a test
+  compares them bit for bit over a table of zeros, negative zeros and
+  denormals, against linkable shims over upstream's own `inline` definitions.
+  Six of the scalar helpers answer differently from Zig's obvious spelling:
+  `dtMin(3, NaN)` and `dtMax(3, NaN)` are `NaN` where `@min` and `@max` give
+  `3`, `dtAbs(-0.0)` keeps its sign bit, `dtClamp(NaN, 0, 1)` passes the NaN
+  through, and `dtNextPow2(0)` and `dtIlog2(0)` are both `0`. Each is written
+  out as upstream's own expression and pinned by a test at exactly that value.
+
+### Running it
+
+```sh
+bay determinism            # every target this host can run
+bay determinism -- --strict  # and a target this host could not run is a failure
+```
+
+The development build hands `ci/determinism.zig` the suite built for each
+target, and it runs each where this host can: natively, or in a container
+(`docker`, with the image's platform under emulation). It reports three
+outcomes and never two: a target that ran, a target that failed, and a target
+this host could not run at all. The last is counted and named in the summary
+rather than dropped, and `--strict` makes it a failure. It is a development
+step, not part of `bay test`: the gate holds the first ring on every target CI
+runs, and pinning one C library's `qsort` tie order would be a check no
+consumer of upstream could pass.
+
+### Where it ends
+
+The byte-for-byte guarantee covers baked assets. It does not extend to a
+frame's steering, which reaches the host's `cosf` and `sinf` in the adaptive
+velocity sampler (`DetourObstacleAvoidance.cpp:499-500`, `:535-536`). A host
+that needs a reproducible replay should record its inputs. `ffi/zrecast.h` says
+the same where the crowd is declared.
+
+## The vendored upstream
 
 `libs/recastnavigation` is a pinned copy of upstream **recastnavigation**,
 verbatim — byte for byte, nothing applied on top. Behaviour this package needs
@@ -12,11 +579,11 @@ that upstream lacks lives in `ffi/`, on our side of the boundary.
 | Date | 2023-05-21 |
 | License | zlib (`libs/recastnavigation/License.txt`) |
 
-v1.6.0 was upstream's most recent tag when last checked, on 2026-09-03 with
-`git ls-remote --tags`; the re-vendoring procedure at the end of this file is
-what a newer one calls for.
+v1.6.0 was upstream's most recent tag when last checked, on 2026-10-25 with
+`git ls-remote --tags`; [Re-vendoring](#re-vendoring) is what a newer one
+calls for.
 
-## What was taken, and what was left behind
+### What was taken, and what was left behind
 
 Taken: `Recast/`, `Detour/`, `DetourCrowd/`, `DetourTileCache/`, `DebugUtils/`,
 `License.txt`, `README.md`, `CHANGELOG.md`.
@@ -33,38 +600,7 @@ is decided explicitly in `build.zig` (`recast_sources`, `detour_sources`,
 `detour_tile_cache_sources`, `detour_crowd_sources`, `debug_utils_sources`),
 never by a directory glob.
 
-## What the cook's determinism rests on
-
-Apart from the `qsort` tie order recorded under "Known upstream behaviour"
-below, the cook is deterministic by construction once `-ffp-contract=off` is
-set, which `build.zig` does for every target. Clang otherwise fuses a multiply
-and an add wherever the target has an FMA instruction — mandatory on AArch64,
-absent from the x86-64 baseline — and the fused form rounds once where the
-separate form rounds twice.
-
-With contraction off, every remaining operation in the bake path is one
-IEEE-754 specifies exactly: add, subtract, multiply, divide, `sqrtf`, `floorf`,
-`ceilf`, `fabsf`. The one exception was `cosf`, reached through
-`rcMarkWalkableTriangles` to turn the slope limit into a threshold. The C
-standard does not require a correctly rounded cosine, so zrecast computes that
-threshold itself — `zrc::CosDegrees`, a polynomial in double over the bounded
-range a slope limit can occupy — and marks the triangles with upstream's own
-vector helpers. No other transcendental occurs anywhere in `Recast/Source` or
-`Detour/Source`; `DetourMath.h`'s wrappers are query-path only.
-
-The claim stops at the cook. Crowd steering reaches the host's `cosf` and
-`sinf` in the adaptive velocity sampler
-(`DetourObstacleAvoidance.cpp:499-500`, `:535-536`), so a frame's steering is
-not byte-reproducible across C libraries and is not claimed to be —
-`ffi/zrecast.h` says the same where the crowd is declared.
-
-The staged pipeline reaches the same substitution. `zrcMarkWalkableTriangles`
-and `zrcClearUnwalkableTriangles` are the replacements rather than upstream's
-functions, so a mesh a host assembles a stage at a time is the same bytes on
-every platform a baked one is. Every other stage the staged entry points call
-is upstream's own, and none of them reaches a transcendental.
-
-## Compile-time configuration
+### Compile-time configuration
 
 Upstream has two macros that change its ABI. Neither is defined here, and both
 are guarded:
@@ -74,7 +610,7 @@ are guarded:
 | `DT_POLYREF64` | not defined — `dtPolyRef` is 32-bit | `static_assert` in `ffi/zrecast_abi.cpp` that `ZrcPolyRef` and `dtPolyRef` are the same type. `ffi/zrecast_query.cpp` passes reference arrays straight through with no cast, so anything else is also a compile error at every call site. |
 | `DT_VIRTUAL_QUERYFILTER` | not defined — `dtQueryFilter` has no vtable | zrecast never subclasses it; the POD `ZrcQueryFilter` is copied into one per call. |
 
-## The serialised navmesh format
+### The serialised navmesh format
 
 `zrcNavMeshSerialize` writes Detour's own tile image. At the pinned version its
 format version (`DT_NAVMESH_VERSION`) is **7**, which `zrcNavMeshDataVersion`
@@ -90,7 +626,8 @@ arithmetic over them in order to bounds-check an image before Detour walks it.
 Treat an image as a build artefact keyed to this library's version, not as an
 interchange format.
 
-## Known upstream behaviour worked around here
+
+### Known upstream behaviour
 
 Recorded so a future re-vendor can check whether any of it has been fixed, and
 so the workarounds are not mistaken for arbitrary defensiveness. Nothing in
@@ -113,11 +650,11 @@ picks the triangulation.
 **Documented, not defended — there is no boundary to defend at.** The sorts
 run deep inside upstream's build functions, behind no seam this package can
 reach, and rewriting them in the vendored tree would be exactly the local
-divergence `ci/verify-vendor.sh` exists to refuse. Any order the ties land in
+divergence `bay check-vendor` exists to refuse. Any order the ties land in
 is a valid navmesh; what varies between C libraries is which valid one comes
 out. So the determinism claim is scoped to match: one target cooking twice
 gets the same bytes, asserted by the suite on every target that runs it;
-targets sharing a C library get the same bytes, gated by `ci/determinism.sh`
+targets sharing a C library get the same bytes, gated by `bay determinism`
 across architectures; targets with different C libraries are compared and
 reported there, not gated. A host that ships cooked navmeshes should cook on
 one platform, or key its asset cache by cook platform — the same position
@@ -754,7 +1291,7 @@ that reports dimensions no geometry has. Refused at the boundary.
 and no source in the vendored tree defines it, so a host that calls it fails to
 link. There is also nothing for it to draw: `rcHeightfieldLayer` carries
 heights, areas and connections and no region ids. No entry point here, and the
-coverage record carries it as `UNDEFINED` — a verdict `ci/check-coverage.sh`
+coverage record carries it as `UNDEFINED` — a verdict `bay check-coverage`
 recomputes, so a re-vendor that supplies the definition fails the gate until it
 is bound.
 
@@ -800,33 +1337,149 @@ produces an infinity that reaches the host's log formatted as a percentage and
 a negative total produces percentages of the wrong sign. Bounded at the
 boundary.
 
-### What the sanitizer found: nothing
+#### What the sanitizer found: nothing
 
-Zig's C undefined-behaviour sanitizer is enabled in Debug and runs over the
-whole vendored tree. Across all four optimize modes it reports no undefined
-behaviour for the workload the test suite exercises. That is a statement about
+One of the suite's three arms compiles the whole vendored tree under Zig's C
+undefined-behaviour sanitizer. In all four optimize modes it reports no
+undefined behaviour for the workload the test suite exercises. That is a statement about
 this workload, not a clean bill of health for Recast and Detour — but it is why,
 unlike some vendored C++, nothing here needs the sanitizer switched off to pass.
 
-## Re-vendoring procedure
+### Re-vendoring
 
-`ci/verify-vendor.sh` fetches the pinned commit and diffs it against `libs/`,
-so the claim about what this copy is gets checked rather than asserted. It
-runs as its own CI job. Run it after any step below.
+`bay check-vendor` (`ci/vendor.zig`) fetches upstream by URL and hash at the
+commit `build.zig.zon` pins, compares every taken path against `libs/` in both
+directions, and requires the table at the top of
+[The vendored upstream](#the-vendored-upstream) to name that commit, so the
+claim about what this copy is gets checked rather than asserted. It runs in
+`bay test`.
 
-1. Clone upstream at the new tag; copy the directories listed above over
-   `libs/recastnavigation/`, re-applying the exclusions.
-2. Update the table at the top of this file and `zrcRecastVersion()` in
-   `ffi/zrecast_core.cpp`.
-3. `zig build test`. The `static_assert`s in `ffi/zrecast_abi.cpp` fail the
-   build if a mirrored constant, a serialised-image struct size, or the polygon
+1. Point the `recastnavigation` development dependency in `build.zig.zon` at
+   the new tag (`bay add` writes the URL and hash), and copy the taken
+   directories over `libs/recastnavigation/`, keeping the exclusions.
+2. Update the table and `zrcRecastVersion()` in `ffi/zrecast_core.cpp`.
+3. `bay test`. The `static_assert`s in `ffi/zrecast_abi.cpp` fail the build if
+   a mirrored constant, a serialised-image struct size, or the polygon
    reference type has changed; the ABI test fails if the Zig externs have
-   drifted.
+   drifted; the coverage gate fails on a public name that has no verdict.
 4. If `DT_NAVMESH_VERSION` changed, say so here and expect every previously
    serialised navmesh to be rejected with `ZRC_ERR_UNSUPPORTED_VERSION`.
-5. Re-read the "Known upstream behaviour" list above and delete anything that
-   has been fixed upstream, along with its workaround. The
-   `tools/doc_numbers.txt` lines that cite the pinned commit are re-measured at
-   the same time — each names the upstream file its value sits in.
-6. Add any new source files to `build.zig` deliberately — the explicit lists
+5. Re-read [Known upstream behaviour](#known-upstream-behaviour) and delete
+   anything fixed upstream, along with its workaround. The allowances in
+   `ci/numbers.zig` that cite the pinned commit are re-measured at the same
+   time; each names the upstream file its value sits in.
+6. Add any new source files to `build.zig` deliberately: the explicit lists
    exist so a re-vendor cannot silently change what gets compiled.
+
+## Testing
+
+```sh
+bay test                    # the gate
+bay test -Dtest-filter=…    # the suite, filtered
+bay probe [-- name]         # the mutation probes, or the ones whose name matches
+bay determinism             # cook digests across the targets this host can run
+bay coverage -- --summary   # the coverage record, per area
+bay measurements            # README's numbers, from the tree
+```
+
+`bay test` is preflight's gate over the package: formatting, the module
+layers, lint, every documented snippet against its source, the checks in
+`ci/` (comments, ignored files, the hand-written numbers, coverage, the vendor
+comparison), a consumer build, and the suite. Every optimize mode runs the
+same steps with `bay dev ci -Doptimize=<mode>`.
+
+The suite runs three times: against the C++ under Zig's undefined-behaviour
+sanitizer, as a consumer builds it, and with the asserts flipped from the
+mode's default, so both sides of every `NDEBUG` seam run in every mode. The
+gate also builds the library shared, and with the asserts flipped under the
+sanitizer, and runs the examples.
+
+### The fixture
+
+The suite is self-contained. `tests/fixture.cpp` generates its input geometry
+(a ground plane, a wall with a gap at one end, a pillar, and an island
+connected to nothing) and the tests bake a navmesh from it at test time. No
+third-party meshes are shipped, and no asset provenance has to be accounted
+for.
+
+The shape is chosen so the assertions can bite. A path across the wall must
+round its end, so the string-pull has to produce real corners rather than a
+two-point line. The island is reachable from nowhere, so `partial` has
+something to be true about. A second fixture, a tent of 71-degree faces, has
+real three-dimensional bounds and no surface an agent could stand on, which is
+the `EmptyResult` path.
+
+### The C smoke test
+
+`tests/c_smoke.c` walks the same arc in plain C11 with a `malloc`-based
+allocator, linked against the installed library and header, which proves the
+header is a real C contract rather than a private detail of the Zig wrapper.
+It also checks what only a C caller can get wrong: null handles and null
+out-parameters on every entry point that takes them, a companion buffer
+shorter than the point array it accompanies, a half-filled allocator being
+refused without unseating the working one, and `zrcSetAllocator(NULL)` handing
+allocation back to malloc. And it asserts that every allocation was returned;
+that assertion caught a leak of three buffers per detail mesh during
+development, recorded under [Known upstream behaviour](#known-upstream-behaviour).
+
+`ci/consumer.zig` is the Zig consumer: preflight builds it against the package
+as a dependency, the way a project that depends on zrecast reaches it.
+
+### Mutation probes
+
+A test that passes may be asserting something the code could not have violated
+anyway. `ci/probes/` holds one patch per invariant that breaks it on purpose,
+with the failure it must produce (`# expect:`) and the commands that must
+produce it (`# run:`, `zig build test` unless stated). `bay probe` applies each
+to a copy of the tree and reports one of three outcomes per probe: caught,
+not caught, or caught by something other than the named failure. A patch that
+no longer applies is refused as stale rather than counted. The runner matches
+each hunk by content and tolerates moved lines, so a probe survives edits
+elsewhere in its file.
+
+Of the first eleven probes written, four went uncaught. Three were holes: a
+tile window shifted by one cell sat inside a tolerance that had been set too
+loosely, the reference-bit check was indistinguishable from Detour reaching the
+same verdict a few allocations later, and nothing at all reached the
+null-header path this package guards upstream against. The tests that close
+those three were written because the probes said they were missing. The fourth
+was the probe's own expectation, which named the wrong check as the one that
+fires.
+
+### What CI runs
+
+`.github/workflows/ci.yml` is generated by `bay generate` from
+`ci/workflow.json` and calls preflight's workflow: the source checks, the gate
+on Linux, macOS and Windows, compile and link checks for every target in
+`ci/workflow.json`, and, nightly and before a release, the gate in
+ReleaseSafe and ReleaseFast as well, a ReleaseSmall compile, the arm64
+runners, and riscv64 under QEMU. The probes and the
+cross-target cook comparison run on a developer's machine, not in CI.
+
+## Contributing
+
+Issues and pull requests are welcome. These are the rules that fail a build.
+
+- **`libs/recastnavigation` is vendored and is not edited, at all.**
+  `bay check-vendor` compares it against the pinned commit. If upstream needs
+  fixing, fix it upstream; if zrecast needs to work around upstream, do it in
+  `ffi/` and record the reason under
+  [Known upstream behaviour](#known-upstream-behaviour).
+- **`bay test` is green before a push**, in every optimize mode a change can
+  reach.
+- **A new binding adds a line to `ci/coverage/bindings.tsv`.** Every public
+  Recast and Detour name is either answered there or is a gap, and the evidence
+  names the symbol in `ffi/zrecast.h` that a host now calls. Then
+  `bay coverage -- --record` rewrites `ci/coverage/unbound_*.txt` from that
+  file, the upstream harvest and the tranche rules; the record is generated, and
+  `bay check-coverage` fails if what is checked in differs. The gate checks that
+  the symbol exists; it cannot check that the evidence is apt, so say what the
+  mapping is when it is not obvious.
+- **A new C entry point gets `CHECK`s in `tests/c_smoke.c`.**
+- **A new invariant gets a probe in `ci/probes/`** naming the failure it must
+  produce; `bay probe` reports a probe the suite survives.
+- **A number the README states comes from `ci/measurements.zig`**, and the
+  docs check fails while the committed block is stale.
+
+New source files are added to the explicit lists in `build.zig` deliberately;
+there are no globs, so nothing starts compiling by accident.

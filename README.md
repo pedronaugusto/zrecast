@@ -1,10 +1,8 @@
 # zrecast
 
-[![CI](https://github.com/pedronaugusto/zrecast/actions/workflows/ci.yml/badge.svg)](https://github.com/pedronaugusto/zrecast/actions/workflows/ci.yml)
-
 Zig bindings for [recastnavigation](https://github.com/recastnavigation/recastnavigation):
-Recast bakes a navigation mesh out of level geometry, Detour paths over that
-mesh at runtime. Upstream v1.6.0 is vendored in `libs/recastnavigation`,
+Recast bakes a navigation mesh out of level geometry, and Detour paths over
+that mesh at runtime. Upstream v1.6.0 is vendored in `libs/recastnavigation`,
 verbatim, and `build.zig` compiles it.
 
 ## Usage
@@ -74,211 +72,92 @@ const walk = try query.findStraightPath(
 
 ## Install
 
+Requires Zig 0.17.0 and libc:
+
 ```sh
-zig fetch --save git+https://github.com/pedronaugusto/zrecast#v0.1.1
+zig fetch --save git+https://github.com/pedronaugusto/zrecast#main
 ```
+
+Then in `build.zig`:
 
 ```zig
 const zrecast_dep = b.dependency("zrecast", .{ .target = target, .optimize = optimize });
 exe.root_module.addImport("zrecast", zrecast_dep.module("zrecast"));
-
-// A C or C++ host links the artifact instead and includes the installed zrecast.h.
-exe.root_module.linkLibrary(zrecast_dep.artifact("zrecast"));
 ```
 
-Zig 0.17.0 or newer. Nothing else is fetched: upstream is in the tree and the
-package has no dependencies of its own.
+Forward `optimize` as shown, or a release executable links a Debug library.
+A C or C++ host links the library and includes the header it installs:
+
+```zig
+exe.root_module.linkLibrary(zrecast_dep.artifact("zrecast"));  // then #include <zrecast.h>
+```
+
+zrecast has no dependencies of its own; upstream is in the tree.
 
 | Build option | Default | Effect |
 |---|---|---|
 | `-Dshared` | off | Build the C library as a shared object |
-| `-Denable_asserts` | on in Debug | Keep Recast's and Detour's internal asserts |
+| `-Denable_asserts` | on in Debug | Keep Recast's and Detour's internal asserts, in any mode |
 | `-Dsanitize_c` | off | Compile the C++ with Zig's undefined-behaviour sanitizer |
 
-Each is declared once and mirrored into a Zig `options` module, so the wrapper
-cannot disagree with how the C++ was compiled.
+## Features
 
-## The API
-
-Everything is re-exported from the root module.
+- Every public name in Recast, Detour, DetourCrowd, DetourTileCache and
+  DebugUtils at the vendored version carries a verdict: bound through the C
+  boundary, reimplemented in Zig, C++-only with the reason, or declared
+  upstream and defined nowhere. `bay check-coverage` re-derives the names from
+  the headers and checks each verdict against the tree.
+- The bake: the whole Recast pipeline in one call, tiled or untiled, or one
+  stage per call with every intermediate a handle the host can read and edit.
+  A failed bake fills a log with the stage that failed and why.
+- The navmesh: a bake becomes bytes, bytes become a navmesh, and a tile reads
+  back by value. A serialised navmesh is validated before Detour reads it:
+  every count, then every index, coordinate and off-mesh connection it can
+  point at.
+- The queries: the whole of `dtNavMeshQuery`, sliced pathfinding, polygon
+  references and the node pool. A path that stops short of its goal is a
+  result with `partial` set, not an error.
+- Dynamic obstacles through a tile cache whose codec is the host's, and crowds:
+  agents with corridors, local boundaries, obstacle avoidance and a path queue,
+  named by references a reused slot cannot be driven through.
+- Debug drawing through a renderer a Zig type implements, a display list, and
+  OBJ and binary dumps through four I/O hooks.
+- Allocation through any `std.mem.Allocator` with `setAllocator`. It is
+  process-wide, because upstream's two allocator hooks are.
+- A cook is the same bytes on every target sharing a C library:
+  `-ffp-contract=off`, a polynomial cosine for the slope limit, and Zig vector
+  math tested bit-identical to upstream's. A frame's crowd steering calls the C
+  library's `cosf` and `sinf`, so it is not.
 
 | File | What it holds |
 |---|---|
 | `bake.zig` | Recast: triangle soup in, polygon mesh out, tiled or untiled. |
-| `navmesh.zig` | The seam — a baked mesh becomes bytes, bytes become a `dtNavMesh`, and a tile can be read back by value. |
-| `query.zig` | Detour: the whole of `dtNavMeshQuery`, filters, polygon references, sliced search, the node pool. |
-| `pipeline.zig` | The same bake taken apart, one stage per call, every intermediate a handle a host owns. |
-| `tilecache.zig` | Dynamic obstacles: compressed layers rebuilt as obstacles appear and go away. |
+| `navmesh.zig` | A baked mesh becomes bytes, bytes become a `dtNavMesh`, and a tile reads back by value. |
+| `query.zig` | Detour: `dtNavMeshQuery`, filters, polygon references, sliced search, the node pool. |
+| `pipeline.zig` | The bake one stage per call. |
+| `tilecache.zig` | Dynamic obstacles. |
 | `crowd.zig` | Agents: corridor, local boundary, proximity grid, obstacle avoidance, path queue. |
-| `debugdraw.zig` | DebugUtils: every container drawn through a renderer a Zig type implements, the display list, and the OBJ and binary dumps. |
-| `geom.zig`, `vec.zig` | Detour's computational geometry, callable directly, and the `dtV`/`rcV` families in Zig. |
-| `memory.zig`, `asserts.zig`, `error.zig` | The allocator seam, the assertion handler, the error set. |
+| `debugdraw.zig` | DebugUtils: drawing, the display list, the OBJ and binary dumps. |
+| `geom.zig`, `vec.zig` | Detour's computational geometry, and the `dtV`/`rcV` families in Zig. |
+| `memory.zig`, `asserts.zig`, `error.zig` | The allocator hook, the assertion handler, the error set. |
 
-Every public name in Recast, Detour, DetourCrowd, DetourTileCache and
-DebugUtils at the vendored version carries one verdict, and
-`bay check-coverage` re-derives the name list from the headers and checks
-each verdict against the tree: bound through the C boundary, reimplemented in
-Zig, or C++-only — upstream's own containers (`rcVectorBase`, `rcIntArray`,
-`dtNodeQueue`), its libm wrappers and its `dtSwapEndian` overloads. One name is
-declared upstream and defined nowhere, so nothing can call it; that has a
-verdict of its own, rechecked against the vendored sources. Nothing is left
-over. [docs/surface.md](docs/surface.md) lists the bound surface capability by
-capability and [docs/coverage.md](docs/coverage.md) how it is measured.
-
-## Design
-
-### Bake time and run time are different programs
-
-Recast voxelises a triangle soup, filters it for what an agent of a given size
-can stand on, and emits a polygon mesh: slow, allocation-heavy, and its output
-an artefact a cook step checks into a content pipeline. Detour loads that
-artefact and answers questions about it — nearest polygon, route, what a
-character hits walking that way — allocating once, at load. So a tool uses
-`bake.zig` and `navmesh.zig`; a game uses `navmesh.zig` and `query.zig`.
-
-Because the boundary is one C entry point per concern in its own translation
-unit, a host that never calls the bake never links it: a ReleaseFast C program
-that deserialises a navmesh and queries it contains none of
-`rcCreateHeightfield`, `rcRasterizeTriangles`, `rcBuildContours`,
-`rcErodeWalkableArea` or `rcBuildPolyMesh`, and comes out about 170 KB smaller
-than the same program with a bake call added (measured 2026-09-02 with `zig
-c++ -O2` on x86_64-windows).
-
-### Partial is a result, not an error
-
-`findPath` returns a corridor and a `partial` flag. Detour sets it when the
-goal was unreachable, when the node pool ran out, or when the caller's buffer
-filled, and in all three cases the corridor is a real, walkable best effort
-towards the goal. Collapsing that into an error makes every caller treat "no
-route" and "long route" identically, which is the bug that freezes agents at
-the edge of a map. It is a field, and the caller decides.
-
-### The bake assigns the polygon flags
-
-Recast leaves `rcPolyMesh::flags` zeroed, and Detour's default filter admits a
-polygon only if it shares a bit with `include_flags`. Bake, build, query — the
-obvious sequence — therefore returns an empty result from every query, with
-nothing reporting a problem. `zrcPolyMeshBake` assigns `ZRC_AREA_WALKABLE` /
-`ZRC_POLY_FLAG_WALKABLE` to every walkable polygon, so the obvious thing works.
-The suite checks both directions: a default filter finds the ground, and a
-filter excluding exactly that flag finds nothing.
-
-### A failed bake says which stage failed
-
-Recast's eleven build stages each return a bare `bool` and send the reason to a
-virtual log callback with no default implementation. Pass a buffer as
-`ZrcBakeLog` and it is filled with those messages; without one, a failed bake
-is undiagnosable by construction. `rcBuildPolyMesh` succeeding with zero
-polygons is not an error upstream, but it produces a navmesh that answers every
-query with "nowhere to go", so here it is `EmptyResult`, with an explanation of
-the two things that usually cause it.
-
-### Drawing is a renderer the host supplies
-
-`DebugUtils` decides what a heightfield, a region, a contour set or a navmesh
-looks like as points, lines, triangles and quads; what those become is the
-host's. `DebugDraw` is that seam as a Zig struct, built from a renderer type's
-own methods at compile time, so a renderer is a Zig struct rather than a table
-of C callbacks — and the four hooks of `FileIO` are the same for bytes, so a
-dump reaches whatever a host calls a file. Nothing in that half allocates,
-mutates a container, or affects a navmesh a query will see. The two read
-entry points are the exception and say so.
-
-### Validation at the boundary
-
-Recast and Detour assert in debug and read on regardless in release. Geometry
-is range- and NaN-checked before the rasteriser sees it, and a serialised
-navmesh is validated before it is trusted — every count, then every index,
-coordinate and off-mesh connection the image can point at, because a single
-byte in an otherwise valid image overruns a fixed stack array in four separate
-Detour functions. That buys memory safety, not trustworthiness: an in-bounds
-image can still describe a useless navmesh, and neither library is hardened
-against arbitrary hostile input, so put a length-and-signature container around
-anything loaded from an untrusted source.
-
-The Zig side hand-writes `extern struct`s mirroring `ffi/zrecast.h`, and
-nothing in either compiler checks the two still agree, so `zrcAbiLayout()`
-reports what the C++ compiled to and a test asserts every size and offset
-against the Zig declarations by name. `static_assert`s in `ffi/zrecast_abi.cpp`
-fail the build if a re-vendored upstream moves a mirrored constant, a
-serialised struct, the format version or the polygon reference type.
-[docs/validation.md](docs/validation.md) lists each check and the upstream
-behaviour it stands in front of.
-
-### Allocators
-
-`setAllocator` routes every Recast and Detour allocation through a
-`std.mem.Allocator`. It is process-wide, because both upstream seams are:
-`rcAllocSetCustom` and `dtAllocSetCustom` take a bare pair of function pointers
-with nowhere to thread a host pointer through. Both libraries also free with
-`free(ptr)`, no size, while Zig requires the size back, so `src/memory.zig`
-stores a header ahead of each block. Neither `rcAlloc` nor `dtAlloc` has an
-alignment parameter, so there is one compile-time alignment
-(`ZRC_ALLOC_ALIGNMENT`) rather than a per-call one. The C API keeps upstream's
-shape, so a plain C host can still pass `malloc`/`free` in two lines.
-
-zrecast's own allocations are checked and rolled back on every path, tested by
-inducing a failure at every allocation site in turn. Upstream's are not, and
-that cannot be fixed from outside the library — the cases are recorded with
-file and line in [UPSTREAM.md](UPSTREAM.md). Run the bake somewhere an
-allocation failure is fatal anyway, which is where a cook already lives.
-
-### A cook is deterministic; a frame's steering is not
-
-One target cooking the same geometry twice produces the same bytes, asserted by
-the suite; two targets sharing a C library produce the same bytes, gated by
-`bay determinism`. Two different C libraries are compared and reported, not
-promised: upstream sorts with `qsort` in five places, ties fall to the
-implementation, and any order they land in is a valid navmesh. Ship cooks from
-one platform, or key the asset cache by cook platform.
-
-Holding the first two costs `-ffp-contract=off` on every target, a bit-identity
-test between `src/vec.zig` and upstream's own `inline` definitions, and a
-polynomial cosine in place of `cosf` for the slope limit;
-[docs/determinism.md](docs/determinism.md) has the detail. The guarantee covers
-baked assets and stops there — a frame's steering reaches `cosf` and `sinf` in
-the adaptive velocity sampler, so a host that needs a reproducible replay
-should record its inputs.
-
-## Scope
-
-- The tile cache carries no compressor and invents no container format. The
-  codec is the host's, and so is the callback that decides each rebuilt
-  polygon's flags.
-- Serialisation is single-tile. A single-tile navmesh round-trips to bytes; a
-  tiled one is cooked and loaded a tile at a time.
-- A tile the tile cache rebuilds reaches the navmesh without the validation an
-  added tile gets; the mesh-process callback is narrowed to the fields it is
-  for.
-- Upstream's own allocation failures are not recoverable from here.
-
-## Platforms
-
-| | Suite executed by CI | Compile-checked by CI |
-|---|---|---|
-| Linux | x86_64 glibc | aarch64 glibc, x86_64 and aarch64 musl |
-| macOS | aarch64 | x86_64 |
-| Windows | x86_64, gnu and MSVC ABIs | aarch64 gnu |
-
-Every job in that matrix passed on run
-[`34779510358`](https://github.com/pedronaugusto/zrecast/actions/runs/34779510358).
-Zig's default ABI for a Windows host is `gnu`, not `msvc`, so a bare `zig build
-test` on a Windows runner never touches the MSVC path; both are named
-explicitly there and both run the suite.
+[docs/design.md](docs/design.md) has the layers, the bound surface capability
+by capability, what upstream does that the boundary checks for it, the cook's
+determinism, and how the vendored copy is checked and updated.
 
 ## Testing
 
 ```sh
-bay test            # the gate: source checks, the checks in ci/, a consumer build, the suite
-bay probe           # mutate each invariant in ci/probes/, require the named failure
-bay determinism     # cook digests across the targets this host can run
+bay test
 ```
 
-The suite runs three times: against the C++ under Zig's undefined-behaviour
-sanitizer, as a consumer builds it, and with the asserts flipped from the
-mode's default. It generates its own geometry (a ground plane, a wall with a
-gap at one end, a pillar, and an island connected to nothing), so no
-third-party meshes are shipped. See [docs/testing.md](docs/testing.md).
+runs the gate: formatting, structure, lint and documentation, the checks in
+`ci/`, a consumer build, and the suite three times: against the C++ under
+Zig's undefined-behaviour sanitizer, as a consumer builds it, and with the
+asserts flipped from the mode's default. The suite generates its own geometry,
+so no third-party meshes are shipped. `bay probe` breaks each invariant in
+`ci/probes/` on purpose and requires the failure it names, and
+`bay determinism` compares cook digests across the targets the host can run.
 
 ## By the numbers
 
@@ -300,12 +179,6 @@ third-party meshes are shipped. See [docs/testing.md](docs/testing.md).
 `bay measurements` recomputes those from the tree, and the gate fails if the
 committed block differs, or if a document states a number by hand that
 `ci/numbers.zig` does not account for.
-
-## Contributing
-
-Issues and pull requests are welcome: [docs/contributing.md](docs/contributing.md)
-has the three rules that fail a build, and [BINDING.md](BINDING.md) is the
-walkthrough for adding surface.
 
 ## Licence
 

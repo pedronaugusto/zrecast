@@ -643,7 +643,7 @@ ZRC_API void zrcPolyMeshDestroy(ZrcPolyMesh* mesh);
 // held. Two of them check with rcAssert, which compiles to nothing in a release
 // build. Handing a host the containers is what makes that reachable, so every
 // stage here refuses a container that already holds a result, with
-// ZRC_ERR_ALREADY_BUILT, in every build configuration. See UPSTREAM.md.
+// ZRC_ERR_ALREADY_BUILT, in every build configuration. See docs/design.md.
 //
 // How a container answers "what is in you" is uniform here and among the tile
 // cache's containers below. One carrying aggregate data beyond its element
@@ -1142,7 +1142,7 @@ ZRC_API ZrcResult zrcCompactHeightfieldMarkAreas(
 ///
 /// [Limit: 0 <= radius <= 127] Upstream compares distances against
 /// `(unsigned char)(radius * 2)`, so a radius of 128 wraps to eroding nothing
-/// and 129 erodes as 1 would. See UPSTREAM.md.
+/// and 129 erodes as 1 would. See docs/design.md.
 ZRC_API ZrcResult zrcCompactHeightfieldErode(const ZrcBuildContext* context,
                                              ZrcCompactHeightfield* field,
                                              int32_t radius);
@@ -1989,7 +1989,7 @@ ZRC_API ZrcResult zrcNavMeshTileLink(const ZrcNavMesh* navmesh, ZrcTileRef ref,
 /// node is either a leaf or a split into two children. The last reserved node
 /// is spare, and this package seals it as an internal node so no query can
 /// report it; upstream leaves it zeroed, which reads as a leaf naming polygon
-/// 0 and matches any query reaching the tile's minimum corner. See UPSTREAM.md.
+/// 0 and matches any query reaching the tile's minimum corner. See docs/design.md.
 typedef struct ZrcBvNode {
   /// Quantised bounds, in the tile's own coordinates. Divide by
   /// ZrcTileInfo.bv_quant_factor and add ZrcTileInfo.bmin for world units.
@@ -3173,7 +3173,7 @@ typedef struct ZrcTileCacheCompressor {
   /// `compressed_size` is what the caller stored, and is checked to be
   /// positive before it reaches here: upstream computes it as a subtraction
   /// that goes negative for a short buffer and hands the result over as an
-  /// int. See UPSTREAM.md.
+  /// int. See docs/design.md.
   ZrcResult (*decompress)(void* user, const uint8_t* compressed,
                           int32_t compressed_size, uint8_t* buffer,
                           int32_t max_buffer_size, int32_t* out_size);
@@ -3255,7 +3255,7 @@ ZRC_API ZrcResult zrcTileCacheParams(const ZrcTileCache* cache,
 /// reads the header off the buffer before comparing `size` against anything
 /// and then stores a compressed length computed by subtraction, which goes
 /// negative for a short buffer and is handed to the host codec as an int; the
-/// header and the length are checked here first. See UPSTREAM.md.
+/// header and the length are checked here first. See docs/design.md.
 ///
 /// ZRC_ERR_TILE_OCCUPIED when a layer already sits at that position.
 ZRC_API ZrcResult zrcTileCacheAddTile(ZrcTileCache* cache, const void* data,
@@ -3390,7 +3390,7 @@ ZRC_API ZrcResult zrcTileCacheObstacleRefAt(const ZrcTileCache* cache,
 /// refused** with ZRC_ERR_BUFFER_TOO_SMALL. Upstream carves it into the first
 /// eight and leaves the rest untouched without saying so, which is a hole in
 /// the navmesh nothing reports; splitting it into several obstacles is the
-/// fix. See UPSTREAM.md.
+/// fix. See docs/design.md.
 ///
 /// ZRC_ERR_NAVMESH_FULL when every obstacle slot is taken, and
 /// ZRC_ERR_BUFFER_TOO_SMALL when the request queue is full. Upstream reports
@@ -3708,7 +3708,7 @@ ZRC_API ZrcResult zrcTileCachePolyMeshFlags(const ZrcTileCachePolyMesh* mesh,
 //
 // **Steering is not a cook.** The cross-platform guarantee this package makes
 // covers baked assets: the same geometry produces the same navmesh bytes on
-// every target (see zrcPolyMeshBake and UPSTREAM.md). It does not extend here.
+// every target (see zrcPolyMeshBake and docs/design.md). It does not extend here.
 // dtObstacleAvoidanceQuery::sampleVelocityAdaptive reaches cosf and sinf
 // (DetourObstacleAvoidance.cpp:499-500, 535-536) — the only transcendentals
 // anywhere in DetourCrowd — and replacing them with the exact polynomial the
@@ -3759,7 +3759,7 @@ ZRC_API ZrcResult zrcTileCachePolyMeshFlags(const ZrcTileCachePolyMesh* mesh,
 /// never sees. A C++ host is in exactly the same position. Refusing large
 /// worlds at the door would remove a capability upstream has rather than bind
 /// it. Named here so a host building with UBSan knows what a trap in
-/// hashPos2 is, and recorded in UPSTREAM.md so a re-vendor can check whether
+/// hashPos2 is, and recorded in docs/design.md so a re-vendor can check whether
 /// upstream has fixed it. The standalone grid entry points below do not bound
 /// it either: a C++ host passing the same coordinate gets the same behaviour.
 #define ZRC_PROXIMITY_GRID_SAFE_CELL 29
@@ -3771,7 +3771,7 @@ ZRC_API ZrcResult zrcTileCachePolyMeshFlags(const ZrcTileCachePolyMesh* mesh,
 /// index in an `unsigned short` and reserves 0xffff as its end-of-chain marker
 /// (DetourProximityGrid.cpp:120-127), so a pool of more than 65534 entries
 /// truncates every index past that and links buckets to the wrong items —
-/// silently, and only for the agents past the limit. See UPSTREAM.md.
+/// silently, and only for the agents past the limit. See docs/design.md.
 #define ZRC_CROWD_MAX_AGENTS 16383
 
 /// The handles the sections below define, forward-declared here because a
@@ -4166,7 +4166,7 @@ ZRC_API ZrcResult zrcCrowdAddAgent(ZrcCrowd* crowd, const float* position,
 /// into that slot resumes the dead one's crossing, its position overwritten by
 /// a lerp between coordinates it has never been near (DetourCrowd.cpp:572-578,
 /// 1411-1447). Holding the slot is how that is closed without reaching into
-/// dtCrowd. See UPSTREAM.md.
+/// dtCrowd. See docs/design.md.
 ZRC_API ZrcResult zrcCrowdRemoveAgent(ZrcCrowd* crowd, ZrcAgentRef ref);
 
 /// Replaces an agent's parameters. Its position, velocity and target are
@@ -4624,7 +4624,7 @@ ZRC_API ZrcResult zrcAvoidanceDebugSampleAt(const ZrcAvoidanceDebug* debug,
 ///     the conversion to size_t makes it enormous.
 ///
 /// 32 is the largest of those three, so a corridor at least this long cannot
-/// reach any of them. See UPSTREAM.md.
+/// reach any of them. See docs/design.md.
 #define ZRC_PATH_CORRIDOR_MIN_PATH 32
 
 /// Creates a corridor that can hold `max_path` polygons.
@@ -4703,7 +4703,7 @@ ZRC_API ZrcResult zrcPathCorridorOptimizeTopology(
 /// before advancing and the prune that follows removes nothing
 /// (DetourPathCorridor.cpp:389-406), so the position moves to the far side
 /// while the corridor still starts at the connection. Reported as moved,
-/// because it did move. See UPSTREAM.md.
+/// because it did move. See docs/design.md.
 ZRC_API ZrcResult zrcPathCorridorMoveOverOffmeshConnection(
     ZrcPathCorridor* corridor, ZrcPolyRef offmesh_poly, ZrcNavMeshQuery* query,
     ZrcPolyRef* out_refs, float* out_start, float* out_end,
@@ -5198,7 +5198,7 @@ ZRC_API ZrcResult zrcDebugAppendCylinder(const ZrcDebugDraw* dd, float minx,
 /// duDisplayList::draw would do with them anyway.
 ///
 /// Its vertex arrays come from `new[]`, not from the allocator zrcSetAllocator
-/// installs: upstream's own code, and not reachable from here. See UPSTREAM.md.
+/// installs: upstream's own code, and not reachable from here. See docs/design.md.
 typedef struct ZrcDisplayList ZrcDisplayList;
 
 /// Creates a list with room for `capacity` vertices, growing as needed.
@@ -5294,7 +5294,7 @@ ZRC_API ZrcResult zrcDebugDrawHeightfieldLayer(
 /// RecastDebugDraw.h declares a third form, duDebugDrawHeightfieldLayersRegions,
 /// which the vendored tree never defines and which would have no region data
 /// to draw: rcHeightfieldLayer carries heights, areas and connections, and no
-/// region ids. There is no entry point for it here. See UPSTREAM.md.
+/// region ids. There is no entry point for it here. See docs/design.md.
 ZRC_API ZrcResult zrcDebugDrawHeightfieldLayers(
     const ZrcDebugDraw* dd, const ZrcHeightfieldLayerSet* layers);
 
@@ -5402,7 +5402,7 @@ ZRC_API ZrcResult zrcDebugDrawTileCachePolyMesh(const ZrcDebugDraw* dd,
 // build, on this target: the format is upstream's own struct layout copied to
 // the stream, so it is neither endian- nor padding-portable, and it carries no
 // length a reader could check a count against. Feed them only bytes this
-// package produced. See UPSTREAM.md.
+// package produced. See docs/design.md.
 //===----------------------------------------------------------------------===//
 
 /// The byte sink or source a dump reads and writes through. Every field is

@@ -197,7 +197,7 @@ static_assert(static_cast<int>(ZRC_ALLOC_TEMP) == static_cast<int>(DT_ALLOC_TEMP
 
 static_assert(DT_NAVMESH_VERSION == 7,
               "the serialised navmesh format version changed; update "
-              "UPSTREAM.md and expect existing images to be rejected");
+              "docs/design.md and expect existing images to be rejected");
 static_assert(sizeof(dtMeshHeader) == 100, "dtMeshHeader layout changed");
 static_assert(sizeof(dtPoly) == 32, "dtPoly layout changed");
 static_assert(sizeof(dtLink) == 12, "dtLink layout changed");

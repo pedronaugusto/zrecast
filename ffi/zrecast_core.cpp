@@ -104,7 +104,7 @@ uint32_t zrcVersion(void) {
 }
 
 uint32_t zrcRecastVersion(void) {
-  // Pinned in UPSTREAM.md; bump both together when re-vendoring.
+  // Pinned in docs/design.md; bump both together when re-vendoring.
   return (1u << 16) | (6u << 8) | 0u;
 }
 

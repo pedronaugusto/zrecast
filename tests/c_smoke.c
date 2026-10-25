@@ -2324,7 +2324,7 @@ static void test_proximity_grid(void) {
      which this package deliberately does not defend against: dtCrowd reaches
      the same grid from inside update() with positions no boundary sees, so
      refusing them here would remove a capability rather than bind one. See
-     UPSTREAM.md. */
+     docs/design.md. */
   CHECK(zrcProximityGridItemCountAt(grid, 25, 25, &count) == ZRC_OK);
   CHECK(count == 0);
 

@@ -13,7 +13,7 @@
 // caller's. Upstream's read the counts straight out of the stream and allocate
 // from them, so a half-read container is a real possibility; creating it here
 // means a failure destroys it rather than handing back something partly
-// filled. What the stream says is still trusted — see UPSTREAM.md.
+// filled. What the stream says is still trusted — see docs/design.md.
 //===----------------------------------------------------------------------===//
 
 #include "zrecast_internal.h"

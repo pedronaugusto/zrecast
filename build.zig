@@ -335,7 +335,7 @@ pub fn dev(b: *std.Build, tools: type) void {
     verify.addDirectoryArg2(p.path("libs/recastnavigation"), .{});
     verify.addDirectoryArg2(b.dependency("recastnavigation", .{}).path("."), .{});
     verify.addFileArg(p.path("build.zig.zon"));
-    verify.addFileArg(p.path("UPSTREAM.md"));
+    verify.addFileArg(p.path("docs/design.md"));
     const vendor_tests = b.addTest(.{ .root_module = vendor.root_module });
     verify.step.dependOn(&b.addRunArtifact(vendor_tests).step);
     const vendor_step = b.step("check-vendor", "Prove libs/recastnavigation is upstream at the pinned commit");
