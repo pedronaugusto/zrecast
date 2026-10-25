@@ -10,6 +10,7 @@
 #include "DetourCrowd.h"
 #include "DetourNavMesh.h"
 #include "DetourNavMeshQuery.h"
+#include "zrecast.h"
 
 namespace {
 
@@ -81,6 +82,22 @@ void zrecast_baseline_close(void* opened) {
 uint64_t zrecast_baseline_load(const unsigned char* image, size_t size, uint64_t times) {
   uint64_t tiles = 0;
   for (uint64_t i = 0; i < times; ++i) {
+    dtNavMesh* mesh = Load(image, size);
+    if (mesh == nullptr) return UINT64_MAX;
+    tiles += static_cast<uint64_t>(mesh->getMaxTiles());
+    dtFreeNavMesh(mesh);
+  }
+  return tiles;
+}
+
+/// The same load after the check the binding makes first: the whole image
+/// validated (zrcNavMeshValidate) before Detour reads any of it. The binding's
+/// load is read against this row; zrecast_baseline_load is Detour trusting
+/// its bytes.
+uint64_t zrecast_baseline_load_validated(const unsigned char* image, size_t size, uint64_t times) {
+  uint64_t tiles = 0;
+  for (uint64_t i = 0; i < times; ++i) {
+    if (zrcNavMeshValidate(image, size) != ZRC_OK) return UINT64_MAX;
     dtNavMesh* mesh = Load(image, size);
     if (mesh == nullptr) return UINT64_MAX;
     tiles += static_cast<uint64_t>(mesh->getMaxTiles());

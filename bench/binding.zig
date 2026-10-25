@@ -60,6 +60,10 @@ const Context = struct {
         zrecast.resetAllocator();
     }
 
+    fn loadValidatedC(c: *Context, n: u64) Failed!void {
+        if (baseline.zrecast_baseline_load_validated(c.image.ptr, c.image.len, n) == std.math.maxInt(u64)) return error.Failed;
+    }
+
     fn loadC(c: *Context, n: u64) Failed!void {
         if (baseline.zrecast_baseline_load(c.image.ptr, c.image.len, n) == std.math.maxInt(u64)) return error.Failed;
     }
@@ -252,6 +256,7 @@ pub fn main(init: std.process.Init) !void {
         .{ .name = "load_zig", .unit = "navmesh", .run = Context.loadZig },
         .{ .name = "load_zig_allocator", .unit = "navmesh", .run = Context.loadZig, .fixture = .{ .lifetime = .row, .setup = Context.installAllocator, .teardown = Context.removeAllocator } },
         .{ .name = "load_c", .unit = "navmesh", .run = Context.loadC },
+        .{ .name = "load_c_validated", .unit = "navmesh", .run = Context.loadValidatedC },
     };
     try shakedown.bench.run(Failed, gpa, init.io, &stdout.interface, &context, &loads, metadata, options);
 
