@@ -167,10 +167,10 @@ ZrcResult BuildCrowdSubHandles(ZrcCrowd* crowd) {
     crowd->grid = nullptr;
     return ZRC_ERR_OUT_OF_MEMORY;
   }
-  crowd->path_queue->query->impl =
-      const_cast<dtNavMeshQuery*>(crowd->path_queue->impl->getNavQuery());
-  crowd->path_queue->query->navmesh = crowd->navmesh;
-  crowd->path_queue->query->slicing = false;
+  zrc::BindQuery(
+      crowd->path_queue->query,
+      const_cast<dtNavMeshQuery*>(crowd->path_queue->impl->getNavQuery()),
+      crowd->navmesh);
 
   crowd->query = zrc::New<ZrcNavMeshQuery>();
   if (crowd->query == nullptr) {
@@ -181,9 +181,9 @@ ZrcResult BuildCrowdSubHandles(ZrcCrowd* crowd) {
     crowd->grid = nullptr;
     return ZRC_ERR_OUT_OF_MEMORY;
   }
-  crowd->query->impl = const_cast<dtNavMeshQuery*>(crowd->impl->getNavMeshQuery());
-  crowd->query->navmesh = crowd->navmesh;
-  crowd->query->slicing = false;
+  zrc::BindQuery(crowd->query,
+                 const_cast<dtNavMeshQuery*>(crowd->impl->getNavMeshQuery()),
+                 crowd->navmesh);
 
   return ZRC_OK;
 }
@@ -842,17 +842,14 @@ ZrcResult zrcCrowdSetFilter(ZrcCrowd* crowd, int32_t index,
   if (index < 0 || index >= ZRC_CROWD_MAX_FILTERS) return ZRC_ERR_INVALID_ARGUMENT;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
 
-  dtQueryFilter native;
-  if (!zrc::BuildFilter(*filter, &native)) return ZRC_ERR_INVALID_ARGUMENT;
-
   // getEditableFilter bounds-checks and returns null only outside that same
   // range, already excluded above.
-  *crowd->impl->getEditableFilter(index) = native;
+  *crowd->impl->getEditableFilter(index) = filter->impl;
   return ZRC_OK;
 }
 
 ZrcResult zrcCrowdFilter(const ZrcCrowd* crowd, int32_t index,
-                         ZrcQueryFilter* out) {
+                         ZrcQueryFilterDesc* out) {
   if (out == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
   memset(out, 0, sizeof(*out));
   if (crowd == nullptr || crowd->impl == nullptr || crowd->serial == nullptr) {
@@ -860,7 +857,7 @@ ZrcResult zrcCrowdFilter(const ZrcCrowd* crowd, int32_t index,
   }
   if (index < 0 || index >= ZRC_CROWD_MAX_FILTERS) return ZRC_ERR_INVALID_ARGUMENT;
 
-  zrc::ReadFilter(*crowd->impl->getFilter(index), out);
+  zrc::DescribeFilter(*crowd->impl->getFilter(index), out);
   return ZRC_OK;
 }
 

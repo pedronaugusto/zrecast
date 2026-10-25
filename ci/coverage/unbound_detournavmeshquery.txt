@@ -40,17 +40,17 @@ DetourNavMeshQuery	func:dtNavMeshQuery::updateSlicedFindPath/2	BOUND	zrcSlicedFi
 DetourNavMeshQuery	func:dtNavMeshQuery::~dtNavMeshQuery/0	BOUND	zrcNavMeshQueryDestroy triggers it via dtFreeNavMeshQuery, which destroys the instance before freeing it
 DetourNavMeshQuery	func:dtPolyQuery::process/4	BOUND	ZrcPolyQuery.process - the references cross the boundary and the live tile and polygon pointers do not, because everything about a polygon is readable from its reference
 DetourNavMeshQuery	func:dtPolyQuery::~dtPolyQuery/0	BOUND	ZrcPolyQuery is the caller's own storage, so its lifetime is the caller's and there is no virtual destructor to call
-DetourNavMeshQuery	func:dtQueryFilter::dtQueryFilter/0	BOUND	zrcQueryFilterDefault fills a ZrcQueryFilter with the same defaults its constructor sets
-DetourNavMeshQuery	func:dtQueryFilter::getAreaCost/1	BOUND	ZrcQueryFilter.area_cost — a host reads any of the per-area costs directly from the array
-DetourNavMeshQuery	func:dtQueryFilter::getCost/11	BOUND	ZrcQueryFilter is the whole of it: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields mirrored here
-DetourNavMeshQuery	func:dtQueryFilter::getExcludeFlags/0	BOUND	ZrcQueryFilter.exclude_flags — a host reads the field directly
-DetourNavMeshQuery	func:dtQueryFilter::getIncludeFlags/0	BOUND	ZrcQueryFilter.include_flags — a host reads the field directly
-DetourNavMeshQuery	func:dtQueryFilter::passFilter/3	BOUND	ZrcQueryFilter is the whole of it: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields mirrored here
-DetourNavMeshQuery	func:dtQueryFilter::setAreaCost/2	BOUND	ZrcQueryFilter.area_cost — a host writes any of the per-area costs, applied via BuildFilter's setAreaCost call
-DetourNavMeshQuery	func:dtQueryFilter::setExcludeFlags/1	BOUND	ZrcQueryFilter.exclude_flags — a host sets the field, applied via BuildFilter's setExcludeFlags call
-DetourNavMeshQuery	func:dtQueryFilter::setIncludeFlags/1	BOUND	ZrcQueryFilter.include_flags — a host sets the field, applied via BuildFilter's setIncludeFlags call
-DetourNavMeshQuery	func:dtQueryFilter::~dtQueryFilter/0	BOUND	ZrcQueryFilter is plain data the caller owns, so there is nothing to destroy
+DetourNavMeshQuery	func:dtQueryFilter::dtQueryFilter/0	BOUND	zrcQueryFilterCreate builds one from a ZrcQueryFilterDesc; zrcQueryFilterDescDefault fills the description with the defaults its constructor sets
+DetourNavMeshQuery	func:dtQueryFilter::getAreaCost/1	BOUND	zrcQueryFilterDescribe writes every per-area cost into ZrcQueryFilterDesc.area_cost
+DetourNavMeshQuery	func:dtQueryFilter::getCost/11	BOUND	ZrcQueryFilter holds the class itself and every query hands it to Detour: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields ZrcQueryFilterDesc carries
+DetourNavMeshQuery	func:dtQueryFilter::getExcludeFlags/0	BOUND	zrcQueryFilterDescribe writes it into ZrcQueryFilterDesc.exclude_flags
+DetourNavMeshQuery	func:dtQueryFilter::getIncludeFlags/0	BOUND	zrcQueryFilterDescribe writes it into ZrcQueryFilterDesc.include_flags
+DetourNavMeshQuery	func:dtQueryFilter::passFilter/3	BOUND	ZrcQueryFilter holds the class itself and every query hands it to Detour: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields ZrcQueryFilterDesc carries
+DetourNavMeshQuery	func:dtQueryFilter::setAreaCost/2	BOUND	zrcQueryFilterSetAreaCost, refusing an area of DT_MAX_AREAS or more and a negative or non-finite cost
+DetourNavMeshQuery	func:dtQueryFilter::setExcludeFlags/1	BOUND	zrcQueryFilterSetExcludeFlags
+DetourNavMeshQuery	func:dtQueryFilter::setIncludeFlags/1	BOUND	zrcQueryFilterSetIncludeFlags
+DetourNavMeshQuery	func:dtQueryFilter::~dtQueryFilter/0	BOUND	zrcQueryFilterDestroy
 DetourNavMeshQuery	type:-::dtNavMeshQuery	BOUND	ZrcNavMeshQuery is the opaque handle wrapping a dtNavMeshQuery instance
 DetourNavMeshQuery	type:-::dtPolyQuery	BOUND	ZrcPolyQuery, a struct of function pointers rather than a class to subclass
-DetourNavMeshQuery	type:-::dtQueryFilter	BOUND	ZrcQueryFilter mirrors area_cost/include_flags/exclude_flags, the data a host can set per query
+DetourNavMeshQuery	type:-::dtQueryFilter	BOUND	ZrcQueryFilter, an opaque handle holding one, built once from a ZrcQueryFilterDesc whose costs it checks
 DetourNavMeshQuery	type:-::dtRaycastHit	BOUND	ZrcRaycastHit mirrors t/position/normal/hit, the raycast result a host can read

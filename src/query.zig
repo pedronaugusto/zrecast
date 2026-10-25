@@ -17,16 +17,72 @@ const Vec3 = @import("vec.zig").Vec3;
 /// modelled as `null` everywhere it can occur.
 pub const PolyRef = c.PolyRef;
 
-/// Which polygons a query may traverse, and what each area costs.
-pub const Filter = c.QueryFilter;
+/// The costs and flags a `QueryFilter` is made from.
+pub const QueryFilterDesc = c.QueryFilterDesc;
 
 /// Every area cost 1.0 and every flag admitted — accepts every polygon a bake
 /// produces.
-pub fn defaultFilter() Filter {
-    var filter: Filter = undefined;
-    c.zrcQueryFilterDefault(&filter);
-    return filter;
+pub fn defaultFilterDesc() QueryFilterDesc {
+    var desc: QueryFilterDesc = undefined;
+    c.zrcQueryFilterDescDefault(&desc);
+    return desc;
 }
+
+/// Which polygons a query may traverse, and what each area costs: Detour's
+/// filter, checked once when it is made.
+///
+/// Every query takes one, so no call checks the costs again or rebuilds
+/// Detour's filter. A query only reads it, so queries on any number of
+/// threads may share one; changing it while one of them runs is a data race.
+/// A sliced search, a path queue request and a crowd keep a copy, so it need
+/// not outlive them.
+pub const QueryFilter = struct {
+    handle: *c.QueryFilter,
+
+    /// `error.InvalidArgument` when any area cost is negative or not finite:
+    /// either makes A* incoherent, and a negative edge can make the search
+    /// loop.
+    pub fn init(desc: QueryFilterDesc) err.Error!QueryFilter {
+        var handle: *c.QueryFilter = undefined;
+        try err.check(c.zrcQueryFilterCreate(&desc, &handle));
+        return .{ .handle = handle };
+    }
+
+    /// A filter made from `defaultFilterDesc`.
+    pub fn initDefault() err.Error!QueryFilter {
+        return init(defaultFilterDesc());
+    }
+
+    pub fn deinit(self: QueryFilter) void {
+        c.zrcQueryFilterDestroy(self.handle);
+    }
+
+    /// The filter's costs and flags.
+    pub fn describe(self: QueryFilter) QueryFilterDesc {
+        var desc: QueryFilterDesc = undefined;
+        // The boundary refuses only a null filter or output, and neither can
+        // be passed from here.
+        err.check(c.zrcQueryFilterDescribe(self.handle, &desc)) catch aegis.assert.never("a live filter describes itself");
+        return desc;
+    }
+
+    /// Sets one area's cost, under the check `init` makes.
+    /// `error.InvalidArgument` for an area of `max_areas` or more, or a cost
+    /// that is negative or not finite; the filter is then unchanged.
+    pub fn setAreaCost(self: QueryFilter, area: u8, cost: f32) err.Error!void {
+        try err.check(c.zrcQueryFilterSetAreaCost(self.handle, area, cost));
+    }
+
+    /// A polygon is visitable only if it shares a bit with `flags`.
+    pub fn setIncludeFlags(self: QueryFilter, flags: u16) void {
+        err.check(c.zrcQueryFilterSetIncludeFlags(self.handle, flags)) catch aegis.assert.never("a live filter takes any flags");
+    }
+
+    /// A polygon is skipped if it shares a bit with `flags`.
+    pub fn setExcludeFlags(self: QueryFilter, flags: u16) void {
+        err.check(c.zrcQueryFilterSetExcludeFlags(self.handle, flags)) catch aegis.assert.never("a live filter takes any flags");
+    }
+};
 
 /// Flags on a straight-path corner.
 pub const straightpath_start = c.straightpath_start;
@@ -373,7 +429,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             self: Self,
             center: [3]f32,
             half_extents: [3]f32,
-            filter: *const Filter,
+            filter: QueryFilter,
         ) err.Error!NearestPoly {
             var ref: PolyRef = 0;
             var point: [3]f32 = undefined;
@@ -382,7 +438,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 self.handle,
                 &center,
                 &half_extents,
-                filter,
+                filter.handle,
                 &ref,
                 &point,
                 &over_poly,
@@ -404,7 +460,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             end_ref: PolyRef,
             start_pos: [3]f32,
             end_pos: [3]f32,
-            filter: *const Filter,
+            filter: QueryFilter,
             out_path: []PolyRef,
         ) err.Error!PathResult {
             const capacity = aegis.int.cast(i32, out_path.len) catch
@@ -417,7 +473,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 end_ref,
                 &start_pos,
                 &end_pos,
-                filter,
+                filter.handle,
                 out_path.ptr,
                 capacity,
                 &count,
@@ -485,7 +541,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             start_ref: PolyRef,
             start_pos: [3]f32,
             end_pos: [3]f32,
-            filter: *const Filter,
+            filter: QueryFilter,
             out_visited: ?[]PolyRef,
         ) err.Error!MoveResult {
             const capacity: i32 = if (out_visited) |visited|
@@ -500,7 +556,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 start_ref,
                 &start_pos,
                 &end_pos,
-                filter,
+                filter.handle,
                 &position,
                 if (out_visited) |visited| visited.ptr else null,
                 capacity,
@@ -526,7 +582,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             start_ref: PolyRef,
             start_pos: [3]f32,
             end_pos: [3]f32,
-            filter: *const Filter,
+            filter: QueryFilter,
             options: RaycastOptions,
             prev_ref: ?PolyRef,
             out_path: ?[]PolyRef,
@@ -543,7 +599,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 start_ref,
                 &start_pos,
                 &end_pos,
-                filter,
+                filter.handle,
                 options.toC(),
                 prev_ref orelse 0,
                 &raw_hit,
@@ -571,7 +627,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             end_ref: PolyRef,
             start_pos: Vec3,
             end_pos: Vec3,
-            filter: *const Filter,
+            filter: QueryFilter,
             options: FindPathOptions,
         ) err.Error!void {
             try err.check(c.zrcSlicedFindPathInit(
@@ -580,7 +636,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 end_ref,
                 &start_pos,
                 &end_pos,
-                filter,
+                filter.handle,
                 options.toC(),
             ));
         }
@@ -667,13 +723,13 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         /// A random point on the navmesh, uniform by polygon area.
         pub fn findRandomPoint(
             self: Self,
-            filter: *const Filter,
+            filter: QueryFilter,
             random: RandomSource,
         ) err.Error!RandomPoint {
             const source = random.toC();
             var ref: PolyRef = 0;
             var point: Vec3 = undefined;
-            try err.check(c.zrcFindRandomPoint(self.handle, filter, &source, &ref, &point));
+            try err.check(c.zrcFindRandomPoint(self.handle, filter.handle, &source, &ref, &point));
             return .{ .ref = ref, .point = point };
         }
 
@@ -690,7 +746,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             start_ref: PolyRef,
             center: Vec3,
             max_radius: f32,
-            filter: *const Filter,
+            filter: QueryFilter,
             random: RandomSource,
         ) err.Error!RandomPoint {
             const source = random.toC();
@@ -701,7 +757,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 start_ref,
                 &center,
                 max_radius,
-                filter,
+                filter.handle,
                 &source,
                 &ref,
                 &point,
@@ -714,7 +770,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             self: Self,
             center: Vec3,
             half_extents: Vec3,
-            filter: *const Filter,
+            filter: QueryFilter,
             out_refs: []PolyRef,
         ) err.Error!PolyList {
             const capacity = aegis.int.cast(i32, out_refs.len) catch
@@ -725,7 +781,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 self.handle,
                 &center,
                 &half_extents,
-                filter,
+                filter.handle,
                 out_refs.ptr,
                 capacity,
                 &count,
@@ -743,11 +799,11 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             self: Self,
             center: Vec3,
             half_extents: Vec3,
-            filter: *const Filter,
+            filter: QueryFilter,
             sink: PolySink,
         ) err.Error!void {
             const raw_sink = sink.toC();
-            try err.check(c.zrcQueryPolygonsBatched(self.handle, &center, &half_extents, filter, &raw_sink));
+            try err.check(c.zrcQueryPolygonsBatched(self.handle, &center, &half_extents, filter.handle, &raw_sink));
         }
 
         /// Closest point on `ref` to `pos`, using the polygon's detail mesh for
@@ -788,7 +844,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             start_ref: PolyRef,
             center: Vec3,
             radius: f32,
-            filter: *const Filter,
+            filter: QueryFilter,
             out_refs: []PolyRef,
             out_parents: []PolyRef,
             out_costs: []f32,
@@ -802,7 +858,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 start_ref,
                 &center,
                 radius,
-                filter,
+                filter.handle,
                 if (out_refs.len == 0) null else out_refs.ptr,
                 if (out_parents.len == 0) null else out_parents.ptr,
                 if (out_costs.len == 0) null else out_costs.ptr,
@@ -819,7 +875,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             self: Self,
             start_ref: PolyRef,
             verts: []const Vec3,
-            filter: *const Filter,
+            filter: QueryFilter,
             out_refs: []PolyRef,
             out_parents: []PolyRef,
             out_costs: []f32,
@@ -836,7 +892,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 // A []Vec3 is tightly packed floats, the same memory Detour wants.
                 @ptrCast(verts.ptr), // safe: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
                 vert_count,
-                filter,
+                filter.handle,
                 if (out_refs.len == 0) null else out_refs.ptr,
                 if (out_parents.len == 0) null else out_parents.ptr,
                 if (out_costs.len == 0) null else out_costs.ptr,
@@ -881,7 +937,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             start_ref: PolyRef,
             center: Vec3,
             radius: f32,
-            filter: *const Filter,
+            filter: QueryFilter,
             out_refs: []PolyRef,
             out_parents: []PolyRef,
         ) err.Error!ReachedPolys {
@@ -896,7 +952,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 start_ref,
                 &center,
                 radius,
-                filter,
+                filter.handle,
                 out_refs.ptr,
                 if (out_parents.len == 0) null else out_parents.ptr,
                 capacity,
@@ -913,7 +969,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         pub fn polyWallSegments(
             self: Self,
             ref: PolyRef,
-            filter: *const Filter,
+            filter: QueryFilter,
             out_verts: [][2]Vec3,
             out_refs: []PolyRef,
         ) err.Error!WallSegments {
@@ -926,7 +982,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             try err.check(c.zrcPolyWallSegments(
                 self.handle,
                 ref,
-                filter,
+                filter.handle,
                 // A [2]Vec3 is four tightly packed floats, the same memory Detour
                 // wants for a segment's two endpoints.
                 @ptrCast(out_verts.ptr), // safe: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
@@ -945,7 +1001,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             start_ref: PolyRef,
             center: Vec3,
             max_radius: f32,
-            filter: *const Filter,
+            filter: QueryFilter,
         ) err.Error!?WallHit {
             var dist: f32 = 0;
             var pos: Vec3 = undefined;
@@ -956,7 +1012,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 start_ref,
                 &center,
                 max_radius,
-                filter,
+                filter.handle,
                 &dist,
                 &pos,
                 &normal,
@@ -969,9 +1025,10 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         /// Whether `ref` names a live polygon, and — when `filter` is given —
         /// one this filter would admit. A null filter asks the plainer question:
         /// does `ref` decode to a polygon that exists, with no admission test.
-        pub fn isValidPolyRef(self: Self, ref: PolyRef, filter: ?*const Filter) err.Error!bool {
+        pub fn isValidPolyRef(self: Self, ref: PolyRef, filter: ?QueryFilter) err.Error!bool {
             var valid: c.Bool = c.c_false;
-            try err.check(c.zrcIsValidPolyRef(self.handle, ref, filter, &valid));
+            const handle: ?*const c.QueryFilter = if (filter) |f| f.handle else null;
+            try err.check(c.zrcIsValidPolyRef(self.handle, ref, handle, &valid));
             return valid != c.c_false;
         }
 
@@ -1055,10 +1112,10 @@ pub fn encodePolyRef(navmesh: NavMesh, salt: u32, tile: u32, poly: u32) err.Erro
 }
 
 test "the default filter admits everything at neutral cost" {
-    const filter = defaultFilter();
-    try std.testing.expectEqual(@as(u16, 0xffff), filter.include_flags);
-    try std.testing.expectEqual(@as(u16, 0), filter.exclude_flags);
-    for (filter.area_cost) |cost| try std.testing.expectEqual(@as(f32, 1.0), cost);
+    const desc = defaultFilterDesc();
+    try std.testing.expectEqual(@as(u16, 0xffff), desc.include_flags);
+    try std.testing.expectEqual(@as(u16, 0), desc.exclude_flags);
+    for (desc.area_cost) |cost| try std.testing.expectEqual(@as(f32, 1.0), cost);
 }
 
 test "a [3]f32 array is three tightly packed floats" {

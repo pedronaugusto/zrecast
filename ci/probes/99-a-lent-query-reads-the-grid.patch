@@ -1,0 +1,22 @@
+# expect: a query a crowd or a path queue lends checks a box as an owned one does
+#
+# A lent query whose grid was never read: a scale of zero puts every box at
+# tile zero, so the check passes a box of fourteen million cells, which
+# Detour then walks.
+--- a/ffi/zrecast_crowd.cpp
++++ b/ffi/zrecast_crowd.cpp
+@@ -181,9 +181,11 @@
+     crowd->grid = nullptr;
+     return ZRC_ERR_OUT_OF_MEMORY;
+   }
+-  zrc::BindQuery(crowd->query,
+-                 const_cast<dtNavMeshQuery*>(crowd->impl->getNavMeshQuery()),
+-                 crowd->navmesh);
++  crowd->query->impl = const_cast<dtNavMeshQuery*>(crowd->impl->getNavMeshQuery());
++  crowd->query->navmesh = crowd->navmesh;
++  crowd->query->slicing = false;
++  crowd->query->grid_origin[0] = crowd->query->grid_origin[1] = 0;
++  crowd->query->grid_scale[0] = crowd->query->grid_scale[1] = 0;
+ 
+   return ZRC_OK;
+ }

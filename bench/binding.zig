@@ -34,7 +34,7 @@ const Context = struct {
     mesh: zrecast.NavMesh = undefined,
     query: zrecast.NavMeshQuery = undefined,
     world: *anyopaque = undefined,
-    filter: zrecast.Filter,
+    filter: zrecast.QueryFilter,
     points: [point_count][3]f32 = undefined,
     refs: [point_count]zrecast.PolyRef = undefined,
     /// Unit i of a row runs from `points[pairs[i][0]]` to `points[pairs[i][1]]`.
@@ -67,7 +67,7 @@ const Context = struct {
     fn nearestZig(c: *Context, n: u64) Failed!void {
         var found: u64 = 0;
         for (0..n) |i| {
-            const near = c.query.findNearestPoly(c.points[i % point_count], extents, &c.filter) catch return error.Failed;
+            const near = c.query.findNearestPoly(c.points[i % point_count], extents, c.filter) catch return error.Failed;
             found += @intFromBool(near.ref != null);
         }
         std.mem.doNotOptimizeAway(found);
@@ -85,7 +85,7 @@ const Context = struct {
             const pair = c.pairs[i % point_count];
             const from = c.points[pair[0]];
             const to = c.points[pair[1]];
-            const path = c.query.findPath(c.refs[pair[0]], c.refs[pair[1]], from, to, &c.filter, &corridor) catch return error.Failed;
+            const path = c.query.findPath(c.refs[pair[0]], c.refs[pair[1]], from, to, c.filter, &corridor) catch return error.Failed;
             const walk = c.query.findStraightPath(from, to, corridor[0..path.len], .{}, &corners, null, null) catch return error.Failed;
             walked += walk.len;
         }
@@ -100,7 +100,7 @@ const Context = struct {
         var sum: f32 = 0;
         for (0..n) |i| {
             const pair = c.pairs[i % point_count];
-            const ray = c.query.raycast(c.refs[pair[0]], c.points[pair[0]], c.points[pair[1]], &c.filter, .{}, null, null) catch return error.Failed;
+            const ray = c.query.raycast(c.refs[pair[0]], c.points[pair[0]], c.points[pair[1]], c.filter, .{}, null, null) catch return error.Failed;
             sum += ray.hit.t;
         }
         std.mem.doNotOptimizeAway(sum);
@@ -241,7 +241,7 @@ pub fn main(init: std.process.Init) !void {
     var context: Context = .{
         .gpa = gpa,
         .image = image.bytes,
-        .filter = zrecast.defaultFilter(),
+        .filter = undefined,
         .pairs = undefined,
     };
     // Pair i runs to a point across the level. None is a point paired with
@@ -259,6 +259,8 @@ pub fn main(init: std.process.Init) !void {
     defer context.mesh.deinit();
     context.query = try zrecast.NavMeshQuery.init(context.mesh, max_nodes);
     defer context.query.deinit();
+    context.filter = try zrecast.QueryFilter.initDefault();
+    defer context.filter.deinit();
     context.world = baseline.zrecast_baseline_open(image.bytes.ptr, image.bytes.len, max_nodes) orelse return error.BaselineOpen;
     defer baseline.zrecast_baseline_close(context.world);
     for (&context.points, &context.refs, 0..) |*point, *ref, i| {
@@ -267,7 +269,7 @@ pub fn main(init: std.process.Init) !void {
             0,
             @as(f32, @floatFromInt(i / 8)) * pillar_spacing + pillar_spacing / 2,
         };
-        const near = try context.query.findNearestPoly(at, extents, &context.filter);
+        const near = try context.query.findNearestPoly(at, extents, context.filter);
         ref.* = near.ref orelse return error.OffMesh;
         point.* = near.point;
     }

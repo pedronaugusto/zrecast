@@ -490,7 +490,7 @@ ZRC_API ZrcResult zrcTileGridCompute(const ZrcBakeConfig* config,
 // may stand on.
 //
 // The two halves do different jobs and a host usually wants both. An **area id**
-// is what the query filter charges for, through ZrcQueryFilter.area_cost, so it
+// is what the query filter charges for, through ZrcQueryFilterDesc.area_cost, so it
 // makes a region expensive rather than forbidden. A **polygon flag** is what the
 // filter admits or refuses outright, through include_flags and exclude_flags.
 //===----------------------------------------------------------------------===//
@@ -2354,23 +2354,60 @@ ZRC_API ZrcResult zrcOffsetPoly(const float* verts, int32_t vert_count,
 // Queries (Detour — runtime)
 //===----------------------------------------------------------------------===//
 
-/// Which polygons a query may traverse, and what each area costs.
+/// The costs and flags a query filter is made from.
 ///
-/// A POD mirror of Detour's dtQueryFilter, which is a C++ class. Each call
-/// converts this into a dtQueryFilter on the stack; that is a fixed ~260-byte
-/// copy against a graph search, and it keeps a class out of the ABI.
-typedef struct ZrcQueryFilter {
+/// Plain data a host fills, then hands to zrcQueryFilterCreate, which checks it
+/// once and builds Detour's filter from it. zrcQueryFilterDescribe and
+/// zrcCrowdFilter write one back out.
+typedef struct ZrcQueryFilterDesc {
   /// Cost multiplier per area id. 1.0 is neutral; larger discourages.
   float area_cost[ZRC_MAX_AREAS];
   /// A polygon is visitable only if it shares a bit with this.
   uint16_t include_flags;
   /// A polygon is skipped if it shares a bit with this.
   uint16_t exclude_flags;
-} ZrcQueryFilter;
+} ZrcQueryFilterDesc;
 
 /// Every area cost 1.0, include_flags 0xFFFF, exclude_flags 0 — accepts every
-/// polygon zrcPolyMeshBake produces.
-ZRC_API void zrcQueryFilterDefault(ZrcQueryFilter* out);
+/// polygon zrcPolyMeshBake produces. The defaults dtQueryFilter's constructor
+/// sets.
+ZRC_API void zrcQueryFilterDescDefault(ZrcQueryFilterDesc* out);
+
+/// Which polygons a query may traverse, and what each area costs: Detour's
+/// dtQueryFilter, checked when it is made and handed to Detour as it is.
+///
+/// Every query takes one of these rather than a description, so the costs are
+/// checked once at creation instead of on every call, and no call rebuilds
+/// Detour's filter. A query only reads it, so any number of queries on any
+/// number of threads may share one; changing it while one of them runs is a
+/// data race. A sliced search, a path queue request and a crowd copy it, and it
+/// need not outlive them.
+typedef struct ZrcQueryFilter ZrcQueryFilter;
+
+/// Builds a filter from `desc`. ZRC_ERR_INVALID_ARGUMENT when any area cost is
+/// negative or not finite: either makes A* incoherent, since the open list
+/// stops being a priority queue in any useful sense and a negative edge can
+/// make the search loop.
+ZRC_API ZrcResult zrcQueryFilterCreate(const ZrcQueryFilterDesc* desc,
+                                       ZrcQueryFilter** out);
+
+ZRC_API void zrcQueryFilterDestroy(ZrcQueryFilter* filter);
+
+/// Writes the filter's costs and flags into `out`.
+ZRC_API ZrcResult zrcQueryFilterDescribe(const ZrcQueryFilter* filter,
+                                         ZrcQueryFilterDesc* out);
+
+/// Sets one area's cost, under the check zrcQueryFilterCreate makes.
+/// ZRC_ERR_INVALID_ARGUMENT for an `area` of ZRC_MAX_AREAS or more, or a cost
+/// that is negative or not finite; the filter is then unchanged.
+ZRC_API ZrcResult zrcQueryFilterSetAreaCost(ZrcQueryFilter* filter,
+                                            uint8_t area, float cost);
+
+ZRC_API ZrcResult zrcQueryFilterSetIncludeFlags(ZrcQueryFilter* filter,
+                                                uint16_t flags);
+
+ZRC_API ZrcResult zrcQueryFilterSetExcludeFlags(ZrcQueryFilter* filter,
+                                                uint16_t flags);
 
 /// A query object: a navmesh plus the node pool a search needs.
 ///
@@ -2556,8 +2593,8 @@ ZRC_API ZrcResult zrcRaycast(const ZrcNavMeshQuery* query,
 //     filter as a raw pointer and every later update and finalise reads
 //     through it (DetourNavMeshQuery.cpp:1233). The start and end positions
 //     are copied; the filter is not. ZrcNavMeshQuery keeps its own copy for
-//     the life of the slice, so a caller may pass a stack filter here the way
-//     it does everywhere else.
+//     the life of the slice, so a caller may destroy or change its filter
+//     while the slice runs, as it may after any other call.
 //
 //   * **One search at a time.** Detour's own class comment promises that const
 //     methods have "no impact on an in-progress sliced path query"
@@ -4327,14 +4364,14 @@ ZRC_API ZrcResult zrcCrowdSetAvoidanceParams(
 ZRC_API ZrcResult zrcCrowdAvoidanceParams(const ZrcCrowd* crowd, int32_t index,
                                           ZrcAvoidanceParams* out);
 
-/// Replaces one of the crowd's query filters.
-/// `index` is [0, ZRC_CROWD_MAX_FILTERS).
+/// Replaces one of the crowd's query filters with a copy of `filter`, which
+/// need not outlive the call. `index` is [0, ZRC_CROWD_MAX_FILTERS).
 ZRC_API ZrcResult zrcCrowdSetFilter(ZrcCrowd* crowd, int32_t index,
                                     const ZrcQueryFilter* filter);
 
-/// Reads one back. Every index holds zrcQueryFilterDefault until set.
+/// Reads one back. Every index holds zrcQueryFilterDescDefault until set.
 ZRC_API ZrcResult zrcCrowdFilter(const ZrcCrowd* crowd, int32_t index,
-                                 ZrcQueryFilter* out);
+                                 ZrcQueryFilterDesc* out);
 
 /// The half extents of the box the crowd searches when it places or recovers
 /// an agent, three floats. Derived from `max_agent_radius`.
@@ -4928,7 +4965,7 @@ ZRC_API ZrcResult zrcPathQueueUpdate(ZrcPathQueue* queue, int32_t max_iters);
 /// it on every later update — its own header calls that "potentially
 /// dangerous" (DetourPathQueue.h:47) — so a filter that goes out of scope
 /// before the search finishes is a dangling read there and is not one here. A
-/// host that mutates its filter mid-search does not see the change, which is
+/// host that changes its filter mid-search does not see the change, which is
 /// the same choice zrcSlicedFindPathInit makes.
 ZRC_API ZrcResult zrcPathQueueRequest(ZrcPathQueue* queue,
                                       ZrcPolyRef start_poly,
@@ -5517,11 +5554,11 @@ typedef struct ZrcAbiLayout {
   uint32_t bake_log_offset_buffer;
   uint32_t bake_log_offset_capacity;
 
-  uint32_t query_filter_size;
-  uint32_t query_filter_align;
-  uint32_t query_filter_offset_area_cost;
-  uint32_t query_filter_offset_include_flags;
-  uint32_t query_filter_offset_exclude_flags;
+  uint32_t query_filter_desc_size;
+  uint32_t query_filter_desc_align;
+  uint32_t query_filter_desc_offset_area_cost;
+  uint32_t query_filter_desc_offset_include_flags;
+  uint32_t query_filter_desc_offset_exclude_flags;
 
   uint32_t raycast_hit_size;
   uint32_t raycast_hit_align;

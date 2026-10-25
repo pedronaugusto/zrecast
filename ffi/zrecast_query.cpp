@@ -35,11 +35,6 @@ const int32_t kMinNodes = 4;
 /// "don't care" has to be spelled as a buffer that is thrown away.
 const int32_t kDiscardVisited = 16;
 
-// Filter translation moved to zrc::BuildFilter in ffi/zrecast_internal.h when
-// the crowd's three units needed it too. Named here so the call sites below
-// read as they did.
-using zrc::BuildFilter;
-
 /// The most grid cells one query may scan.
 ///
 /// dtNavMeshQuery::queryPolygons turns the caller's box into a tile range and
@@ -50,6 +45,23 @@ using zrc::BuildFilter;
 /// half-extent of 1e7 over a 50 m tile would be 1.4e11 lookups, which is not
 /// undefined behaviour, merely a call that never returns.
 const int64_t kMaxQueryCells = 1 << 22;
+
+/// The largest tile coordinate a query box may reach, exclusive, on either
+/// side of zero.
+///
+/// Detour computes the coordinate in float and converts it to an int; the
+/// check computes it in double. Near 2^31 a float is 128 apart from the next,
+/// so a coordinate just under 2^31 in double can round to 2^31 in float and
+/// overflow the conversion. Half that is out of reach of any rounding, and no
+/// grid a navmesh can address has a tile that far out.
+const double kMaxTileCoord = 1073741824.0;
+
+/// floor() for a value already known to lie within kMaxTileCoord: one
+/// conversion and a compare, without a call into libm.
+int64_t FloorToInt(double v) {
+  const int64_t t = static_cast<int64_t>(v);
+  return static_cast<double>(t) > v ? t - 1 : t;
+}
 
 /// A query box, checked before Detour turns it into a tile range.
 ///
@@ -64,17 +76,13 @@ const int64_t kMaxQueryCells = 1 << 22;
 ///
 /// The second is the cell count above. Both are decided here rather than per
 /// entry point, because every box query in this file reaches the same code.
-ZrcResult CheckQueryBox(const dtNavMeshQuery& query, const float* center,
+///
+/// The grid comes from the query, which read it once at creation (see
+/// zrc::BindQuery), so the check is two sums, a multiply and a compare per bound:
+/// dividing by the tile size here and calling floor was a tenth of a
+/// findNearestPoly, measured with the bench.
+ZrcResult CheckQueryBox(const ZrcNavMeshQuery& query, const float* center,
                         const float* half_extents) {
-  const dtNavMesh* nav = query.getAttachedNavMesh();
-  if (nav == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  const dtNavMeshParams* params = nav->getParams();
-  if (params == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  if (!zrc::IsFinite(params->tileWidth) || !(params->tileWidth > 0.f) ||
-      !zrc::IsFinite(params->tileHeight) || !(params->tileHeight > 0.f)) {
-    return ZRC_ERR_INVALID_ARGUMENT;
-  }
-
   for (int i = 0; i < 3; ++i) {
     if (half_extents[i] < 0.f) return ZRC_ERR_INVALID_ARGUMENT;
   }
@@ -86,24 +94,23 @@ ZrcResult CheckQueryBox(const dtNavMeshQuery& query, const float* center,
     const int axis = k == 0 ? 0 : 2;
     const float lo_f = center[axis] - half_extents[axis];
     const float hi_f = center[axis] + half_extents[axis];
-    // The quotient in double, so the bound is tested on a value that cannot
-    // itself overflow on the way to being tested. The sums above are not
-    // separately tested for finiteness: an infinite one divides to an infinite
-    // quotient and a NaN one to a NaN, and the range test below rejects both,
-    // since every comparison against a NaN is false.
-    const double size = k == 0 ? params->tileWidth : params->tileHeight;
-    const double origin = params->orig[axis];
-    const double lo = (static_cast<double>(lo_f) - origin) / size;
-    const double hi = (static_cast<double>(hi_f) - origin) / size;
-    if (!(lo >= -2147483648.0 && lo < 2147483648.0)) {
+    // The tile coordinate in double, so the bound is tested on a value that
+    // cannot itself overflow on the way to being tested. The sums above are
+    // not separately tested for finiteness: an infinite one scales to an
+    // infinite coordinate and a NaN one to a NaN, and the range test below
+    // rejects both, since every comparison against a NaN is false. So does a
+    // grid zrc::BindQuery could not read, whose scale is NaN.
+    const double lo =
+        (static_cast<double>(lo_f) - query.grid_origin[k]) * query.grid_scale[k];
+    const double hi =
+        (static_cast<double>(hi_f) - query.grid_origin[k]) * query.grid_scale[k];
+    if (!(lo > -kMaxTileCoord && lo < kMaxTileCoord)) {
       return ZRC_ERR_INVALID_ARGUMENT;
     }
-    if (!(hi >= -2147483648.0 && hi < 2147483648.0)) {
+    if (!(hi > -kMaxTileCoord && hi < kMaxTileCoord)) {
       return ZRC_ERR_INVALID_ARGUMENT;
     }
-    const int64_t first = static_cast<int64_t>(floor(lo));
-    const int64_t last = static_cast<int64_t>(floor(hi));
-    span[k] = last - first + 1;
+    span[k] = FloorToInt(hi) - FloorToInt(lo) + 1;
     // Each axis first, so the product below cannot overflow int64.
     if (span[k] > kMaxQueryCells) return ZRC_ERR_INVALID_ARGUMENT;
   }
@@ -123,14 +130,13 @@ ZrcResult CheckQuery(const ZrcNavMeshQuery* query, const float* a,
   return ZRC_OK;
 }
 
-/// The same, plus the filter conversion the traversal queries need.
+/// The same, plus the filter the traversal queries need.
 ZrcResult BeginQuery(const ZrcNavMeshQuery* query,
                      const ZrcQueryFilter* filter, const float* a,
-                     const float* b, dtQueryFilter* out_filter) {
+                     const float* b) {
   const ZrcResult ready = CheckQuery(query, a, b);
   if (ready != ZRC_OK) return ready;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  if (!BuildFilter(*filter, out_filter)) return ZRC_ERR_INVALID_ARGUMENT;
   return ZRC_OK;
 }
 
@@ -147,12 +153,10 @@ ZrcResult CheckQueryPoint(const ZrcNavMeshQuery* query, const float* pos) {
 /// BeginQuery's shape for an entry point with one position rather than a
 /// start/end pair.
 ZrcResult BeginQueryPoint(const ZrcNavMeshQuery* query,
-                          const ZrcQueryFilter* filter, const float* pos,
-                          dtQueryFilter* out_filter) {
+                          const ZrcQueryFilter* filter, const float* pos) {
   const ZrcResult ready = CheckQueryPoint(query, pos);
   if (ready != ZRC_OK) return ready;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  if (!BuildFilter(*filter, out_filter)) return ZRC_ERR_INVALID_ARGUMENT;
   return ZRC_OK;
 }
 
@@ -239,11 +243,61 @@ void CopyNode(const dtNode& node, ZrcNode* out) {
 
 extern "C" {
 
-void zrcQueryFilterDefault(ZrcQueryFilter* out) {
+void zrcQueryFilterDescDefault(ZrcQueryFilterDesc* out) {
   if (out == nullptr) return;
   for (int i = 0; i < ZRC_MAX_AREAS; ++i) out->area_cost[i] = 1.0f;
   out->include_flags = 0xffff;
   out->exclude_flags = 0;
+}
+
+ZrcResult zrcQueryFilterCreate(const ZrcQueryFilterDesc* desc,
+                               ZrcQueryFilter** out) {
+  if (out == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+  *out = nullptr;
+  if (desc == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+
+  ZrcQueryFilter* handle = zrc::New<ZrcQueryFilter>();
+  if (handle == nullptr) return ZRC_ERR_OUT_OF_MEMORY;
+  if (!zrc::BuildFilter(*desc, &handle->impl)) {
+    zrc::Delete(handle);
+    return ZRC_ERR_INVALID_ARGUMENT;
+  }
+  *out = handle;
+  return ZRC_OK;
+}
+
+void zrcQueryFilterDestroy(ZrcQueryFilter* filter) { zrc::Delete(filter); }
+
+ZrcResult zrcQueryFilterDescribe(const ZrcQueryFilter* filter,
+                                 ZrcQueryFilterDesc* out) {
+  if (out == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+  memset(out, 0, sizeof(*out));
+  if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+  zrc::DescribeFilter(filter->impl, out);
+  return ZRC_OK;
+}
+
+ZrcResult zrcQueryFilterSetAreaCost(ZrcQueryFilter* filter, uint8_t area,
+                                    float cost) {
+  if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+  if (area >= ZRC_MAX_AREAS) return ZRC_ERR_INVALID_ARGUMENT;
+  if (!zrc::IsAreaCost(cost)) return ZRC_ERR_INVALID_ARGUMENT;
+  filter->impl.setAreaCost(area, cost);
+  return ZRC_OK;
+}
+
+ZrcResult zrcQueryFilterSetIncludeFlags(ZrcQueryFilter* filter,
+                                        uint16_t flags) {
+  if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+  filter->impl.setIncludeFlags(flags);
+  return ZRC_OK;
+}
+
+ZrcResult zrcQueryFilterSetExcludeFlags(ZrcQueryFilter* filter,
+                                        uint16_t flags) {
+  if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+  filter->impl.setExcludeFlags(flags);
+  return ZRC_OK;
 }
 
 ZrcResult zrcNavMeshQueryCreate(const ZrcNavMesh* navmesh, int32_t max_nodes,
@@ -272,8 +326,7 @@ ZrcResult zrcNavMeshQueryCreate(const ZrcNavMesh* navmesh, int32_t max_nodes,
     return zrc::ResultFromStatus(status);
   }
 
-  handle->navmesh = navmesh;
-  handle->slicing = false;
+  zrc::BindQuery(handle, handle->impl, navmesh);
 
   *out = handle;
   return ZRC_OK;
@@ -296,12 +349,11 @@ ZrcResult zrcFindNearestPoly(const ZrcNavMeshQuery* query, const float* center,
     return ZRC_ERR_INVALID_ARGUMENT;
   }
 
-  dtQueryFilter dt_filter;
   const ZrcResult ready =
-      BeginQuery(query, filter, center, half_extents, &dt_filter);
+      BeginQuery(query, filter, center, half_extents);
   if (ready != ZRC_OK) return ready;
 
-  const ZrcResult box = CheckQueryBox(*query->impl, center, half_extents);
+  const ZrcResult box = CheckQueryBox(*query, center, half_extents);
   if (box != ZRC_OK) return box;
 
   // Detour leaves nearestPt untouched when nothing is found, so seed it with
@@ -319,7 +371,7 @@ ZrcResult zrcFindNearestPoly(const ZrcNavMeshQuery* query, const float* center,
 
   bool over_poly = false;
   const dtStatus status = query->impl->findNearestPoly(
-      center, half_extents, &dt_filter, out_ref, nearest, &over_poly);
+      center, half_extents, &filter->impl, out_ref, nearest, &over_poly);
   if (dtStatusFailed(status)) {
     *out_ref = 0;
     return zrc::ResultFromStatus(status);
@@ -349,16 +401,15 @@ ZrcResult zrcFindPath(const ZrcNavMeshQuery* query, ZrcPolyRef start_ref,
   const ZrcResult slicing = CheckNotSlicing(query);
   if (slicing != ZRC_OK) return slicing;
 
-  dtQueryFilter dt_filter;
   const ZrcResult ready =
-      BeginQuery(query, filter, start_pos, end_pos, &dt_filter);
+      BeginQuery(query, filter, start_pos, end_pos);
   if (ready != ZRC_OK) return ready;
 
   int count = 0;
   // ZrcPolyRef and dtPolyRef are the same type; zrecast_abi.cpp fails the build
   // if a re-vendor changes that, so no cast is needed or wanted here.
   const dtStatus status =
-      query->impl->findPath(start_ref, end_ref, start_pos, end_pos, &dt_filter,
+      query->impl->findPath(start_ref, end_ref, start_pos, end_pos, &filter->impl,
                             out_path, &count, max_path);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
 
@@ -449,9 +500,8 @@ ZrcResult zrcMoveAlongSurface(const ZrcNavMeshQuery* query,
     return ZRC_ERR_INVALID_ARGUMENT;
   }
 
-  dtQueryFilter dt_filter;
   const ZrcResult ready =
-      BeginQuery(query, filter, start_pos, end_pos, &dt_filter);
+      BeginQuery(query, filter, start_pos, end_pos);
   if (ready != ZRC_OK) return ready;
 
   ZrcPolyRef discard[kDiscardVisited];
@@ -460,7 +510,7 @@ ZrcResult zrcMoveAlongSurface(const ZrcNavMeshQuery* query,
 
   int count = 0;
   const dtStatus status =
-      query->impl->moveAlongSurface(start_ref, start_pos, end_pos, &dt_filter,
+      query->impl->moveAlongSurface(start_ref, start_pos, end_pos, &filter->impl,
                                     out_pos, visited, &count, capacity);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
 
@@ -499,9 +549,8 @@ ZrcResult zrcRaycast(const ZrcNavMeshQuery* query, ZrcPolyRef start_ref,
     return ZRC_ERR_INVALID_ARGUMENT;
   }
 
-  dtQueryFilter dt_filter;
   const ZrcResult ready =
-      BeginQuery(query, filter, start_pos, end_pos, &dt_filter);
+      BeginQuery(query, filter, start_pos, end_pos);
   if (ready != ZRC_OK) return ready;
 
   dtRaycastHit hit;
@@ -510,7 +559,7 @@ ZrcResult zrcRaycast(const ZrcNavMeshQuery* query, ZrcPolyRef start_ref,
   hit.maxPath = out_path != nullptr ? max_path : 0;
 
   const dtStatus status = query->impl->raycast(
-      start_ref, start_pos, end_pos, &dt_filter, options, &hit, prev_ref);
+      start_ref, start_pos, end_pos, &filter->impl, options, &hit, prev_ref);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
 
   // Detour reports "reached the end without hitting anything" as t == FLT_MAX,
@@ -562,12 +611,10 @@ ZrcResult zrcSlicedFindPathInit(ZrcNavMeshQuery* query, ZrcPolyRef start_ref,
     return ZRC_ERR_INVALID_ARGUMENT;
   }
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  // Built directly into the query's own copy: initSlicedFindPath stores this
-  // pointer and every later update and finalise reads through it, so a stack
-  // filter here would dangle the moment this call returned.
-  if (!BuildFilter(*filter, &query->slice_filter)) {
-    return ZRC_ERR_INVALID_ARGUMENT;
-  }
+  // Copied into the query's own: initSlicedFindPath stores this pointer and
+  // every later update and finalise reads through it, so the caller's filter
+  // would dangle the moment the caller destroyed it.
+  query->slice_filter = filter->impl;
 
   const dtStatus status = query->impl->initSlicedFindPath(
       start_ref, end_ref, start_pos, end_pos, &query->slice_filter, options);
@@ -707,11 +754,9 @@ ZrcResult zrcFindRandomPoint(const ZrcNavMeshQuery* query,
     return ZRC_ERR_INVALID_ARGUMENT;
   }
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   ScopedRandomSource scoped(random);
-  const dtStatus status = query->impl->findRandomPoint(&dt_filter, RandomThunk,
+  const dtStatus status = query->impl->findRandomPoint(&filter->impl, RandomThunk,
                                                         out_ref, out_point);
   if (dtStatusFailed(status)) {
     *out_ref = 0;
@@ -743,13 +788,12 @@ ZrcResult zrcFindRandomPointAroundCircle(
   const ZrcResult slicing = CheckNotSlicing(query);
   if (slicing != ZRC_OK) return slicing;
 
-  dtQueryFilter dt_filter;
-  const ZrcResult ready = BeginQueryPoint(query, filter, center, &dt_filter);
+  const ZrcResult ready = BeginQueryPoint(query, filter, center);
   if (ready != ZRC_OK) return ready;
 
   ScopedRandomSource scoped(random);
   const dtStatus status = query->impl->findRandomPointAroundCircle(
-      start_ref, center, max_radius, &dt_filter, RandomThunk, out_ref,
+      start_ref, center, max_radius, &filter->impl, RandomThunk, out_ref,
       out_point);
   if (dtStatusFailed(status)) {
     *out_ref = 0;
@@ -772,17 +816,16 @@ ZrcResult zrcQueryPolygons(const ZrcNavMeshQuery* query, const float* center,
   if (out_truncated != nullptr) *out_truncated = ZRC_FALSE;
   if (out_refs == nullptr || max_refs < 0) return ZRC_ERR_INVALID_ARGUMENT;
 
-  dtQueryFilter dt_filter;
   const ZrcResult ready =
-      BeginQuery(query, filter, center, half_extents, &dt_filter);
+      BeginQuery(query, filter, center, half_extents);
   if (ready != ZRC_OK) return ready;
 
-  const ZrcResult box = CheckQueryBox(*query->impl, center, half_extents);
+  const ZrcResult box = CheckQueryBox(*query, center, half_extents);
   if (box != ZRC_OK) return box;
 
   int count = 0;
   const dtStatus status = query->impl->queryPolygons(
-      center, half_extents, &dt_filter, out_refs, &count, max_refs);
+      center, half_extents, &filter->impl, out_refs, &count, max_refs);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
   if (count < 0 || count > max_refs) return ZRC_ERR_QUERY_FAILED;
   *out_count = count;
@@ -800,17 +843,16 @@ ZrcResult zrcQueryPolygonsBatched(const ZrcNavMeshQuery* query,
   if (sink == nullptr || sink->process == nullptr) {
     return ZRC_ERR_INVALID_ARGUMENT;
   }
-  dtQueryFilter dt_filter;
   const ZrcResult ready =
-      BeginQuery(query, filter, center, half_extents, &dt_filter);
+      BeginQuery(query, filter, center, half_extents);
   if (ready != ZRC_OK) return ready;
 
-  const ZrcResult box = CheckQueryBox(*query->impl, center, half_extents);
+  const ZrcResult box = CheckQueryBox(*query, center, half_extents);
   if (box != ZRC_OK) return box;
 
   CollectQuery collect(*sink);
   const dtStatus status =
-      query->impl->queryPolygons(center, half_extents, &dt_filter, &collect);
+      query->impl->queryPolygons(center, half_extents, &filter->impl, &collect);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
   return ZRC_OK;
 }
@@ -903,13 +945,12 @@ ZrcResult zrcFindPolysAroundCircle(
   const ZrcResult slicing = CheckNotSlicing(query);
   if (slicing != ZRC_OK) return slicing;
 
-  dtQueryFilter dt_filter;
-  const ZrcResult ready = BeginQueryPoint(query, filter, center, &dt_filter);
+  const ZrcResult ready = BeginQueryPoint(query, filter, center);
   if (ready != ZRC_OK) return ready;
 
   int count = 0;
   const dtStatus status = query->impl->findPolysAroundCircle(
-      start_ref, center, radius, &dt_filter, out_refs, out_parents,
+      start_ref, center, radius, &filter->impl, out_refs, out_parents,
       out_costs, &count, max_result);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
   if (count < 0 || count > max_result) return ZRC_ERR_QUERY_FAILED;
@@ -943,12 +984,10 @@ ZrcResult zrcFindPolysAroundShape(
   const ZrcResult slicing = CheckNotSlicing(query);
   if (slicing != ZRC_OK) return slicing;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   int count = 0;
   const dtStatus status = query->impl->findPolysAroundShape(
-      start_ref, verts, vert_count, &dt_filter, out_refs, out_parents,
+      start_ref, verts, vert_count, &filter->impl, out_refs, out_parents,
       out_costs, &count, max_result);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
   if (count < 0 || count > max_result) return ZRC_ERR_QUERY_FAILED;
@@ -1000,13 +1039,12 @@ ZrcResult zrcFindLocalNeighbourhood(
   if (!zrc::IsFinite(radius) || radius < 0.f) return ZRC_ERR_INVALID_ARGUMENT;
   if (max_result < 0) return ZRC_ERR_INVALID_ARGUMENT;
 
-  dtQueryFilter dt_filter;
-  const ZrcResult ready = BeginQueryPoint(query, filter, center, &dt_filter);
+  const ZrcResult ready = BeginQueryPoint(query, filter, center);
   if (ready != ZRC_OK) return ready;
 
   int count = 0;
   const dtStatus status = query->impl->findLocalNeighbourhood(
-      start_ref, center, radius, &dt_filter, out_refs, out_parents, &count,
+      start_ref, center, radius, &filter->impl, out_refs, out_parents, &count,
       max_result);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
   if (count < 0 || count > max_result) return ZRC_ERR_QUERY_FAILED;
@@ -1036,12 +1074,10 @@ ZrcResult zrcPolyWallSegments(const ZrcNavMeshQuery* query, ZrcPolyRef ref,
   }
   if (ref == 0) return ZRC_ERR_INVALID_ARGUMENT;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   int count = 0;
   const dtStatus status = query->impl->getPolyWallSegments(
-      ref, &dt_filter, out_verts, out_refs, &count, max_segments);
+      ref, &filter->impl, out_verts, out_refs, &count, max_segments);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
   if (count < 0 || count > max_segments) return ZRC_ERR_QUERY_FAILED;
   *out_count = count;
@@ -1074,8 +1110,7 @@ ZrcResult zrcFindDistanceToWall(const ZrcNavMeshQuery* query,
   const ZrcResult slicing = CheckNotSlicing(query);
   if (slicing != ZRC_OK) return slicing;
 
-  dtQueryFilter dt_filter;
-  const ZrcResult ready = BeginQueryPoint(query, filter, center, &dt_filter);
+  const ZrcResult ready = BeginQueryPoint(query, filter, center);
   if (ready != ZRC_OK) return ready;
 
   // Upstream leaves hitPos untouched when nothing is in range and then
@@ -1088,7 +1123,7 @@ ZrcResult zrcFindDistanceToWall(const ZrcNavMeshQuery* query,
   float hit_normal[3] = {0.f, 0.f, 0.f};
   float hit_dist = 0.f;
   const dtStatus status = query->impl->findDistanceToWall(
-      start_ref, center, max_radius, &dt_filter, &hit_dist, hit_pos,
+      start_ref, center, max_radius, &filter->impl, &hit_dist, hit_pos,
       hit_normal);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
 
@@ -1131,10 +1166,8 @@ ZrcResult zrcIsValidPolyRef(const ZrcNavMeshQuery* query, ZrcPolyRef ref,
     *out_valid = nav->isValidPolyRef(ref) ? ZRC_TRUE : ZRC_FALSE;
     return ZRC_OK;
   }
-  dtQueryFilter dt_filter;
-  if (!BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
   *out_valid =
-      query->impl->isValidPolyRef(ref, &dt_filter) ? ZRC_TRUE : ZRC_FALSE;
+      query->impl->isValidPolyRef(ref, &filter->impl) ? ZRC_TRUE : ZRC_FALSE;
   return ZRC_OK;
 }
 

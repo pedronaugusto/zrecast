@@ -35,8 +35,9 @@
 //! const query = try zrecast.NavMeshQuery.init(loaded, 2048);
 //! defer query.deinit();
 //!
-//! const filter = zrecast.defaultFilter();
-//! const near = try query.findNearestPoly(pos, .{ 2, 4, 2 }, &filter);
+//! const filter = try zrecast.QueryFilter.initDefault();
+//! defer filter.deinit();
+//! const near = try query.findNearestPoly(pos, .{ 2, 4, 2 }, filter);
 //! ```
 
 const std = @import("std");
@@ -126,7 +127,8 @@ pub const detailTriEdgeFlags = navmesh_mod.detailTriEdgeFlags;
 
 // Runtime.
 pub const PolyRef = query_mod.PolyRef;
-pub const Filter = query_mod.Filter;
+pub const QueryFilter = query_mod.QueryFilter;
+pub const QueryFilterDesc = query_mod.QueryFilterDesc;
 pub const NavMeshQuery = query_mod.NavMeshQuery;
 pub const BorrowedNavMeshQuery = query_mod.BorrowedNavMeshQuery;
 pub const NearestPoly = query_mod.NearestPoly;
@@ -134,7 +136,7 @@ pub const PathResult = query_mod.PathResult;
 pub const RaycastHit = query_mod.RaycastHit;
 pub const MoveResult = query_mod.MoveResult;
 pub const RaycastResult = query_mod.RaycastResult;
-pub const defaultFilter = query_mod.defaultFilter;
+pub const defaultFilterDesc = query_mod.defaultFilterDesc;
 pub const straightpath_start = query_mod.straightpath_start;
 pub const straightpath_end = query_mod.straightpath_end;
 pub const straightpath_offmesh_connection = query_mod.straightpath_offmesh_connection;
@@ -301,6 +303,9 @@ pub const area_walkable = c.area_walkable;
 pub const area_null = c.area_null;
 pub const poly_flag_walkable = c.poly_flag_walkable;
 
+/// Area ids a query filter holds a cost for: an id is below this.
+pub const max_areas = c.max_areas;
+
 /// Build options the C library was actually compiled with, so a consumer can
 /// branch on them instead of assuming.
 pub const options = @import("zrecast_options");
@@ -448,19 +453,19 @@ test "the C library agrees with the extern declarations in c.zig" {
         layout.bake_log_offset_capacity,
     );
 
-    try std.testing.expectEqual(@as(u32, @sizeOf(c.QueryFilter)), layout.query_filter_size);
-    try std.testing.expectEqual(@as(u32, @alignOf(c.QueryFilter)), layout.query_filter_align);
+    try std.testing.expectEqual(@as(u32, @sizeOf(c.QueryFilterDesc)), layout.query_filter_desc_size);
+    try std.testing.expectEqual(@as(u32, @alignOf(c.QueryFilterDesc)), layout.query_filter_desc_align);
     try std.testing.expectEqual(
-        @as(u32, @offsetOf(c.QueryFilter, "area_cost")),
-        layout.query_filter_offset_area_cost,
+        @as(u32, @offsetOf(c.QueryFilterDesc, "area_cost")),
+        layout.query_filter_desc_offset_area_cost,
     );
     try std.testing.expectEqual(
-        @as(u32, @offsetOf(c.QueryFilter, "include_flags")),
-        layout.query_filter_offset_include_flags,
+        @as(u32, @offsetOf(c.QueryFilterDesc, "include_flags")),
+        layout.query_filter_desc_offset_include_flags,
     );
     try std.testing.expectEqual(
-        @as(u32, @offsetOf(c.QueryFilter, "exclude_flags")),
-        layout.query_filter_offset_exclude_flags,
+        @as(u32, @offsetOf(c.QueryFilterDesc, "exclude_flags")),
+        layout.query_filter_desc_offset_exclude_flags,
     );
 
     try std.testing.expectEqual(@as(u32, @sizeOf(c.RaycastHit)), layout.raycast_hit_size);

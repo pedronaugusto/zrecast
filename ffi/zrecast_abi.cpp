@@ -242,9 +242,9 @@ static_assert(sizeof(ZrcBakeConfig) == 19 * 4,
               "list in zrcAbiLayout to match");
 static_assert(19 <= ZRC_ABI_MAX_FIELDS, "ZRC_ABI_MAX_FIELDS is too small");
 
-static_assert(sizeof(ZrcQueryFilter) == ZRC_MAX_AREAS * sizeof(float) + 4,
-              "ZrcQueryFilter gained padding or a field");
-static_assert(offsetof(ZrcQueryFilter, area_cost) == 0, "field moved");
+static_assert(sizeof(ZrcQueryFilterDesc) == ZRC_MAX_AREAS * sizeof(float) + 4,
+              "ZrcQueryFilterDesc gained padding or a field");
+static_assert(offsetof(ZrcQueryFilterDesc, area_cost) == 0, "field moved");
 static_assert(sizeof(ZrcRaycastHit) == 4 + 12 + 12 + 4 + 4 + 4,
               "ZrcRaycastHit gained padding or a field");
 static_assert(offsetof(ZrcRaycastHit, t) == 0, "field moved");
@@ -501,14 +501,16 @@ void zrcAbiLayout(ZrcAbiLayout* out) {
   out->bake_log_offset_capacity =
       static_cast<uint32_t>(offsetof(ZrcBakeLog, capacity));
 
-  out->query_filter_size = static_cast<uint32_t>(sizeof(ZrcQueryFilter));
-  out->query_filter_align = static_cast<uint32_t>(alignof(ZrcQueryFilter));
-  out->query_filter_offset_area_cost =
-      static_cast<uint32_t>(offsetof(ZrcQueryFilter, area_cost));
-  out->query_filter_offset_include_flags =
-      static_cast<uint32_t>(offsetof(ZrcQueryFilter, include_flags));
-  out->query_filter_offset_exclude_flags =
-      static_cast<uint32_t>(offsetof(ZrcQueryFilter, exclude_flags));
+  out->query_filter_desc_size =
+      static_cast<uint32_t>(sizeof(ZrcQueryFilterDesc));
+  out->query_filter_desc_align =
+      static_cast<uint32_t>(alignof(ZrcQueryFilterDesc));
+  out->query_filter_desc_offset_area_cost =
+      static_cast<uint32_t>(offsetof(ZrcQueryFilterDesc, area_cost));
+  out->query_filter_desc_offset_include_flags =
+      static_cast<uint32_t>(offsetof(ZrcQueryFilterDesc, include_flags));
+  out->query_filter_desc_offset_exclude_flags =
+      static_cast<uint32_t>(offsetof(ZrcQueryFilterDesc, exclude_flags));
 
   out->raycast_hit_size = static_cast<uint32_t>(sizeof(ZrcRaycastHit));
   out->raycast_hit_align = static_cast<uint32_t>(alignof(ZrcRaycastHit));

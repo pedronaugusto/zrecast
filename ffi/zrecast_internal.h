@@ -854,31 +854,30 @@ inline bool IsLogCategory(ZrcLogCategory category) {
 // Query filters
 //===----------------------------------------------------------------------===//
 
-/// Translates the POD filter into Detour's class.
+/// Whether a cost may stand for an area in Detour's filter.
+///
+/// A negative or non-finite cost makes A* incoherent: the open list stops
+/// being a priority queue in any useful sense, and a negative edge can make
+/// the search loop.
+inline bool IsAreaCost(float cost) { return IsFinite(cost) && cost >= 0.f; }
+
+/// Builds Detour's class from a description, or refuses the description.
 ///
 /// dtQueryFilter is a C++ type with private members and no aggregate
-/// initialisation, so it cannot appear in the ABI. Building one per call costs
-/// a fixed ~260-byte fill, which is noise beside the graph search it feeds.
-///
-/// Shared rather than per-unit: five translation units now hand a filter to
-/// Detour, and a cost check that holds in one and not another is the kind of
-/// divergence this package has grown before.
-inline bool BuildFilter(const ZrcQueryFilter& in, dtQueryFilter* out) {
+/// initialisation, so it cannot appear in the ABI. A ZrcQueryFilter holds one,
+/// built here once, and every query hands that one to Detour as it is.
+inline bool BuildFilter(const ZrcQueryFilterDesc& in, dtQueryFilter* out) {
   for (int i = 0; i < ZRC_MAX_AREAS; ++i) {
-    const float cost = in.area_cost[i];
-    // A negative or non-finite cost makes A* incoherent: the open list stops
-    // being a priority queue in any useful sense, and a negative edge can make
-    // the search loop.
-    if (!IsFinite(cost) || cost < 0.f) return false;
-    out->setAreaCost(i, cost);
+    if (!IsAreaCost(in.area_cost[i])) return false;
   }
+  for (int i = 0; i < ZRC_MAX_AREAS; ++i) out->setAreaCost(i, in.area_cost[i]);
   out->setIncludeFlags(in.include_flags);
   out->setExcludeFlags(in.exclude_flags);
   return true;
 }
 
-/// The reverse, for reading a filter a crowd holds back out.
-inline void ReadFilter(const dtQueryFilter& in, ZrcQueryFilter* out) {
+/// The reverse, for reading a filter back out.
+inline void DescribeFilter(const dtQueryFilter& in, ZrcQueryFilterDesc* out) {
   for (int i = 0; i < ZRC_MAX_AREAS; ++i) {
     out->area_cost[i] = in.getAreaCost(i);
   }
@@ -1250,6 +1249,11 @@ struct ZrcDisplayList {
   zrc::ConcreteDisplayList* impl;
 };
 
+/// A query filter: Detour's own, checked when it was built.
+struct ZrcQueryFilter {
+  dtQueryFilter impl;
+};
+
 struct ZrcNavMeshQuery {
   dtNavMeshQuery* impl;
   /// The navmesh this query was created against, borrowed. zrcQueryNavMesh
@@ -1265,11 +1269,45 @@ struct ZrcNavMeshQuery {
   ///
   /// dtNavMeshQuery::initSlicedFindPath stores the filter it is given as a raw
   /// pointer and every later update and finalise reads through it
-  /// (DetourNavMeshQuery.cpp:1233). Every other entry point here builds a
-  /// dtQueryFilter on the stack, which would dangle the moment init returned.
+  /// (DetourNavMeshQuery.cpp:1233). Every other entry point hands Detour the
+  /// caller's ZrcQueryFilter, which the caller may destroy the moment init
+  /// returns.
   dtQueryFilter slice_filter;
   /// Whether a sliced search is in flight.
   bool slicing;
+  /// The navmesh's tile origin and the reciprocal of its tile size, on x and
+  /// z: what a box query is checked against, set by zrc::BindQuery. NaN until
+  /// then, so a handle built without it refuses every box rather than
+  /// passing every one.
+  double grid_origin[2] = {NAN, NAN};
+  double grid_scale[2] = {NAN, NAN};
 };
+
+namespace zrc {
+
+/// Fills a query handle around upstream's query: every handle, the package's
+/// own and the ones a crowd or path queue lends, is made here.
+///
+/// The tile grid is read now rather than per call. dtNavMesh::init sets the
+/// parameters, their only write after the constructor (DetourNavMesh.cpp:226),
+/// so they hold for the navmesh's life. A grid without a finite, positive tile
+/// size keeps a NaN scale, which every box check refuses.
+inline void BindQuery(ZrcNavMeshQuery* query, dtNavMeshQuery* impl,
+                      const ZrcNavMesh* navmesh) {
+  query->impl = impl;
+  query->navmesh = navmesh;
+  query->slicing = false;
+  const dtNavMeshParams* params = navmesh->impl->getParams();
+  const float size[2] = {params->tileWidth, params->tileHeight};
+  const float origin[2] = {params->orig[0], params->orig[2]};
+  for (int k = 0; k < 2; ++k) {
+    query->grid_origin[k] = origin[k];
+    if (IsFinite(size[k]) && size[k] > 0.f) {
+      query->grid_scale[k] = 1.0 / static_cast<double>(size[k]);
+    }
+  }
+}
+
+}  // namespace zrc
 
 #endif  // ZRECAST_INTERNAL_H_

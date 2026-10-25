@@ -39,10 +39,11 @@ defer mesh.deinit();
 const query = try zrecast.NavMeshQuery.init(mesh, 2048);
 defer query.deinit();
 
-const filter = zrecast.defaultFilter();
+const filter = try zrecast.QueryFilter.initDefault();
+defer filter.deinit();
 const extents = [3]f32{ 2, 4, 2 };
-const from = try query.findNearestPoly(agent_pos, extents, &filter);
-const to = try query.findNearestPoly(target_pos, extents, &filter);
+const from = try query.findNearestPoly(agent_pos, extents, filter);
+const to = try query.findNearestPoly(target_pos, extents, filter);
 if (from.ref == null or to.ref == null) return error.OffMesh;
 
 var corridor: [256]zrecast.PolyRef = undefined;
@@ -51,7 +52,7 @@ const path = try query.findPath(
     to.ref.?,
     from.point,
     to.point,
-    &filter,
+    filter,
     &corridor,
 );
 
@@ -168,15 +169,15 @@ so no third-party meshes are shipped. `bay probe` breaks each invariant in
 | | |
 |---:|---|
 | **0.1.1** | version (one home: `build.zig.zon`) |
-| **383** | C entry points (`ZRC_API` in `ffi/*.h`), each with its Zig extern |
+| **389** | C entry points (`ZRC_API` in `ffi/*.h`), each with its Zig extern |
 | **1186** | public Recast/Detour names, each carrying a verdict in `ci/coverage/` |
 | **1041** | of them reachable through the C boundary (`BOUND`) |
 | **91** | C++-only surface a C boundary cannot carry (`LANGUAGE`), each with the reason |
 | **53** | reimplemented on the Zig side (`ZIG`), each naming its mirror |
 | **1** | declared upstream and defined nowhere (`UNDEFINED`), so no host can call it |
-| **1145** | assertions in the standalone C smoke test |
+| **1169** | assertions in the standalone C smoke test |
 | **30** | vendored recastnavigation translation units `build.zig` compiles |
-| **98** | invariants `bay probe` mutates, each with the test that must notice |
+| **101** | invariants `bay probe` mutates, each with the test that must notice |
 <!-- END GENERATED -->
 
 `bay measurements` recomputes those from the tree, and the gate fails if the

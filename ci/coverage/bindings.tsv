@@ -950,16 +950,16 @@ func:dtProximityGrid::getItemCountAt/2	BOUND	zrcProximityGridItemCountAt
 func:dtProximityGrid::init/2	BOUND	zrcProximityGridCreate, fused with the allocation because upstream leaks when init is called twice
 func:dtProximityGrid::queryItems/6	BOUND	zrcProximityGridQueryItems
 func:dtProximityGrid::~dtProximityGrid/0	BOUND	dtFreeProximityGrid runs it, from zrcProximityGridDestroy
-func:dtQueryFilter::dtQueryFilter/0	BOUND	zrcQueryFilterDefault fills a ZrcQueryFilter with the same defaults its constructor sets
-func:dtQueryFilter::getAreaCost/1	BOUND	ZrcQueryFilter.area_cost — a host reads any of the per-area costs directly from the array
-func:dtQueryFilter::getCost/11	BOUND	ZrcQueryFilter is the whole of it: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields mirrored here
-func:dtQueryFilter::getExcludeFlags/0	BOUND	ZrcQueryFilter.exclude_flags — a host reads the field directly
-func:dtQueryFilter::getIncludeFlags/0	BOUND	ZrcQueryFilter.include_flags — a host reads the field directly
-func:dtQueryFilter::passFilter/3	BOUND	ZrcQueryFilter is the whole of it: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields mirrored here
-func:dtQueryFilter::setAreaCost/2	BOUND	ZrcQueryFilter.area_cost — a host writes any of the per-area costs, applied via BuildFilter's setAreaCost call
-func:dtQueryFilter::setExcludeFlags/1	BOUND	ZrcQueryFilter.exclude_flags — a host sets the field, applied via BuildFilter's setExcludeFlags call
-func:dtQueryFilter::setIncludeFlags/1	BOUND	ZrcQueryFilter.include_flags — a host sets the field, applied via BuildFilter's setIncludeFlags call
-func:dtQueryFilter::~dtQueryFilter/0	BOUND	ZrcQueryFilter is plain data the caller owns, so there is nothing to destroy
+func:dtQueryFilter::dtQueryFilter/0	BOUND	zrcQueryFilterCreate builds one from a ZrcQueryFilterDesc; zrcQueryFilterDescDefault fills the description with the defaults its constructor sets
+func:dtQueryFilter::getAreaCost/1	BOUND	zrcQueryFilterDescribe writes every per-area cost into ZrcQueryFilterDesc.area_cost
+func:dtQueryFilter::getCost/11	BOUND	ZrcQueryFilter holds the class itself and every query hands it to Detour: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields ZrcQueryFilterDesc carries
+func:dtQueryFilter::getExcludeFlags/0	BOUND	zrcQueryFilterDescribe writes it into ZrcQueryFilterDesc.exclude_flags
+func:dtQueryFilter::getIncludeFlags/0	BOUND	zrcQueryFilterDescribe writes it into ZrcQueryFilterDesc.include_flags
+func:dtQueryFilter::passFilter/3	BOUND	ZrcQueryFilter holds the class itself and every query hands it to Detour: passFilter and getCost are virtual only under DT_VIRTUAL_QUERYFILTER, which this tree defines nowhere, so the class has no vtable and its entire state is the three fields ZrcQueryFilterDesc carries
+func:dtQueryFilter::setAreaCost/2	BOUND	zrcQueryFilterSetAreaCost, refusing an area of DT_MAX_AREAS or more and a negative or non-finite cost
+func:dtQueryFilter::setExcludeFlags/1	BOUND	zrcQueryFilterSetExcludeFlags
+func:dtQueryFilter::setIncludeFlags/1	BOUND	zrcQueryFilterSetIncludeFlags
+func:dtQueryFilter::~dtQueryFilter/0	BOUND	zrcQueryFilterDestroy
 func:dtTileCache::addBoxObstacle/3	BOUND	zrcTileCacheAddBoxObstacle, the axis-aligned overload taking two corners
 func:dtTileCache::addBoxObstacle/4	BOUND	zrcTileCacheAddOrientedBoxObstacle, the overload taking a centre, half extents and an angle
 func:dtTileCache::addObstacle/4	BOUND	zrcTileCacheAddCylinderObstacle
@@ -1153,7 +1153,7 @@ type:-::dtPolyQuery	BOUND	ZrcPolyQuery, a struct of function pointers rather tha
 type:-::dtPolyRef	BOUND	ZrcPolyRef is exactly dtPolyRef (static_assert SameType in zrecast_abi.cpp)
 type:-::dtPolyTypes	BOUND	ZrcPolyType mirrors both enumerators
 type:-::dtProximityGrid	BOUND	ZrcProximityGrid, produced by zrcProximityGridCreate
-type:-::dtQueryFilter	BOUND	ZrcQueryFilter mirrors area_cost/include_flags/exclude_flags, the data a host can set per query
+type:-::dtQueryFilter	BOUND	ZrcQueryFilter, an opaque handle holding one, built once from a ZrcQueryFilterDesc whose costs it checks
 type:-::dtRaycastHit	BOUND	ZrcRaycastHit mirrors t/position/normal/hit, the raycast result a host can read
 type:-::dtRaycastOptions	BOUND	ZRC_RAYCAST_USE_COSTS, taken by zrcRaycast
 type:-::dtStatus	BOUND	ZrcResult, which every entry point returns in its place

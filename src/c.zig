@@ -580,7 +580,7 @@ pub const TileLayout = extern struct {
     total_size: i64,
 };
 
-pub const QueryFilter = extern struct {
+pub const QueryFilterDesc = extern struct {
     area_cost: [max_areas]f32,
     include_flags: u16,
     exclude_flags: u16,
@@ -836,11 +836,11 @@ pub const AbiLayout = extern struct {
     bake_log_offset_buffer: u32,
     bake_log_offset_capacity: u32,
 
-    query_filter_size: u32,
-    query_filter_align: u32,
-    query_filter_offset_area_cost: u32,
-    query_filter_offset_include_flags: u32,
-    query_filter_offset_exclude_flags: u32,
+    query_filter_desc_size: u32,
+    query_filter_desc_align: u32,
+    query_filter_desc_offset_area_cost: u32,
+    query_filter_desc_offset_include_flags: u32,
+    query_filter_desc_offset_exclude_flags: u32,
 
     raycast_hit_size: u32,
     raycast_hit_align: u32,
@@ -1826,7 +1826,15 @@ pub extern fn zrcOffsetPoly(
     out_vert_count: *i32,
 ) Result;
 
-pub extern fn zrcQueryFilterDefault(out: *QueryFilter) void;
+pub const QueryFilter = opaque {};
+
+pub extern fn zrcQueryFilterDescDefault(out: *QueryFilterDesc) void;
+pub extern fn zrcQueryFilterCreate(desc: *const QueryFilterDesc, out: **QueryFilter) Result;
+pub extern fn zrcQueryFilterDestroy(filter: ?*QueryFilter) void;
+pub extern fn zrcQueryFilterDescribe(filter: *const QueryFilter, out: *QueryFilterDesc) Result;
+pub extern fn zrcQueryFilterSetAreaCost(filter: *QueryFilter, area: u8, cost: f32) Result;
+pub extern fn zrcQueryFilterSetIncludeFlags(filter: *QueryFilter, flags: u16) Result;
+pub extern fn zrcQueryFilterSetExcludeFlags(filter: *QueryFilter, flags: u16) Result;
 pub extern fn zrcNavMeshQueryCreate(
     navmesh: *const NavMesh,
     max_nodes: i32,
@@ -2706,7 +2714,7 @@ pub extern fn zrcCrowdSetAvoidanceParams(
 ) Result;
 pub extern fn zrcCrowdAvoidanceParams(crowd: *const Crowd, index: i32, out: *AvoidanceParams) Result;
 pub extern fn zrcCrowdSetFilter(crowd: *Crowd, index: i32, filter: *const QueryFilter) Result;
-pub extern fn zrcCrowdFilter(crowd: *const Crowd, index: i32, out: *QueryFilter) Result;
+pub extern fn zrcCrowdFilter(crowd: *const Crowd, index: i32, out: *QueryFilterDesc) Result;
 pub extern fn zrcCrowdQueryHalfExtents(crowd: *const Crowd, out: *[3]f32) Result;
 pub extern fn zrcCrowdGrid(crowd: *const Crowd, out: **const ProximityGrid) Result;
 pub extern fn zrcCrowdPathQueue(crowd: *const Crowd, out: **const PathQueue) Result;

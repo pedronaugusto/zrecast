@@ -167,8 +167,6 @@ ZrcResult zrcPathCorridorFindCorners(ZrcPathCorridor* corridor,
   const ZrcResult slicing_ok = CheckNotSlicing(query);
   if (slicing_ok != ZRC_OK) return slicing_ok;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!zrc::BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   zrc::TempBuffer verts_buf(sizeof(float) * 3 *
                             static_cast<size_t>(max_corners));
@@ -185,7 +183,7 @@ ZrcResult zrcPathCorridorFindCorners(ZrcPathCorridor* corridor,
   dtPolyRef* polys = static_cast<dtPolyRef*>(polys_buf.get());
 
   const int ncorners = corridor->impl->findCorners(
-      verts, flags, polys, max_corners, query->impl, &dt_filter);
+      verts, flags, polys, max_corners, query->impl, &filter->impl);
   // No truncation check goes here: findCorners calls
   // navquery->findStraightPath without ever capturing its return value
   // (DetourPathCorridor.cpp:261), so neither a clipped string-pull nor a
@@ -217,11 +215,9 @@ ZrcResult zrcPathCorridorOptimizeVisibility(ZrcPathCorridor* corridor,
   const ZrcResult slicing_ok = CheckNotSlicing(query);
   if (slicing_ok != ZRC_OK) return slicing_ok;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!zrc::BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   corridor->impl->optimizePathVisibility(next, range, query->impl,
-                                         &dt_filter);
+                                         &filter->impl);
   return ZRC_OK;
 }
 
@@ -237,11 +233,9 @@ ZrcResult zrcPathCorridorOptimizeTopology(ZrcPathCorridor* corridor,
   const ZrcResult slicing_ok = CheckNotSlicing(query);
   if (slicing_ok != ZRC_OK) return slicing_ok;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!zrc::BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   const bool optimized =
-      corridor->impl->optimizePathTopology(query->impl, &dt_filter);
+      corridor->impl->optimizePathTopology(query->impl, &filter->impl);
   if (out_optimized != nullptr) {
     *out_optimized = optimized ? ZRC_TRUE : ZRC_FALSE;
   }
@@ -308,11 +302,9 @@ ZrcResult zrcPathCorridorTrimInvalid(ZrcPathCorridor* corridor,
   const ZrcResult slicing_ok = CheckNotSlicing(query);
   if (slicing_ok != ZRC_OK) return slicing_ok;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!zrc::BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   const bool trimmed = corridor->impl->trimInvalidPath(
-      safe_poly, safe_position, query->impl, &dt_filter);
+      safe_poly, safe_position, query->impl, &filter->impl);
   if (out_trimmed != nullptr) *out_trimmed = trimmed ? ZRC_TRUE : ZRC_FALSE;
   return ZRC_OK;
 }
@@ -331,11 +323,9 @@ ZrcResult zrcPathCorridorIsValid(ZrcPathCorridor* corridor,
   const ZrcResult slicing_ok = CheckNotSlicing(query);
   if (slicing_ok != ZRC_OK) return slicing_ok;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!zrc::BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   const bool valid =
-      corridor->impl->isValid(max_lookahead, query->impl, &dt_filter);
+      corridor->impl->isValid(max_lookahead, query->impl, &filter->impl);
   *out_valid = valid ? ZRC_TRUE : ZRC_FALSE;
   return ZRC_OK;
 }
@@ -354,11 +344,9 @@ ZrcResult zrcPathCorridorMovePosition(ZrcPathCorridor* corridor,
   const ZrcResult slicing_ok = CheckNotSlicing(query);
   if (slicing_ok != ZRC_OK) return slicing_ok;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!zrc::BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   const bool moved =
-      corridor->impl->movePosition(position, query->impl, &dt_filter);
+      corridor->impl->movePosition(position, query->impl, &filter->impl);
   if (out_moved != nullptr) *out_moved = moved ? ZRC_TRUE : ZRC_FALSE;
   return ZRC_OK;
 }
@@ -381,11 +369,9 @@ ZrcResult zrcPathCorridorMoveTargetPosition(ZrcPathCorridor* corridor,
   const ZrcResult slicing_ok = CheckNotSlicing(query);
   if (slicing_ok != ZRC_OK) return slicing_ok;
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!zrc::BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
   const bool moved =
-      corridor->impl->moveTargetPosition(position, query->impl, &dt_filter);
+      corridor->impl->moveTargetPosition(position, query->impl, &filter->impl);
   if (out_moved != nullptr) *out_moved = moved ? ZRC_TRUE : ZRC_FALSE;
   return ZRC_OK;
 }
@@ -526,10 +512,8 @@ ZrcResult zrcLocalBoundaryUpdate(ZrcLocalBoundary* boundary, ZrcPolyRef poly,
     return ZRC_ERR_INVALID_ARGUMENT;
   }
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!zrc::BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
-  boundary->impl->update(poly, position, range, query->impl, &dt_filter);
+  boundary->impl->update(poly, position, range, query->impl, &filter->impl);
   return ZRC_OK;
 }
 
@@ -548,10 +532,8 @@ ZrcResult zrcLocalBoundaryIsValid(ZrcLocalBoundary* boundary,
   // isValid calls dtNavMeshQuery::isValidPolyRef, which dereferences the
   // filter with no null check of its own (DetourNavMeshQuery.cpp:3666).
   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-  dtQueryFilter dt_filter;
-  if (!zrc::BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
 
-  const bool valid = boundary->impl->isValid(query->impl, &dt_filter);
+  const bool valid = boundary->impl->isValid(query->impl, &filter->impl);
   *out_valid = valid ? ZRC_TRUE : ZRC_FALSE;
   return ZRC_OK;
 }
@@ -651,9 +633,9 @@ ZrcResult zrcPathQueueCreate(const ZrcNavMesh* navmesh, int32_t max_path_size,
   // getNavQuery() returns const (DetourPathQueue.h:71); this wrapper is only
   // ever handed out as `const ZrcNavMeshQuery*`, so nothing reachable from
   // here gets a path to mutate the object through.
-  handle->query->impl = const_cast<dtNavMeshQuery*>(handle->impl->getNavQuery());
-  handle->query->navmesh = navmesh;
-  handle->query->slicing = false;
+  zrc::BindQuery(handle->query,
+                 const_cast<dtNavMeshQuery*>(handle->impl->getNavQuery()),
+                 navmesh);
 
   for (int32_t i = 0; i < zrc::kPathQueueSlots; ++i) {
     handle->filter_owner[i] = ZRC_PATH_REQUEST_NONE;
@@ -735,9 +717,7 @@ ZrcResult zrcPathQueueRequest(ZrcPathQueue* queue, ZrcPolyRef start_poly,
     return ZRC_OK;
   }
 
-  if (!zrc::BuildFilter(*filter, &queue->filters[slot])) {
-    return ZRC_ERR_INVALID_ARGUMENT;
-  }
+  queue->filters[slot] = filter->impl;
 
   const dtPathQueueRef ref =
       queue->impl->request(start_poly, end_poly, start_position,

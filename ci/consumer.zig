@@ -19,7 +19,8 @@ pub fn main(init: std.process.Init) !void {
 
     const query = try zrecast.NavMeshQuery.init(mesh, 256);
     defer query.deinit();
-    const filter = zrecast.defaultFilter();
-    const near = try query.findNearestPoly(.{ 0, 0, 0 }, .{ 2, 4, 2 }, &filter);
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
+    const near = try query.findNearestPoly(.{ 0, 0, 0 }, .{ 2, 4, 2 }, filter);
     if (near.ref == null) return error.OffMesh;
 }

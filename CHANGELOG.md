@@ -28,6 +28,18 @@ not express, so a port has the reason and not only the diff.
   `BorrowedNavMesh`. They returned the owning types, built by casting away the
   boundary's `const`, so a caller could free the crowd's own grid, a double
   free, or clear and fill it.
+- A query filter is a handle: `QueryFilter.init(desc)` and `deinit`, with
+  `describe`, `setAreaCost`, `setIncludeFlags` and `setExcludeFlags`, and in C
+  `zrcQueryFilterCreate`, `zrcQueryFilterDestroy`, `zrcQueryFilterDescribe`
+  and the three setters. Every query, the corridor, the local boundary, the
+  path queue and `Crowd.setFilter` take one. The plain struct it is made from
+  is `QueryFilterDesc` (`ZrcQueryFilterDesc`), which `defaultFilterDesc`
+  (`zrcQueryFilterDescDefault`) fills and `Crowd.filter` returns. Every call
+  checked every area cost and built Detour's filter from the struct again,
+  which was most of what `findNearestPoly` and `raycast` cost over the same
+  calls made from C++; the handle is checked once, where it is made, and
+  handed to Detour as it is. A negative or non-finite cost is now refused by
+  `QueryFilter.init` or `setAreaCost` rather than by the query.
 - `setAllocator` and `NavMeshQuery.slicedFindPathCancel` return `void`. The
   boundary refuses only a bridge missing a function and a query never made,
   and the Zig side can pass neither.

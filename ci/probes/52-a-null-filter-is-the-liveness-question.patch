@@ -1,7 +1,7 @@
 # expect: FAIL zrcIsValidPolyRef(query, start_ref, NULL, &valid) == ZRC_OK
 --- a/ffi/zrecast_query.cpp
 +++ b/ffi/zrecast_query.cpp
-@@ -1139,12 +1139,7 @@
+@@ -1160,12 +1160,7 @@
    if (query == nullptr || query->impl == nullptr) {
      return ZRC_ERR_INVALID_ARGUMENT;
    }
@@ -12,6 +12,6 @@
 -    return ZRC_OK;
 -  }
 +  if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
-   dtQueryFilter dt_filter;
-   if (!BuildFilter(*filter, &dt_filter)) return ZRC_ERR_INVALID_ARGUMENT;
    *out_valid =
+       query->impl->isValidPolyRef(ref, &filter->impl) ? ZRC_TRUE : ZRC_FALSE;
+   return ZRC_OK;

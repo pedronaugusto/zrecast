@@ -1,0 +1,16 @@
+# expect: a filter checks its costs where it is made and where one is set
+#
+# No query checks a cost any more, so a filter made from a negative one would
+# reach every search it is handed.
+--- a/ffi/zrecast_internal.h
++++ b/ffi/zrecast_internal.h
+@@ -867,9 +867,6 @@
+ /// initialisation, so it cannot appear in the ABI. A ZrcQueryFilter holds one,
+ /// built here once, and every query hands that one to Detour as it is.
+ inline bool BuildFilter(const ZrcQueryFilterDesc& in, dtQueryFilter* out) {
+-  for (int i = 0; i < ZRC_MAX_AREAS; ++i) {
+-    if (!IsAreaCost(in.area_cost[i])) return false;
+-  }
+   for (int i = 0; i < ZRC_MAX_AREAS; ++i) out->setAreaCost(i, in.area_cost[i]);
+   out->setIncludeFlags(in.include_flags);
+   out->setExcludeFlags(in.exclude_flags);

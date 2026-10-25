@@ -685,8 +685,9 @@ const ImageSeed = struct {
         defer query.deinit();
         // A point on the pristine mesh, so a mutant's queries start from
         // coordinates that mean something.
-        const filter = zrecast.defaultFilter();
-        const anchor = try query.findNearestPoly(.{ 0, 0, 0 }, extents, &filter);
+        const filter = try zrecast.QueryFilter.initDefault();
+        defer filter.deinit();
+        const anchor = try query.findNearestPoly(.{ 0, 0, 0 }, extents, filter);
         if (anchor.ref == null) return error.OffMesh;
         return .{ .image = try keep(image.bytes), .anchor = anchor.point };
     }
@@ -741,20 +742,21 @@ fn anyImage(seed: *ImageSeed, case: *shakedown.Case) !void {
     // A refusal is an accepted answer to every query; reaching it without a
     // fault is the property, and the sanitizer and the leak check are what
     // would object.
-    const filter = zrecast.defaultFilter();
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
     const query = try zrecast.NavMeshQuery.init(loaded, 256);
     defer query.deinit();
-    const near = query.findNearestPoly(seed.anchor, ImageSeed.extents, &filter) catch return;
+    const near = query.findNearestPoly(seed.anchor, ImageSeed.extents, filter) catch return;
     const ref = near.ref orelse return;
     var corridor: [64]zrecast.PolyRef = undefined;
-    const path = query.findPath(ref, ref, near.point, seed.anchor, &filter, &corridor) catch return;
+    const path = query.findPath(ref, ref, near.point, seed.anchor, filter, &corridor) catch return;
     var corners: [16][3]f32 = undefined;
     // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
     _ = query.findStraightPath(near.point, seed.anchor, corridor[0..path.len], .{}, &corners, null, null) catch {};
     // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-    _ = query.raycast(ref, near.point, seed.anchor, &filter, .{}, null, null) catch {};
+    _ = query.raycast(ref, near.point, seed.anchor, filter, .{}, null, null) catch {};
     // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-    _ = query.moveAlongSurface(ref, near.point, seed.anchor, &filter, null) catch {};
+    _ = query.moveAlongSurface(ref, near.point, seed.anchor, filter, null) catch {};
 }
 
 test "any bytes as a navmesh image are refused, or load and answer every query" {
@@ -1092,8 +1094,9 @@ test "an image whose polygons lie about their own shape is rejected" {
     defer good.deinit();
     const query = try zrecast.NavMeshQuery.init(good, 2048);
     defer query.deinit();
-    const filter = zrecast.defaultFilter();
-    const near = try query.findNearestPoly(fixture.start, search_extents, &filter);
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
+    const near = try query.findNearestPoly(fixture.start, search_extents, filter);
     try std.testing.expect(near.ref != null);
 }
 
@@ -1106,7 +1109,7 @@ const World = struct {
     poly: zrecast.PolyMesh,
     mesh: zrecast.NavMesh,
     query: zrecast.NavMeshQuery,
-    filter: zrecast.Filter,
+    filter: zrecast.QueryFilter,
 
     fn init() !World {
         const poly = try bakeFixture(null);
@@ -1114,10 +1117,13 @@ const World = struct {
         const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
         errdefer mesh.deinit();
         const query = try zrecast.NavMeshQuery.init(mesh, 2048);
-        return .{ .poly = poly, .mesh = mesh, .query = query, .filter = zrecast.defaultFilter() };
+        errdefer query.deinit();
+        const filter = try zrecast.QueryFilter.initDefault();
+        return .{ .poly = poly, .mesh = mesh, .query = query, .filter = filter };
     }
 
     fn deinit(self: World) void {
+        self.filter.deinit();
         self.query.deinit();
         self.mesh.deinit();
         self.poly.deinit();
@@ -1143,7 +1149,7 @@ fn tiledConfig() zrecast.Config {
 const TiledWorld = struct {
     mesh: zrecast.NavMesh,
     query: zrecast.NavMeshQuery,
-    filter: zrecast.Filter,
+    filter: zrecast.QueryFilter,
     grid: zrecast.TileGrid,
     baked: u32,
     empty: u32,
@@ -1180,10 +1186,12 @@ const TiledWorld = struct {
         }
 
         const query = try zrecast.NavMeshQuery.init(mesh, 4096);
+        errdefer query.deinit();
+        const filter = try zrecast.QueryFilter.initDefault();
         return .{
             .mesh = mesh,
             .query = query,
-            .filter = zrecast.defaultFilter(),
+            .filter = filter,
             .grid = grid,
             .baked = baked,
             .empty = empty,
@@ -1191,6 +1199,7 @@ const TiledWorld = struct {
     }
 
     fn deinit(self: TiledWorld) void {
+        self.filter.deinit();
         self.query.deinit();
         self.mesh.deinit();
     }
@@ -1309,8 +1318,8 @@ test "a path crosses a tile boundary, and stops crossing when the tile is remove
     // leave one tile and enter another, which it can only do through the portal
     // edges a tiled bake emits — so this fails if the border, the tile bounds or
     // the portal validation are wrong, not merely if tiling is missing.
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
-    const to = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
     try std.testing.expect(from.ref != null);
     try std.testing.expect(to.ref != null);
 
@@ -1324,7 +1333,7 @@ test "a path crosses a tile boundary, and stops crossing when the tile is remove
         to.ref.?,
         from.point,
         to.point,
-        &world.filter,
+        world.filter,
         &corridor,
     );
     try std.testing.expect(path.len > 0);
@@ -1337,7 +1346,7 @@ test "a path crosses a tile boundary, and stops crossing when the tile is remove
     try world.mesh.removeTile(goal_tile);
     try std.testing.expectEqual(world.baked - 1, world.mesh.tileCount());
 
-    const after = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+    const after = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
     try std.testing.expect(after.ref == null);
 }
 
@@ -1681,9 +1690,10 @@ test "a hand-built mesh with no flags is a navmesh no query can cross" {
     defer flagged.deinit();
     var flagged_query = try zrecast.NavMeshQuery.init(flagged, 2048);
     defer flagged_query.deinit();
-    const filter = zrecast.defaultFilter();
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
     const half = [3]f32{ 2, 4, 2 };
-    const found = try flagged_query.findNearestPoly(fixture.start, half, &filter);
+    const found = try flagged_query.findNearestPoly(fixture.start, half, filter);
     try std.testing.expect(found.ref != 0);
 
     // The same geometry, with the flags Recast left alone.
@@ -1694,7 +1704,7 @@ test "a hand-built mesh with no flags is a navmesh no query can cross" {
     defer unreachable_mesh.deinit();
     var bare_query = try zrecast.NavMeshQuery.init(unreachable_mesh, 2048);
     defer bare_query.deinit();
-    const missing = try bare_query.findNearestPoly(fixture.start, half, &filter);
+    const missing = try bare_query.findNearestPoly(fixture.start, half, filter);
     try std.testing.expectEqual(@as(?zrecast.PolyRef, null), missing.ref);
 }
 
@@ -1804,8 +1814,9 @@ test "a mesh with no detail half is a navmesh Detour derives the height for" {
     defer navmesh.deinit();
     var query = try zrecast.NavMeshQuery.init(navmesh, 2048);
     defer query.deinit();
-    const filter = zrecast.defaultFilter();
-    const found = try query.findNearestPoly(fixture.start, .{ 2, 4, 2 }, &filter);
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
+    const found = try query.findNearestPoly(fixture.start, .{ 2, 4, 2 }, filter);
     try std.testing.expect(found.ref != null);
 }
 
@@ -2207,16 +2218,17 @@ fn anyTile(seeds: *const TileSeeds, case: *shakedown.Case) !void {
     var centre: [3]f32 = undefined;
     for (&centre, bounds[0], bounds[1]) |*m, lo, hi| m.* = lo + (hi - lo) / 2;
 
-    const filter = zrecast.defaultFilter();
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
     const query = try zrecast.NavMeshQuery.init(mesh, 256);
     defer query.deinit();
-    if (query.findNearestPoly(centre, .{ 10, 10, 10 }, &filter)) |near| {
+    if (query.findNearestPoly(centre, .{ 10, 10, 10 }, filter)) |near| {
         if (near.ref) |poly| {
             var corridor: [64]zrecast.PolyRef = undefined;
             // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-            _ = query.findPath(poly, poly, near.point, centre, &filter, &corridor) catch {};
+            _ = query.findPath(poly, poly, near.point, centre, filter, &corridor) catch {};
             // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-            _ = query.raycast(poly, near.point, centre, &filter, .{}, null, null) catch {};
+            _ = query.raycast(poly, near.point, centre, filter, .{}, null, null) catch {};
         }
     } else |_| {}
     try mesh.removeTile(ref);
@@ -2319,7 +2331,7 @@ const CachedWorld = struct {
     cache: zrecast.TileCache,
     mesh: zrecast.NavMesh,
     query: zrecast.NavMeshQuery,
-    filter: zrecast.Filter,
+    filter: zrecast.QueryFilter,
     layers: u32,
 
     /// Cooks one tile of the grid into compressed layers and adds them.
@@ -2478,16 +2490,19 @@ const CachedWorld = struct {
         }
 
         const query = try zrecast.NavMeshQuery.init(mesh, 4096);
+        errdefer query.deinit();
+        const filter = try zrecast.QueryFilter.initDefault();
         return .{
             .cache = cache,
             .mesh = mesh,
             .query = query,
-            .filter = zrecast.defaultFilter(),
+            .filter = filter,
             .layers = layers,
         };
     }
 
     fn deinit(self: *CachedWorld) void {
+        self.filter.deinit();
         self.query.deinit();
         self.mesh.deinit();
         self.cache.deinit();
@@ -2508,8 +2523,8 @@ const CachedWorld = struct {
     /// goal, which is only true while the wall's gap is open.
     fn goalReachable(self: *CachedWorld) !bool {
         const half = [3]f32{ 2, 4, 2 };
-        const from = try self.query.findNearestPoly(fixture.start, half, &self.filter);
-        const to = try self.query.findNearestPoly(fixture.goal, half, &self.filter);
+        const from = try self.query.findNearestPoly(fixture.start, half, self.filter);
+        const to = try self.query.findNearestPoly(fixture.goal, half, self.filter);
         if (from.ref == null or to.ref == null) return false;
         var corridor: [256]zrecast.PolyRef = undefined;
         const path = try self.query.findPath(
@@ -2517,7 +2532,7 @@ const CachedWorld = struct {
             to.ref.?,
             from.point,
             to.point,
-            &self.filter,
+            self.filter,
             &corridor,
         );
         return !path.partial;
@@ -3089,7 +3104,7 @@ test "findNearestPoly locates the ground and reports nothing off the mesh" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(near.ref != null);
     // The projected point must be on the floor, near the requested point.
     try std.testing.expectApproxEqAbs(fixture.start[0], near.point[0], 1.0);
@@ -3100,7 +3115,7 @@ test "findNearestPoly locates the ground and reports nothing off the mesh" {
     const nowhere = try world.query.findNearestPoly(
         .{ 500, 500, 500 },
         search_extents,
-        &world.filter,
+        world.filter,
     );
     try std.testing.expect(nowhere.ref == null);
     // Not finding anything is not an error, and the point is left as asked.
@@ -3115,16 +3130,20 @@ test "a filter that admits nothing finds nothing" {
     const world = try World.init();
     defer world.deinit();
 
-    var blind = zrecast.defaultFilter();
-    blind.include_flags = 0;
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &blind);
+    var blind_desc = zrecast.defaultFilterDesc();
+    blind_desc.include_flags = 0;
+    const blind = try zrecast.QueryFilter.init(blind_desc);
+    defer blind.deinit();
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, blind);
     try std.testing.expect(near.ref == null);
 
     // And excluding exactly the flag the bake assigns has the same effect,
     // which is the check that the bake really did assign it.
-    var excluded = zrecast.defaultFilter();
-    excluded.exclude_flags = zrecast.poly_flag_walkable;
-    const also_none = try world.query.findNearestPoly(fixture.start, search_extents, &excluded);
+    var excluded_desc = zrecast.defaultFilterDesc();
+    excluded_desc.exclude_flags = zrecast.poly_flag_walkable;
+    const excluded = try zrecast.QueryFilter.init(excluded_desc);
+    defer excluded.deinit();
+    const also_none = try world.query.findNearestPoly(fixture.start, search_extents, excluded);
     try std.testing.expect(also_none.ref == null);
 }
 
@@ -3136,8 +3155,8 @@ test "a path across the wall has to round its end" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
-    const to = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
     try std.testing.expect(from.ref != null);
     try std.testing.expect(to.ref != null);
 
@@ -3147,7 +3166,7 @@ test "a path across the wall has to round its end" {
         to.ref.?,
         from.point,
         to.point,
-        &world.filter,
+        world.filter,
         &corridor,
     );
     try std.testing.expect(path.len > 0);
@@ -3201,8 +3220,8 @@ test "an unreachable goal yields a partial path rather than a lie" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
-    const island = try world.query.findNearestPoly(fixture.island, search_extents, &world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const island = try world.query.findNearestPoly(fixture.island, search_extents, world.filter);
     try std.testing.expect(from.ref != null);
     // The island must have baked, or this test proves nothing.
     try std.testing.expect(island.ref != null);
@@ -3214,7 +3233,7 @@ test "an unreachable goal yields a partial path rather than a lie" {
         island.ref.?,
         from.point,
         island.point,
-        &world.filter,
+        world.filter,
         &corridor,
     );
     try std.testing.expect(path.partial);
@@ -3232,8 +3251,8 @@ test "a corridor buffer that is too small reports partial, not overflow" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
-    const to = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
 
     var single: [1]zrecast.PolyRef = .{0};
     const path = try world.query.findPath(
@@ -3241,7 +3260,7 @@ test "a corridor buffer that is too small reports partial, not overflow" {
         to.ref.?,
         from.point,
         to.point,
-        &world.filter,
+        world.filter,
         &single,
     );
     try std.testing.expectEqual(@as(usize, 1), path.len);
@@ -3257,7 +3276,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(from.ref != null);
 
     var visited: [32]zrecast.PolyRef = undefined;
@@ -3265,7 +3284,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
         from.ref.?,
         from.point,
         fixture.goal,
-        &world.filter,
+        world.filter,
         &visited,
     );
 
@@ -3284,7 +3303,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
         from.ref.?,
         from.point,
         fixture.goal,
-        &world.filter,
+        world.filter,
         &single,
     );
     try std.testing.expect(clipped.truncated);
@@ -3300,7 +3319,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
         from.ref.?,
         from.point,
         fixture.goal,
-        &world.filter,
+        world.filter,
         null,
     );
     try std.testing.expectEqual(@as(usize, 0), again.visited_len);
@@ -3320,7 +3339,7 @@ test "a raycast stops at the wall and passes through open ground" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(from.ref != null);
 
     var crossed: [32]zrecast.PolyRef = undefined;
@@ -3328,7 +3347,7 @@ test "a raycast stops at the wall and passes through open ground" {
         from.ref.?,
         from.point,
         fixture.goal,
-        &world.filter,
+        world.filter,
         .{},
         null,
         &crossed,
@@ -3347,7 +3366,7 @@ test "a raycast stops at the wall and passes through open ground" {
         from.ref.?,
         from.point,
         fixture.goal,
-        &world.filter,
+        world.filter,
         .{},
         null,
         &one,
@@ -3377,7 +3396,7 @@ test "a raycast stops at the wall and passes through open ground" {
         from.ref.?,
         from.point,
         short_target,
-        &world.filter,
+        world.filter,
         .{},
         null,
         null,
@@ -3392,6 +3411,131 @@ test "a raycast stops at the wall and passes through open ground" {
     }
 }
 
+test "a filter checks its costs where it is made and where one is set" {
+    const gpa = std.testing.allocator;
+    zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    // A negative or non-finite cost makes A* incoherent, so no filter holds
+    // one and no query has to check for it.
+    const bad = [_]f32{ -1, std.math.nan(f32), std.math.inf(f32), -std.math.inf(f32) };
+    for (bad) |cost| {
+        var desc = zrecast.defaultFilterDesc();
+        desc.area_cost[zrecast.area_walkable] = cost;
+        try std.testing.expectError(zrecast.Error.InvalidArgument, zrecast.QueryFilter.init(desc));
+    }
+
+    var desc = zrecast.defaultFilterDesc();
+    desc.area_cost[7] = 3.5;
+    desc.include_flags = 0x00ff;
+    desc.exclude_flags = 0x0010;
+    const filter = try zrecast.QueryFilter.init(desc);
+    defer filter.deinit();
+    try std.testing.expectEqual(desc, filter.describe());
+
+    for (bad) |cost| {
+        try std.testing.expectError(zrecast.Error.InvalidArgument, filter.setAreaCost(7, cost));
+    }
+    try std.testing.expectError(zrecast.Error.InvalidArgument, filter.setAreaCost(zrecast.max_areas, 1));
+    try std.testing.expectEqual(desc, filter.describe());
+
+    try filter.setAreaCost(7, 0);
+    filter.setIncludeFlags(0xffff);
+    filter.setExcludeFlags(0);
+    desc.area_cost[7] = 0;
+    desc.include_flags = 0xffff;
+    desc.exclude_flags = 0;
+    try std.testing.expectEqual(desc, filter.describe());
+}
+
+test "a query a crowd or a path queue lends checks a box as an owned one does" {
+    const gpa = std.testing.allocator;
+    zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const world = try World.init();
+    defer world.deinit();
+    const crowd = try zrecast.Crowd.init(world.mesh, 8, 0.6);
+    defer crowd.deinit();
+    const queue = try zrecast.PathQueue.init(world.mesh, 256, 2048);
+    defer queue.deinit();
+
+    // Each of the three is a handle the package builds around a query
+    // upstream owns, and each reads the navmesh's tile grid when it is made.
+    // One built without it would check every box against no grid at all. The
+    // box is fourteen million cells, over the ceiling on their product.
+    const lent = [_]zrecast.BorrowedNavMeshQuery{
+        try crowd.navMeshQuery(),
+        try (try crowd.pathQueue()).navMeshQuery(),
+        try queue.navMeshQuery(),
+    };
+    for (lent) |query| {
+        try std.testing.expectError(error.InvalidArgument, query.findNearestPoly(
+            .{ 0, 0, 0 },
+            .{ 1e5, 1, 1e5 },
+            world.filter,
+        ));
+        const near = try query.findNearestPoly(fixture.start, search_extents, world.filter);
+        try std.testing.expect(near.ref != null);
+    }
+}
+
+test "a slice, a path request and a crowd keep their own copy of a filter" {
+    const gpa = std.testing.allocator;
+    zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    const world = try World.init();
+    defer world.deinit();
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    var whole: [256]zrecast.PolyRef = undefined;
+    const one_shot = try world.query.findPath(from.ref.?, to.ref.?, from.point, to.point, world.filter, &whole);
+    try std.testing.expect(!one_shot.partial);
+
+    // Destroyed the moment the slice begins: Detour reads the filter on every
+    // update, so the slice must be reading a copy.
+    const lent = try zrecast.QueryFilter.initDefault();
+    try world.query.slicedFindPathInit(from.ref.?, to.ref.?, from.point, to.point, lent, .{});
+    lent.deinit();
+    var rounds: u32 = 0;
+    while (rounds < 1000) : (rounds += 1) {
+        if (!(try world.query.slicedFindPathUpdate(2)).in_progress) break;
+    }
+    var sliced: [256]zrecast.PolyRef = undefined;
+    const finished = try world.query.slicedFindPathFinalize(&sliced);
+    try std.testing.expectEqualSlices(zrecast.PolyRef, whole[0..one_shot.len], sliced[0..finished.len]);
+
+    // The same for a path queue's request.
+    const queue = try zrecast.PathQueue.init(world.mesh, 256, 2048);
+    defer queue.deinit();
+    const queued = try zrecast.QueryFilter.initDefault();
+    const ref = try queue.request(from.ref.?, to.ref.?, from.point, to.point, queued);
+    queued.deinit();
+    try std.testing.expect(ref != zrecast.path_request_none);
+    rounds = 0;
+    while (rounds < 1000) : (rounds += 1) {
+        try queue.update(64);
+        if (try queue.requestStatus(ref) != .running) break;
+    }
+    try std.testing.expectEqual(zrecast.PathRequestState.ready, try queue.requestStatus(ref));
+    var queued_path: [256]zrecast.PolyRef = undefined;
+    const queued_len = try queue.result(ref, &queued_path);
+    try std.testing.expectEqualSlices(zrecast.PolyRef, whole[0..one_shot.len], queued_path[0..queued_len]);
+
+    // And a crowd's table: what it reads back is what it was given, after
+    // the filter it was given is gone.
+    const crowd = try zrecast.Crowd.init(world.mesh, 8, 0.6);
+    defer crowd.deinit();
+    var desc = zrecast.defaultFilterDesc();
+    desc.area_cost[zrecast.area_walkable] = 2;
+    desc.exclude_flags = 0x8000;
+    const shared = try zrecast.QueryFilter.init(desc);
+    try crowd.setFilter(2, shared);
+    shared.deinit();
+    try std.testing.expectEqual(desc, try crowd.filter(2));
+}
+
 test "queries reject the arguments that would fault inside Detour" {
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
@@ -3400,8 +3544,8 @@ test "queries reject the arguments that would fault inside Detour" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
-    const to = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
 
     const nan = std.math.nan(f32);
     var corridor: [16]zrecast.PolyRef = undefined;
@@ -3412,7 +3556,7 @@ test "queries reject the arguments that would fault inside Detour" {
         to.ref.?,
         .{ nan, 0, 0 },
         to.point,
-        &world.filter,
+        world.filter,
         &corridor,
     ));
 
@@ -3422,7 +3566,7 @@ test "queries reject the arguments that would fault inside Detour" {
         to.ref.?,
         from.point,
         to.point,
-        &world.filter,
+        world.filter,
         &corridor,
     ));
 
@@ -3433,20 +3577,8 @@ test "queries reject the arguments that would fault inside Detour" {
         to.ref.?,
         from.point,
         to.point,
-        &world.filter,
+        world.filter,
         &none,
-    ));
-
-    // A negative area cost makes A* incoherent.
-    var negative = zrecast.defaultFilter();
-    negative.area_cost[zrecast.area_walkable] = -1;
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.query.findPath(
-        from.ref.?,
-        to.ref.?,
-        from.point,
-        to.point,
-        &negative,
-        &corridor,
     ));
 
     // A companion array shorter than the point array: Detour writes all three
@@ -3496,7 +3628,7 @@ test "queries reject the arguments that would fault inside Detour" {
     }
     const smallest = try zrecast.NavMeshQuery.init(world.mesh, 4);
     defer smallest.deinit();
-    const found = try smallest.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const found = try smallest.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(found.ref != null);
 }
 
@@ -3508,7 +3640,7 @@ test "a stale polygon reference from another navmesh is refused" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(from.ref != null);
 
     // A reference with a plausible index but a salt that belongs to nothing.
@@ -3519,7 +3651,7 @@ test "a stale polygon reference from another navmesh is refused" {
         from.ref.?,
         from.point,
         from.point,
-        &world.filter,
+        world.filter,
         &corridor,
     ));
 }
@@ -3600,7 +3732,7 @@ fn corridorAreaCount(
 /// the mesh.
 fn corridorBetween(
     world: AuthoredWorld,
-    filter: *const zrecast.Filter,
+    filter: zrecast.QueryFilter,
     from: [3]f32,
     to: [3]f32,
     out: []zrecast.PolyRef,
@@ -3632,17 +3764,20 @@ test "a costly area sends the path around it" {
 
     // Cheap: the corridor is free to cross the band, and the shortest route
     // does. Without this the expensive case below proves nothing.
-    const cheap = zrecast.defaultFilter();
-    const through = try corridorBetween(world, &cheap, south_west, south_east, &corridor);
+    const cheap = try zrecast.QueryFilter.initDefault();
+    defer cheap.deinit();
+    const through = try corridorBetween(world, cheap, south_west, south_east, &corridor);
     try std.testing.expect(!through.partial);
     const crossed = try corridorAreaCount(world.mesh, corridor[0..through.len], marked_area);
     try std.testing.expect(crossed > 0);
 
     // Expensive: the same query, the same navmesh, a filter that charges more
     // for the band than the detour costs.
-    var costly = zrecast.defaultFilter();
-    costly.area_cost[@intCast(marked_area)] = 50;
-    const around = try corridorBetween(world, &costly, south_west, south_east, &corridor);
+    var costly_desc = zrecast.defaultFilterDesc();
+    costly_desc.area_cost[@intCast(marked_area)] = 50;
+    const costly = try zrecast.QueryFilter.init(costly_desc);
+    defer costly.deinit();
+    const around = try corridorBetween(world, costly, south_west, south_east, &corridor);
     try std.testing.expect(!around.partial);
     const avoided = try corridorAreaCount(world.mesh, corridor[0..around.len], marked_area);
     try std.testing.expectEqual(@as(usize, 0), avoided);
@@ -3653,7 +3788,8 @@ test "a volume marked unwalkable carves a hole a path cannot cross" {
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
-    const filter = zrecast.defaultFilter();
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
     var corridor: [128]zrecast.PolyRef = undefined;
 
     // The gap at the wall's end is the only route between the two halves, and
@@ -3661,7 +3797,7 @@ test "a volume marked unwalkable carves a hole a path cannot cross" {
     {
         const open = try AuthoredWorld.init(.{});
         defer open.deinit();
-        const path = try corridorBetween(open, &filter, fixture.start, fixture.goal, &corridor);
+        const path = try corridorBetween(open, filter, fixture.start, fixture.goal, &corridor);
         try std.testing.expect(!path.partial);
     }
 
@@ -3670,7 +3806,7 @@ test "a volume marked unwalkable carves a hole a path cannot cross" {
     const volumes = [_]zrecast.AreaVolume{gapVolume(zrecast.area_null)};
     const blocked = try AuthoredWorld.init(.{ .volumes = &volumes });
     defer blocked.deinit();
-    const path = try corridorBetween(blocked, &filter, fixture.start, fixture.goal, &corridor);
+    const path = try corridorBetween(blocked, filter, fixture.start, fixture.goal, &corridor);
     try std.testing.expect(path.partial);
 }
 
@@ -3692,19 +3828,23 @@ test "the area-to-flag table decides which polygons a filter admits" {
 
     // A point inside the band carries the table's flag, not the default one.
     const inside = [3]f32{ 0, 0, -8 };
-    var admits_all = zrecast.defaultFilter();
-    admits_all.include_flags = zrecast.poly_flag_walkable | marked_flag;
-    const found = try world.query.findNearestPoly(inside, search_extents, &admits_all);
+    var admits_all_desc = zrecast.defaultFilterDesc();
+    admits_all_desc.include_flags = zrecast.poly_flag_walkable | marked_flag;
+    const admits_all = try zrecast.QueryFilter.init(admits_all_desc);
+    defer admits_all.deinit();
+    const found = try world.query.findNearestPoly(inside, search_extents, admits_all);
     try std.testing.expect(found.ref != null);
     try std.testing.expectEqual(marked_area, try world.mesh.polyArea(found.ref.?));
     try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(found.ref.?));
 
     // A filter that excludes that flag cannot see the polygon at all, which is
     // the difference between an area and a flag: one costs, the other refuses.
-    var excludes_band = zrecast.defaultFilter();
-    excludes_band.include_flags = zrecast.poly_flag_walkable | marked_flag;
-    excludes_band.exclude_flags = marked_flag;
-    const hidden = try world.query.findNearestPoly(inside, search_extents, &excludes_band);
+    var excludes_band_desc = zrecast.defaultFilterDesc();
+    excludes_band_desc.include_flags = zrecast.poly_flag_walkable | marked_flag;
+    excludes_band_desc.exclude_flags = marked_flag;
+    const excludes_band = try zrecast.QueryFilter.init(excludes_band_desc);
+    defer excludes_band.deinit();
+    const hidden = try world.query.findNearestPoly(inside, search_extents, excludes_band);
     if (hidden.ref) |ref| {
         try std.testing.expect(try world.mesh.polyArea(ref) != marked_area);
     }
@@ -3718,7 +3858,7 @@ test "a polygon's area and flags can be rewritten after the bake" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(near.ref != null);
     const ref = near.ref.?;
 
@@ -3733,7 +3873,7 @@ test "a polygon's area and flags can be rewritten after the bake" {
     // them, which is what makes this a runtime mechanism rather than a label.
     try world.mesh.setPolyFlags(ref, 0);
     try std.testing.expectEqual(@as(u16, 0), try world.mesh.polyFlags(ref));
-    const after = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const after = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     if (after.ref) |other| try std.testing.expect(other != ref);
 }
 
@@ -3745,7 +3885,7 @@ test "the polygon accessors refuse a reference they cannot resolve" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(near.ref != null);
     const ref = near.ref.?;
 
@@ -3890,8 +4030,9 @@ test "a tile bake applies the same authoring the whole-world bake does" {
     // carries the authored area rather than the default one.
     const query = try zrecast.NavMeshQuery.init(mesh, 2048);
     defer query.deinit();
-    const filter = zrecast.defaultFilter();
-    const found = try query.findNearestPoly(.{ 0, 0, -8 }, search_extents, &filter);
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
+    const found = try query.findNearestPoly(.{ 0, 0, -8 }, search_extents, filter);
     try std.testing.expect(found.ref != null);
     try std.testing.expectEqual(marked_area, try mesh.polyArea(found.ref.?));
 }
@@ -3922,7 +4063,7 @@ const LinkedWorld = struct {
     poly: zrecast.PolyMesh,
     mesh: zrecast.NavMesh,
     query: zrecast.NavMeshQuery,
-    filter: zrecast.Filter,
+    filter: zrecast.QueryFilter,
 
     fn init(authoring: ?zrecast.TileAuthoring) !LinkedWorld {
         const poly = try bakeFixture(null);
@@ -3930,15 +4071,18 @@ const LinkedWorld = struct {
         const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, authoring);
         errdefer mesh.deinit();
         const query = try zrecast.NavMeshQuery.init(mesh, 2048);
+        errdefer query.deinit();
+        const filter = try zrecast.QueryFilter.initDefault();
         return .{
             .poly = poly,
             .mesh = mesh,
             .query = query,
-            .filter = zrecast.defaultFilter(),
+            .filter = filter,
         };
     }
 
     fn deinit(self: LinkedWorld) void {
+        self.filter.deinit();
         self.query.deinit();
         self.mesh.deinit();
         self.poly.deinit();
@@ -3948,8 +4092,8 @@ const LinkedWorld = struct {
     /// connection, judged two ways at once: a corner the string-pull flags,
     /// and a polygon in the corridor whose type says so. Both have to agree.
     fn crossesLink(self: LinkedWorld, from: [3]f32, to: [3]f32) !bool {
-        const start = try self.query.findNearestPoly(from, search_extents, &self.filter);
-        const end = try self.query.findNearestPoly(to, search_extents, &self.filter);
+        const start = try self.query.findNearestPoly(from, search_extents, self.filter);
+        const end = try self.query.findNearestPoly(to, search_extents, self.filter);
         try std.testing.expect(start.ref != null);
         try std.testing.expect(end.ref != null);
 
@@ -3959,7 +4103,7 @@ const LinkedWorld = struct {
             end.ref.?,
             start.point,
             end.point,
-            &self.filter,
+            self.filter,
             &corridor,
         );
         try std.testing.expect(!path.partial);
@@ -4039,8 +4183,8 @@ test "a connection reads back as it was authored" {
 
     // The connection owns the tile's last polygon, so walking a corridor that
     // uses it is how to find its reference without assuming an encoding.
-    const start = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
-    const end = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+    const start = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const end = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
     try std.testing.expect(start.ref != null and end.ref != null);
     var corridor: [128]zrecast.PolyRef = undefined;
     const path = try world.query.findPath(
@@ -4048,7 +4192,7 @@ test "a connection reads back as it was authored" {
         end.ref.?,
         start.point,
         end.point,
-        &world.filter,
+        world.filter,
         &corridor,
     );
     var link_ref: ?zrecast.PolyRef = null;
@@ -4418,7 +4562,7 @@ test "a tile's state saves and restores the flags a query can see" {
     defer world.deinit();
 
     const tile = try world.mesh.tileRefAtIndex(0);
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(near.ref != null);
     const ref = near.ref.?;
 
@@ -4435,7 +4579,7 @@ test "a tile's state saves and restores the flags a query can see" {
     // the accessor that wrote it.
     try world.mesh.setPolyFlags(ref, 0);
     try world.mesh.setPolyArea(ref, zrecast.area_walkable);
-    const gone = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const gone = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     if (gone.ref) |other| try std.testing.expect(other != ref);
 
     try world.mesh.restoreTileState(tile, .init(saved));
@@ -4580,9 +4724,10 @@ fn anyState(seed: *const StateSeed, case: *shakedown.Case) !void {
     try std.testing.expectEqual(try mesh.tileStateSize(tile), bytes.len);
     const query = try zrecast.NavMeshQuery.init(mesh, 256);
     defer query.deinit();
-    const filter = zrecast.defaultFilter();
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
     // glint-ignore: Z026 -- the property is that restored state never crashes a query; a refusal is an accepted outcome
-    _ = query.findNearestPoly(fixture.start, search_extents, &filter) catch {};
+    _ = query.findNearestPoly(fixture.start, search_extents, filter) catch {};
 }
 
 test "any bytes restored as a tile's state are refused, or fit the tile exactly" {
@@ -4608,7 +4753,7 @@ test "a polygon read back is the polygon a query found" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(near.ref != null);
     const ref = near.ref.?;
 
@@ -4659,8 +4804,8 @@ test "the links read back are the links a path walked" {
     const world = try World.init();
     defer world.deinit();
 
-    const start = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
-    const end = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+    const start = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const end = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
     try std.testing.expect(start.ref != null and end.ref != null);
 
     var corridor: [128]zrecast.PolyRef = undefined;
@@ -4669,7 +4814,7 @@ test "the links read back are the links a path walked" {
         end.ref.?,
         start.point,
         end.point,
-        &world.filter,
+        world.filter,
         &corridor,
     );
     try std.testing.expect(!path.partial);
@@ -4880,14 +5025,15 @@ test "a tile built without a bounding-volume tree answers the same questions" {
 
     // And the same answers: without the tree Detour scans every polygon
     // instead, which is slower and not different.
-    const filter = zrecast.defaultFilter();
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
     const a = try zrecast.NavMeshQuery.init(with, 2048);
     defer a.deinit();
     const b = try zrecast.NavMeshQuery.init(without, 2048);
     defer b.deinit();
     for ([_][3]f32{ fixture.start, fixture.goal, .{ 0, 0, -8 } }) |at| {
-        const found_a = try a.findNearestPoly(at, search_extents, &filter);
-        const found_b = try b.findNearestPoly(at, search_extents, &filter);
+        const found_a = try a.findNearestPoly(at, search_extents, filter);
+        const found_b = try b.findNearestPoly(at, search_extents, filter);
         try std.testing.expect(found_a.ref != null and found_b.ref != null);
         try std.testing.expectEqual(found_a.point, found_b.point);
     }
@@ -5333,7 +5479,7 @@ test "the point a query snapped to is inside the polygon it snapped to" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(near.ref != null);
 
     var storage: [c.verts_per_polygon][3]f32 = undefined;
@@ -5364,7 +5510,7 @@ test "a polygon read back has the winding Detour wraps in" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     var storage: [c.verts_per_polygon][3]f32 = undefined;
     const corners = try polygonCorners(world.mesh, near.ref.?, &storage);
 
@@ -5393,7 +5539,7 @@ test "a random point in a polygon is in the polygon" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     var storage: [c.verts_per_polygon][3]f32 = undefined;
     const corners = try polygonCorners(world.mesh, near.ref.?, &storage);
 
@@ -5465,7 +5611,7 @@ test "a segment out of a polygon leaves it at the boundary" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     var storage: [c.verts_per_polygon][3]f32 = undefined;
     const corners = try polygonCorners(world.mesh, near.ref.?, &storage);
 
@@ -5897,7 +6043,7 @@ test "a query box no tile range could hold is refused" {
     try std.testing.expectError(error.InvalidArgument, world.query.findNearestPoly(
         .{ half, 0, 0 },
         .{ half, 1, 1 },
-        &world.filter,
+        world.filter,
     ));
 
     // Finite the whole way, and still not a query: the box spans more grid
@@ -5907,7 +6053,7 @@ test "a query box no tile range could hold is refused" {
     try std.testing.expectError(error.InvalidArgument, world.query.findNearestPoly(
         .{ 0, 0, 0 },
         .{ 1e9, 1, 1e9 },
-        &world.filter,
+        world.filter,
     ));
 
     // And again with each axis comfortably under the limit and only their
@@ -5917,19 +6063,19 @@ test "a query box no tile range could hold is refused" {
     try std.testing.expectError(error.InvalidArgument, world.query.findNearestPoly(
         .{ 0, 0, 0 },
         .{ 1e5, 1, 1e5 },
-        &world.filter,
+        world.filter,
     ));
 
     // A negative extent is not a box at all.
     try std.testing.expectError(error.InvalidArgument, world.query.findNearestPoly(
         fixture.start,
         .{ -1, 1, 1 },
-        &world.filter,
+        world.filter,
     ));
 
     // And an extent large enough to cover the whole navmesh several times over
     // is still an ordinary query.
-    const generous = try world.query.findNearestPoly(fixture.start, .{ 500, 500, 500 }, &world.filter);
+    const generous = try world.query.findNearestPoly(fixture.start, .{ 500, 500, 500 }, world.filter);
     try std.testing.expect(generous.ref != null);
 }
 
@@ -5945,8 +6091,8 @@ const Endpoints = struct {
     goal: zrecast.NearestPoly,
 
     fn find(world: World) !Endpoints {
-        const s = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
-        const g = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+        const s = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+        const g = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
         try std.testing.expect(s.ref != null and g.ref != null);
         return .{ .start = s, .goal = g };
     }
@@ -5967,7 +6113,7 @@ test "a sliced path is the path found all at once" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         &whole,
     );
     try std.testing.expect(!one_shot.partial);
@@ -5979,7 +6125,7 @@ test "a sliced path is the path found all at once" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         .{},
     );
     try std.testing.expect(world.query.slicedFindPathActive());
@@ -6021,7 +6167,7 @@ test "a search that would clear the pool under a slice is refused" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         .{},
     );
     // unreachable: cancel refuses only a query without a handle, and `world.query` holds one.
@@ -6039,14 +6185,14 @@ test "a search that would clear the pool under a slice is refused" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         &path,
     ));
     try std.testing.expectError(error.SearchInProgress, world.query.findPolysAroundCircle(
         ends.start.ref.?,
         ends.start.point,
         5,
-        &world.filter,
+        world.filter,
         &refs,
         &parents,
         &costs,
@@ -6057,7 +6203,7 @@ test "a search that would clear the pool under a slice is refused" {
     try std.testing.expectError(error.SearchInProgress, world.query.findPolysAroundShape(
         ends.start.ref.?,
         &shape,
-        &world.filter,
+        world.filter,
         &refs,
         &parents,
         &costs,
@@ -6066,28 +6212,28 @@ test "a search that would clear the pool under a slice is refused" {
         ends.start.ref.?,
         ends.start.point,
         5,
-        &world.filter,
+        world.filter,
     ));
     try std.testing.expectError(error.SearchInProgress, world.query.findRandomPointAroundCircle(
         ends.start.ref.?,
         ends.start.point,
         5,
-        &world.filter,
+        world.filter,
         fixed_random,
     ));
 
     // And the ones that touch no shared node keep working, because refusing
     // them would be a restriction the defect does not justify: a game loop
     // calls these between slices.
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expectEqual(ends.start.ref, near.ref);
     var boxed: [64]zrecast.PolyRef = undefined;
-    _ = try world.query.queryPolygons(fixture.start, search_extents, &world.filter, &boxed);
+    _ = try world.query.queryPolygons(fixture.start, search_extents, world.filter, &boxed);
     _ = try world.query.raycast(
         ends.start.ref.?,
         ends.start.point,
         fixture.goal,
-        &world.filter,
+        world.filter,
         .{},
         null,
         null,
@@ -6097,7 +6243,7 @@ test "a search that would clear the pool under a slice is refused" {
         ends.start.ref.?,
         ends.start.point,
         fixture.goal,
-        &world.filter,
+        world.filter,
         &visited,
     );
     var local: [16]zrecast.PolyRef = undefined;
@@ -6105,11 +6251,11 @@ test "a search that would clear the pool under a slice is refused" {
         ends.start.ref.?,
         ends.start.point,
         3,
-        &world.filter,
+        world.filter,
         &local,
         &.{},
     );
-    _ = try world.query.findRandomPoint(&world.filter, fixed_random);
+    _ = try world.query.findRandomPoint(world.filter, fixed_random);
 
     // The slice survived all of that.
     try std.testing.expect(world.query.slicedFindPathActive());
@@ -6143,7 +6289,7 @@ test "a slice finalised twice is refused, and cancelling releases it" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         .{},
     );
     var rounds: u32 = 0;
@@ -6164,7 +6310,7 @@ test "a slice finalised twice is refused, and cancelling releases it" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         .{},
     );
     try std.testing.expectError(error.InvalidArgument, world.query.slicedFindPathFinalize(&.{}));
@@ -6179,7 +6325,7 @@ test "a slice finalised twice is refused, and cancelling releases it" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         &path,
     );
 }
@@ -6199,7 +6345,7 @@ test "a slice finalised early keeps the corridor it was re-planning" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         &whole,
     );
 
@@ -6211,7 +6357,7 @@ test "a slice finalised early keeps the corridor it was re-planning" {
         ends.start.ref.?,
         ends.goal.point,
         ends.start.point,
-        &world.filter,
+        world.filter,
         .{},
     );
     _ = try world.query.slicedFindPathUpdate(1);
@@ -6251,18 +6397,18 @@ test "a random point is on the navmesh, and the same numbers give the same point
     defer world.deinit();
 
     fixed_random_state = 12345;
-    const first = try world.query.findRandomPoint(&world.filter, fixed_random);
+    const first = try world.query.findRandomPoint(world.filter, fixed_random);
     try std.testing.expect(first.ref != 0);
 
     // On the navmesh, checked through a different entry point entirely.
-    const snapped = try world.query.findNearestPoly(first.point, .{ 1, 1, 1 }, &world.filter);
+    const snapped = try world.query.findNearestPoly(first.point, .{ 1, 1, 1 }, world.filter);
     try std.testing.expectEqual(first.ref, snapped.ref.?);
     try std.testing.expect(snapped.over_poly);
 
     // The same sequence of numbers places the same point, so a host can seed
     // a placement and reproduce it.
     fixed_random_state = 12345;
-    const again = try world.query.findRandomPoint(&world.filter, fixed_random);
+    const again = try world.query.findRandomPoint(world.filter, fixed_random);
     try std.testing.expectEqual(first.ref, again.ref);
     try std.testing.expectEqual(first.point, again.point);
 
@@ -6271,7 +6417,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
     var seed: u32 = 1;
     while (seed < 40 and !moved) : (seed += 1) {
         fixed_random_state = seed;
-        const other = try world.query.findRandomPoint(&world.filter, fixed_random);
+        const other = try world.query.findRandomPoint(world.filter, fixed_random);
         if (other.ref != first.ref or !std.meta.eql(other.point, first.point)) moved = true;
     }
     try std.testing.expect(moved);
@@ -6281,13 +6427,13 @@ test "a random point is on the navmesh, and the same numbers give the same point
     // point: upstream places the point anywhere inside a polygon the search
     // reached, and a polygon reached at the edge of the circle extends past
     // it. What is checkable is that the point is on the polygon it names.
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     fixed_random_state = 7;
     const around = try world.query.findRandomPointAroundCircle(
         near.ref.?,
         near.point,
         3.0,
-        &world.filter,
+        world.filter,
         fixed_random,
     );
     try std.testing.expect(around.ref != 0);
@@ -6311,7 +6457,7 @@ test "every polygon a box returns overlaps the box" {
     const center = zrecast.Vec3{ fixture.start[0], 0.2, fixture.start[2] };
     const extents = zrecast.Vec3{ 3, 2, 3 };
     var refs: [128]zrecast.PolyRef = undefined;
-    const found = try world.query.queryPolygons(center, extents, &world.filter, &refs);
+    const found = try world.query.queryPolygons(center, extents, world.filter, &refs);
     try std.testing.expect(found.len > 0);
     try std.testing.expect(!found.truncated);
 
@@ -6335,7 +6481,7 @@ test "every polygon a box returns overlaps the box" {
 
     // A buffer too small reports the truncation rather than a short answer.
     var one: [1]zrecast.PolyRef = undefined;
-    const clipped = try world.query.queryPolygons(center, extents, &world.filter, &one);
+    const clipped = try world.query.queryPolygons(center, extents, world.filter, &one);
     try std.testing.expect(clipped.truncated);
     try std.testing.expectEqual(@as(usize, 1), clipped.len);
 }
@@ -6351,7 +6497,7 @@ test "the batched box query finds what the buffered one finds" {
     const center = zrecast.Vec3{ 0, 0.2, 0 };
     const extents = zrecast.Vec3{ 12, 4, 12 };
     var refs: [256]zrecast.PolyRef = undefined;
-    const buffered = try world.query.queryPolygons(center, extents, &world.filter, &refs);
+    const buffered = try world.query.queryPolygons(center, extents, world.filter, &refs);
     try std.testing.expect(buffered.len > 0);
     try std.testing.expect(!buffered.truncated);
 
@@ -6372,7 +6518,7 @@ test "the batched box query finds what the buffered one finds" {
     };
     Collector.count = 0;
     Collector.batches = 0;
-    try world.query.queryPolygonsBatched(center, extents, &world.filter, .{
+    try world.query.queryPolygonsBatched(center, extents, world.filter, .{
         .process = Collector.process,
     });
 
@@ -6413,7 +6559,7 @@ test "the closest point on a polygon is on that polygon" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     const ref = near.ref.?;
 
     var storage: [c.verts_per_polygon][3]f32 = undefined;
@@ -6465,7 +6611,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     const start = near.ref.?;
 
     var refs: [128]zrecast.PolyRef = undefined;
@@ -6475,7 +6621,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
         start,
         near.point,
         6.0,
-        &world.filter,
+        world.filter,
         &refs,
         &parents,
         &costs,
@@ -6536,7 +6682,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
         start,
         near.point,
         6.0,
-        &world.filter,
+        world.filter,
         &refs,
         &.{},
         &.{},
@@ -6546,7 +6692,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
         start,
         near.point,
         6.0,
-        &world.filter,
+        world.filter,
         refs[0..8],
         parents[0..4],
         &.{},
@@ -6561,18 +6707,18 @@ test "the distance to a wall is the distance to the segments the wall is made of
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     const ref = near.ref.?;
 
     var verts: [16][2]zrecast.Vec3 = undefined;
     var neighbours: [16]zrecast.PolyRef = undefined;
-    const walls = try world.query.polyWallSegments(ref, &world.filter, &verts, &neighbours);
+    const walls = try world.query.polyWallSegments(ref, world.filter, &verts, &neighbours);
     try std.testing.expect(walls.len > 0);
     try std.testing.expect(!walls.truncated);
 
     // The nearest wall within reach, and the nearest of those segments, are
     // the same distance away — two routes to one fact.
-    const hit = try world.query.findDistanceToWall(ref, near.point, 20.0, &world.filter);
+    const hit = try world.query.findDistanceToWall(ref, near.point, 20.0, world.filter);
     try std.testing.expect(hit != null);
 
     var nearest_segment: f32 = std.math.floatMax(f32);
@@ -6592,7 +6738,7 @@ test "the distance to a wall is the distance to the segments the wall is made of
     // Nothing within range is an absent answer, not a hit at distance zero —
     // upstream reports success either way and normalises over an untouched
     // position.
-    const nothing = try world.query.findDistanceToWall(ref, near.point, 0.001, &world.filter);
+    const nothing = try world.query.findDistanceToWall(ref, near.point, 0.001, world.filter);
     try std.testing.expect(nothing == null);
 }
 
@@ -6611,7 +6757,7 @@ test "an option a query takes changes what it answers" {
         ends.start.ref.?,
         ends.start.point,
         fixture.goal,
-        &world.filter,
+        world.filter,
         .{},
         null,
         null,
@@ -6621,7 +6767,7 @@ test "an option a query takes changes what it answers" {
         ends.start.ref.?,
         ends.start.point,
         fixture.goal,
-        &world.filter,
+        world.filter,
         .{ .use_costs = true },
         null,
         null,
@@ -6638,7 +6784,7 @@ test "an option a query takes changes what it answers" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         &corridor,
     );
     var turns: [64][3]f32 = undefined;
@@ -6683,7 +6829,7 @@ test "the node pool remembers the corridor the search walked" {
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
-        &world.filter,
+        world.filter,
         &corridor,
     );
     try std.testing.expect(path.len > 2);
@@ -6754,11 +6900,13 @@ test "a polygon reference splits into the fields packed into it" {
 
     // The query and the navmesh answer the same validity question differently:
     // with a filter that admits nothing, a live polygon is not valid.
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
-    var blind = zrecast.defaultFilter();
-    blind.include_flags = 0;
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    var blind_desc = zrecast.defaultFilterDesc();
+    blind_desc.include_flags = 0;
+    const blind = try zrecast.QueryFilter.init(blind_desc);
+    defer blind.deinit();
     try std.testing.expect(try world.query.isValidPolyRef(near.ref.?, null));
-    try std.testing.expect(!try world.query.isValidPolyRef(near.ref.?, &blind));
+    try std.testing.expect(!try world.query.isValidPolyRef(near.ref.?, blind));
 
     // And the navmesh the query hands back is the one it was made from.
     const attached = try world.query.attachedNavMesh();
@@ -6904,7 +7052,7 @@ test "a query that reaches no polygon reports none" {
     // nearest point is metres outside the half-extents asked for.
     const bounds = try world.mesh.bounds();
     const corner = bounds[0];
-    const at_corner = try world.query.findNearestPoly(corner, .{ 0.05, 0.05, 0.05 }, &world.filter);
+    const at_corner = try world.query.findNearestPoly(corner, .{ 0.05, 0.05, 0.05 }, world.filter);
     try std.testing.expect(at_corner.ref == null);
 
     // Well outside the mesh entirely, which never reached a tile at all and so
@@ -6912,12 +7060,12 @@ test "a query that reaches no polygon reports none" {
     const far = try world.query.findNearestPoly(
         .{ -1000, -1000, -1000 },
         .{ 1, 1, 1 },
-        &world.filter,
+        world.filter,
     );
     try std.testing.expect(far.ref == null);
 
     // And the search still finds what it should.
-    const on_ground = try world.query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const on_ground = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(on_ground.ref != null);
 }
 
@@ -7086,11 +7234,13 @@ test "an agent's parameters are checked where upstream indexes unchecked" {
     try crowd.update(1.0 / 60.0);
 
     // Every shared table is bounded here, where upstream answers with null.
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
     try std.testing.expectError(
         zrecast.Error.InvalidArgument,
-        crowd.setFilter(@intCast(zrecast.crowd_max_filters), zrecast.defaultFilter()),
+        crowd.setFilter(@intCast(zrecast.crowd_max_filters), filter),
     );
-    try crowd.setFilter(3, zrecast.defaultFilter());
+    try crowd.setFilter(3, filter);
     var avoidance = zrecast.avoidanceParamsDefault();
     try std.testing.expect(avoidance.grid_size >= 2);
     try crowd.setAvoidanceParams(5, avoidance);
@@ -7128,7 +7278,7 @@ test "two agents on the same spot separate, and neither crosses the wall" {
     const crowd = try zrecast.Crowd.init(world.mesh, 8, 0.6);
     defer crowd.deinit();
 
-    const goal = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+    const goal = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
     try std.testing.expect(goal.ref != null);
 
     const params = crowdAgentParams(0.6);
@@ -7188,7 +7338,7 @@ test "two agents on the same spot separate, and neither crosses the wall" {
     const corridor = try crowd.agentCorridor(a_ref);
     try std.testing.expect(corridor.path_count > 0);
     try std.testing.expect(corridor.first_poly != 0);
-    const under = try world.query.findNearestPoly(a.position, search_extents, &world.filter);
+    const under = try world.query.findNearestPoly(a.position, search_extents, world.filter);
     try std.testing.expectEqual(under.ref.?, corridor.first_poly);
 
     // The boundary was collected, so its centre is no longer the sentinel an
@@ -7222,7 +7372,7 @@ test "a debug view that outlived its agent does not stop the crowd" {
     defer samples.deinit();
     var debug = zrecast.CrowdAgentDebug{ .agent = watched, .samples = samples };
 
-    const goal = try world.query.findNearestPoly(fixture.goal, search_extents, &world.filter);
+    const goal = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
     try crowd.requestMoveTarget(other, goal.ref.?, goal.point);
     try crowd.updateDebug(1.0 / 60.0, &debug);
 
@@ -7264,7 +7414,7 @@ test "an agent removed mid-jump does not carry the next agent with it" {
     const near = [3]f32{ -8, 0, -2 };
     const far = [3]f32{ -8, 0, 2 };
     const jumper = try crowd.addAgent(near, crowdAgentParams(0.6));
-    const target = try world.query.findNearestPoly(far, search_extents, &world.filter);
+    const target = try world.query.findNearestPoly(far, search_extents, world.filter);
     try std.testing.expect(target.ref != null);
     try crowd.requestMoveTarget(jumper, target.ref.?, target.point);
 
@@ -7331,7 +7481,7 @@ test "a crowd's borrowed pieces are the ones it is driving" {
 
     // The query the crowd plans with is against the crowd's own navmesh.
     const query = try crowd.navMeshQuery();
-    const near = try query.findNearestPoly(fixture.start, search_extents, &world.filter);
+    const near = try query.findNearestPoly(fixture.start, search_extents, world.filter);
     try std.testing.expect(near.ref != null);
 
     // And the placement box is derived from the radius the crowd was made for.
@@ -7793,9 +7943,10 @@ test "every Detour container draws into a Zig renderer" {
     try std.testing.expect(!recorder.misordered);
     recorder.reset();
 
-    const filter = zrecast.defaultFilter();
-    const from = try query.findNearestPoly(fixture.start, search_extents, &filter);
-    const to = try query.findNearestPoly(fixture.goal, search_extents, &filter);
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
+    const from = try query.findNearestPoly(fixture.start, search_extents, filter);
+    const to = try query.findNearestPoly(fixture.goal, search_extents, filter);
     try std.testing.expect(from.ref != null and to.ref != null);
 
     try draw.navMeshPoly(mesh, from.ref.?, zrecast.rgba(255, 255, 255, 128));
@@ -7820,7 +7971,7 @@ test "every Detour container draws into a Zig renderer" {
         to.ref.?,
         from.point,
         to.point,
-        &filter,
+        filter,
         &corridor,
     );
     try std.testing.expect(path.len > 1);

@@ -41,6 +41,16 @@ typedef struct Counters {
   size_t frees;
 } Counters;
 
+/* A filter with Detour's defaults: every area at cost 1, every flag
+   admitted. The caller destroys it. */
+static ZrcQueryFilter* default_filter(void) {
+  ZrcQueryFilterDesc desc;
+  zrcQueryFilterDescDefault(&desc);
+  ZrcQueryFilter* filter = NULL;
+  CHECK(zrcQueryFilterCreate(&desc, &filter) == ZRC_OK);
+  return filter;
+}
+
 static void* count_allocate(void* user, size_t size, ZrcAllocHint hint) {
   /* The hint is upstream's; a real host might route TEMP into an arena. */
   (void)hint;
@@ -101,7 +111,7 @@ static void test_abi_layout(void) {
   CHECK(layout.layout_size == (uint32_t)sizeof(ZrcAbiLayout));
   CHECK(layout.trimesh_size == (uint32_t)sizeof(ZrcTriMesh));
   CHECK(layout.bake_config_size == (uint32_t)sizeof(ZrcBakeConfig));
-  CHECK(layout.query_filter_size == (uint32_t)sizeof(ZrcQueryFilter));
+  CHECK(layout.query_filter_desc_size == (uint32_t)sizeof(ZrcQueryFilterDesc));
   CHECK(layout.raycast_hit_size == (uint32_t)sizeof(ZrcRaycastHit));
   CHECK(layout.allocator_size == (uint32_t)sizeof(ZrcAllocator));
   CHECK(layout.tile_grid_size == (uint32_t)sizeof(ZrcTileGrid));
@@ -910,12 +920,12 @@ static void test_null_arguments(void) {
   CHECK(size == 0);
   CHECK(zrcNavMeshSerialize(NULL, NULL, &size) == ZRC_ERR_INVALID_ARGUMENT);
 
-  ZrcQueryFilter f;
-  zrcQueryFilterDefault(&f);
+  ZrcQueryFilter* f = default_filter();
   ZrcPolyRef ref = 9;
-  CHECK(zrcFindNearestPoly(NULL, a, b, &f, &ref, NULL, NULL) ==
+  CHECK(zrcFindNearestPoly(NULL, a, b, f, &ref, NULL, NULL) ==
         ZRC_ERR_INVALID_ARGUMENT);
   CHECK(ref == 0);
+  zrcQueryFilterDestroy(f);
 
   ZrcNavMeshQuery* q = (ZrcNavMeshQuery*)0x1;
   CHECK(zrcNavMeshQueryCreate(NULL, 2048, &q) == ZRC_ERR_INVALID_ARGUMENT);
@@ -927,6 +937,7 @@ static void test_null_handles_are_safe(void) {
   zrcPolyMeshDestroy(NULL);
   zrcNavMeshDestroy(NULL);
   zrcNavMeshQueryDestroy(NULL);
+  zrcQueryFilterDestroy(NULL);
   zrcFree(NULL);
 
   ZrcPolyMeshInfo poly_info_null;
@@ -941,7 +952,7 @@ static void test_null_handles_are_safe(void) {
   /* And so is asking for a layout or a default through a NULL pointer. */
   zrcAbiLayout(NULL);
   zrcBakeConfigDefault(NULL);
-  zrcQueryFilterDefault(NULL);
+  zrcQueryFilterDescDefault(NULL);
 }
 
 static void my_assert_fail(void* user, const char* expression,
@@ -1136,14 +1147,13 @@ static void test_area_authoring(void) {
     return;
   }
 
-  ZrcQueryFilter filter;
-  zrcQueryFilterDefault(&filter);
+  ZrcQueryFilter* filter = default_filter();
   const float inside[3] = {0.0f, 0.0f, -8.0f};
   const float extents[3] = {2.0f, 4.0f, 2.0f};
   ZrcPolyRef ref = 0;
   float nearest[3];
   ZrcBool over_poly = ZRC_FALSE;
-  CHECK(zrcFindNearestPoly(query, inside, extents, &filter, &ref, nearest,
+  CHECK(zrcFindNearestPoly(query, inside, extents, filter, &ref, nearest,
                            &over_poly) == ZRC_OK);
   /* The point was chosen inside the ground plane, so it is over the polygon
      rather than merely nearest to it. */
@@ -1153,7 +1163,7 @@ static void test_area_authoring(void) {
      isOverPoly only inside the branch that also writes nearestPt, so this is
      the case that needs the boundary to hand it scratch of its own. */
   ZrcBool over_alone = ZRC_FALSE;
-  CHECK(zrcFindNearestPoly(query, inside, extents, &filter, &ref, NULL,
+  CHECK(zrcFindNearestPoly(query, inside, extents, filter, &ref, NULL,
                            &over_alone) == ZRC_OK);
   CHECK(over_alone == ZRC_TRUE);
   CHECK(ref != 0);
@@ -1187,6 +1197,7 @@ static void test_area_authoring(void) {
   CHECK(zrcNavMeshGetPolyArea(NULL, ref, &area) == ZRC_ERR_INVALID_ARGUMENT);
   CHECK(zrcNavMeshSetPolyFlags(NULL, ref, 0) == ZRC_ERR_INVALID_ARGUMENT);
 
+  zrcQueryFilterDestroy(filter);
   zrcNavMeshQueryDestroy(query);
   zrcNavMeshDestroy(navmesh);
 }
@@ -1267,8 +1278,7 @@ static void test_pipeline(void) {
     return;
   }
 
-  ZrcQueryFilter filter;
-  zrcQueryFilterDefault(&filter);
+  ZrcQueryFilter* filter = default_filter();
 
   const float start[3] = {ZRC_FIXTURE_START_X, ZRC_FIXTURE_START_Y,
                           ZRC_FIXTURE_START_Z};
@@ -1278,9 +1288,9 @@ static void test_pipeline(void) {
 
   ZrcPolyRef start_ref = 0, goal_ref = 0;
   float start_pt[3], goal_pt[3];
-  CHECK(zrcFindNearestPoly(query, start, extents, &filter, &start_ref,
+  CHECK(zrcFindNearestPoly(query, start, extents, filter, &start_ref,
                            start_pt, NULL) == ZRC_OK);
-  CHECK(zrcFindNearestPoly(query, goal, extents, &filter, &goal_ref, goal_pt,
+  CHECK(zrcFindNearestPoly(query, goal, extents, filter, &goal_ref, goal_pt,
                            NULL) == ZRC_OK);
   CHECK(start_ref != 0);
   CHECK(goal_ref != 0);
@@ -1289,7 +1299,7 @@ static void test_pipeline(void) {
     ZrcPolyRef corridor[256];
     int corridor_len = 0;
     ZrcBool partial = ZRC_TRUE;
-    CHECK(zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, &filter,
+    CHECK(zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, filter,
                       corridor, 256, &corridor_len, &partial) == ZRC_OK);
     CHECK(corridor_len > 0);
     CHECK(partial == ZRC_FALSE);
@@ -1327,18 +1337,18 @@ static void test_pipeline(void) {
        slice is reading a different node pool than it wrote. */
     CHECK(zrcSlicedFindPathActive(query) == ZRC_FALSE);
     CHECK(zrcSlicedFindPathInit(query, start_ref, goal_ref, start_pt, goal_pt,
-                                &filter, 0) == ZRC_OK);
+                                filter, 0) == ZRC_OK);
     CHECK(zrcSlicedFindPathActive(query) == ZRC_TRUE);
 
     /* While a slice is in flight, a search that would clear the node pool
        underneath it is refused rather than corrupting it. */
     int blocked_len = 0;
-    CHECK(zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, &filter,
+    CHECK(zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, filter,
                       corridor, 256, &blocked_len,
                       NULL) == ZRC_ERR_SEARCH_IN_PROGRESS);
     /* And one that does not touch the pool still works. */
     ZrcPolyRef during = 0;
-    CHECK(zrcFindNearestPoly(query, start, extents, &filter, &during, NULL,
+    CHECK(zrcFindNearestPoly(query, start, extents, filter, &during, NULL,
                              NULL) == ZRC_OK);
     CHECK(during == start_ref);
 
@@ -1371,7 +1381,7 @@ static void test_pipeline(void) {
     CHECK(again_len == 0);
     CHECK(zrcSlicedFindPathActive(query) == ZRC_FALSE);
     /* And the pool is free again. */
-    CHECK(zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, &filter,
+    CHECK(zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, filter,
                       corridor, 256, &corridor_len, NULL) == ZRC_OK);
 
     /* A reference splits into the three fields packed into it and rebuilds
@@ -1390,7 +1400,7 @@ static void test_pipeline(void) {
     CHECK(rebuilt == 0);
 
     ZrcBool valid = ZRC_FALSE;
-    CHECK(zrcIsValidPolyRef(query, start_ref, &filter, &valid) == ZRC_OK);
+    CHECK(zrcIsValidPolyRef(query, start_ref, filter, &valid) == ZRC_OK);
     CHECK(valid == ZRC_TRUE);
     /* A NULL filter is the liveness question on its own, which upstream
        answers through a different function entirely. */
@@ -1418,7 +1428,7 @@ static void test_pipeline(void) {
     ZrcPolyRef visited[32];
     int visited_count = 0;
     ZrcBool clipped = ZRC_TRUE;
-    CHECK(zrcMoveAlongSurface(query, start_ref, start_pt, goal, &filter, moved,
+    CHECK(zrcMoveAlongSurface(query, start_ref, start_pt, goal, filter, moved,
                               visited, 32, &visited_count,
                               &clipped) == ZRC_OK);
     CHECK(clipped == ZRC_FALSE);
@@ -1427,7 +1437,7 @@ static void test_pipeline(void) {
     CHECK(moved[2] < 0.5f);
 
     ZrcRaycastHit hit;
-    CHECK(zrcRaycast(query, start_ref, start_pt, goal, &filter, 0, 0, &hit,
+    CHECK(zrcRaycast(query, start_ref, start_pt, goal, filter, 0, 0, &hit,
                      NULL, 0, NULL, NULL) == ZRC_OK);
     CHECK(hit.hit == ZRC_TRUE);
     CHECK(hit.t > 0.f && hit.t < 1.f);
@@ -1436,9 +1446,9 @@ static void test_pipeline(void) {
   /* Arguments that would fault inside Detour. */
   ZrcPolyRef corridor[4];
   int len = 0;
-  CHECK(zrcFindPath(query, 0, goal_ref, start_pt, goal_pt, &filter, corridor, 4,
+  CHECK(zrcFindPath(query, 0, goal_ref, start_pt, goal_pt, filter, corridor, 4,
                     &len, NULL) == ZRC_ERR_INVALID_ARGUMENT);
-  CHECK(zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, &filter,
+  CHECK(zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, filter,
                     corridor, 0, &len, NULL) == ZRC_ERR_INVALID_ARGUMENT);
   /* Into a separate handle: a rejected create clears its out-parameter, which
      would otherwise drop the live query on the floor. */
@@ -1447,6 +1457,7 @@ static void test_pipeline(void) {
         ZRC_ERR_INVALID_ARGUMENT);
   CHECK(rejected == NULL);
 
+  zrcQueryFilterDestroy(filter);
   zrcNavMeshQueryDestroy(query);
   zrcNavMeshDestroy(reloaded);
 }
@@ -1627,16 +1638,16 @@ static void test_staged_pipeline(void) {
 
   /* The proof the staged mesh is a real navmesh, not merely a struct that
      filled in: a query that actually finds a polygon. */
-  ZrcQueryFilter filter;
-  zrcQueryFilterDefault(&filter);
+  ZrcQueryFilter* filter = default_filter();
   const float center[3] = {0.0f, 0.0f, -8.0f};
   const float extents[3] = {2.0f, 4.0f, 2.0f};
   ZrcPolyRef ref = 0;
   float nearest[3];
-  CHECK(zrcFindNearestPoly(query, center, extents, &filter, &ref, nearest,
+  CHECK(zrcFindNearestPoly(query, center, extents, filter, &ref, nearest,
                            NULL) == ZRC_OK);
   CHECK(ref != 0);
 
+  zrcQueryFilterDestroy(filter);
   zrcNavMeshQueryDestroy(query);
   zrcNavMeshDestroy(navmesh);
 
@@ -2088,8 +2099,7 @@ static void test_tile_cache(void) {
     return;
   }
 
-  ZrcQueryFilter filter;
-  zrcQueryFilterDefault(&filter);
+  ZrcQueryFilter* filter = default_filter();
   const float start[3] = {ZRC_FIXTURE_START_X, ZRC_FIXTURE_START_Y,
                           ZRC_FIXTURE_START_Z};
   const float extents[3] = {2.f, 4.f, 2.f};
@@ -2097,7 +2107,7 @@ static void test_tile_cache(void) {
   float start_pt[3];
   /* The proof the cached mesh is a real navmesh, not merely a set of
      containers that filled in. */
-  CHECK(zrcFindNearestPoly(query, start, extents, &filter, &start_ref,
+  CHECK(zrcFindNearestPoly(query, start, extents, filter, &start_ref,
                            start_pt, NULL) == ZRC_OK);
   CHECK(start_ref != 0);
 
@@ -2158,6 +2168,7 @@ static void test_tile_cache(void) {
         ZRC_OK);
   CHECK(ref_at_slot == 0);
 
+  zrcQueryFilterDestroy(filter);
   zrcNavMeshQueryDestroy(query);
   zrcNavMeshDestroy(navmesh);
   zrcTileCacheDestroy(cache);
@@ -2594,14 +2605,14 @@ static void test_crowd_arguments(void) {
 
   /* Every shared table is bounded here, where upstream returns null. */
   {
-    ZrcQueryFilter filter;
+    ZrcQueryFilter* filter = default_filter();
     ZrcAvoidanceParams avoidance;
-    zrcQueryFilterDefault(&filter);
     zrcAvoidanceParamsDefault(&avoidance);
-    CHECK(zrcCrowdSetFilter(crowd, ZRC_CROWD_MAX_FILTERS, &filter) ==
+    CHECK(zrcCrowdSetFilter(crowd, ZRC_CROWD_MAX_FILTERS, filter) ==
           ZRC_ERR_INVALID_ARGUMENT);
-    CHECK(zrcCrowdSetFilter(crowd, -1, &filter) == ZRC_ERR_INVALID_ARGUMENT);
-    CHECK(zrcCrowdSetFilter(crowd, 3, &filter) == ZRC_OK);
+    CHECK(zrcCrowdSetFilter(crowd, -1, filter) == ZRC_ERR_INVALID_ARGUMENT);
+    CHECK(zrcCrowdSetFilter(crowd, 3, filter) == ZRC_OK);
+    zrcQueryFilterDestroy(filter);
     CHECK(zrcCrowdSetAvoidanceParams(crowd, ZRC_CROWD_MAX_AVOIDANCE_PARAMS,
                                      &avoidance) == ZRC_ERR_INVALID_ARGUMENT);
     CHECK(zrcCrowdSetAvoidanceParams(crowd, 5, &avoidance) == ZRC_OK);
@@ -2726,7 +2737,7 @@ static void test_crowd_steering(void) {
   const float half_extents[3] = {2.f, 4.f, 2.f};
   const float start[3] = {ZRC_FIXTURE_START_X, 0.f, ZRC_FIXTURE_START_Z};
   const float goal[3] = {ZRC_FIXTURE_GOAL_X, 0.f, ZRC_FIXTURE_GOAL_Z};
-  ZrcQueryFilter filter;
+  ZrcQueryFilter* filter = NULL;
   int frame;
   float separation;
   float dx;
@@ -2736,8 +2747,8 @@ static void test_crowd_steering(void) {
 
   if (navmesh == NULL) return;
   CHECK(zrcNavMeshQueryCreate(navmesh, 2048, &query) == ZRC_OK);
-  zrcQueryFilterDefault(&filter);
-  CHECK(zrcFindNearestPoly(query, goal, half_extents, &filter, &goal_poly,
+  filter = default_filter();
+  CHECK(zrcFindNearestPoly(query, goal, half_extents, filter, &goal_poly,
                            goal_point, NULL) == ZRC_OK);
   CHECK(goal_poly != 0);
 
@@ -2806,6 +2817,7 @@ static void test_crowd_steering(void) {
   CHECK(a.target_state == ZRC_CROWD_TARGET_NONE);
 
   zrcCrowdDestroy(crowd);
+  zrcQueryFilterDestroy(filter);
   zrcNavMeshQueryDestroy(query);
   zrcNavMeshDestroy(navmesh);
 }
@@ -2818,7 +2830,7 @@ static void test_path_corridor(void) {
   ZrcNavMesh* navmesh = bake_fixture_navmesh();
   ZrcNavMeshQuery* query = NULL;
   ZrcPathCorridor* corridor = NULL;
-  ZrcQueryFilter filter;
+  ZrcQueryFilter* filter = NULL;
   ZrcPathCorridorInfo info;
   ZrcCrowdCorner corners[8];
   ZrcPolyRef path[64];
@@ -2837,10 +2849,10 @@ static void test_path_corridor(void) {
 
   if (navmesh == NULL) return;
   CHECK(zrcNavMeshQueryCreate(navmesh, 2048, &query) == ZRC_OK);
-  zrcQueryFilterDefault(&filter);
-  CHECK(zrcFindNearestPoly(query, start, half_extents, &filter, &start_poly,
+  filter = default_filter();
+  CHECK(zrcFindNearestPoly(query, start, half_extents, filter, &start_poly,
                            start_point, NULL) == ZRC_OK);
-  CHECK(zrcFindNearestPoly(query, goal, half_extents, &filter, &goal_poly,
+  CHECK(zrcFindNearestPoly(query, goal, half_extents, filter, &goal_poly,
                            goal_point, NULL) == ZRC_OK);
   CHECK(start_poly != 0 && goal_poly != 0);
 
@@ -2862,7 +2874,7 @@ static void test_path_corridor(void) {
 
   /* Loading a real path makes the corridor span it end to end. */
   CHECK(zrcFindPath(query, start_poly, goal_poly, start_point, goal_point,
-                    &filter, path, 64, &path_count, NULL) == ZRC_OK);
+                    filter, path, 64, &path_count, NULL) == ZRC_OK);
   CHECK(path_count > 1);
   CHECK(zrcPathCorridorSetCorridor(corridor, goal_point, path, path_count) ==
         ZRC_OK);
@@ -2885,9 +2897,9 @@ static void test_path_corridor(void) {
 
   /* One corner buffer is not enough: the string-pull reserves the last slot
      for the corridor's end point. */
-  CHECK(zrcPathCorridorFindCorners(corridor, query, &filter, corners, 1,
+  CHECK(zrcPathCorridorFindCorners(corridor, query, filter, corners, 1,
                                    &corner_count) == ZRC_ERR_INVALID_ARGUMENT);
-  CHECK(zrcPathCorridorFindCorners(corridor, query, &filter, corners, 8,
+  CHECK(zrcPathCorridorFindCorners(corridor, query, filter, corners, 8,
                                    &corner_count) == ZRC_OK);
   CHECK(corner_count > 0);
   CHECK(corner_count <= 7);
@@ -2907,13 +2919,13 @@ static void test_path_corridor(void) {
     CHECK(rounded);
   }
 
-  CHECK(zrcPathCorridorIsValid(corridor, path_count, query, &filter, &valid) ==
+  CHECK(zrcPathCorridorIsValid(corridor, path_count, query, filter, &valid) ==
         ZRC_OK);
   CHECK(valid == ZRC_TRUE);
 
   /* Sliding the position forward drops the polygons left behind. */
   CHECK(zrcPathCorridorMovePosition(corridor, corners[0].position, query,
-                                    &filter, &moved) == ZRC_OK);
+                                    filter, &moved) == ZRC_OK);
   CHECK(moved == ZRC_TRUE);
   {
     ZrcPathCorridorInfo after;
@@ -2927,12 +2939,12 @@ static void test_path_corridor(void) {
     const float poisoned[3] = {(float)NAN, 0.f, 0.f};
     CHECK(zrcPathCorridorReset(corridor, start_poly, poisoned) ==
           ZRC_ERR_INVALID_ARGUMENT);
-    CHECK(zrcPathCorridorMovePosition(corridor, poisoned, query, &filter,
+    CHECK(zrcPathCorridorMovePosition(corridor, poisoned, query, filter,
                                       &moved) == ZRC_ERR_INVALID_ARGUMENT);
   }
   /* And a zero optimisation range is a division by zero upstream. */
   CHECK(zrcPathCorridorOptimizeVisibility(corridor, goal_point, 0.f, query,
-                                          &filter) ==
+                                          filter) ==
         ZRC_ERR_INVALID_ARGUMENT);
 
   /* The merge helpers: more visited polygons than the array can hold is what
@@ -2957,6 +2969,7 @@ static void test_path_corridor(void) {
   }
 
   zrcPathCorridorDestroy(corridor);
+  zrcQueryFilterDestroy(filter);
   zrcNavMeshQueryDestroy(query);
   zrcNavMeshDestroy(navmesh);
 }
@@ -2965,7 +2978,7 @@ static void test_local_boundary(void) {
   ZrcNavMesh* navmesh = bake_fixture_navmesh();
   ZrcNavMeshQuery* query = NULL;
   ZrcLocalBoundary* boundary = NULL;
-  ZrcQueryFilter filter;
+  ZrcQueryFilter* filter = NULL;
   ZrcPolyRef poly = 0;
   float point[3];
   float centre[3];
@@ -2978,8 +2991,8 @@ static void test_local_boundary(void) {
 
   if (navmesh == NULL) return;
   CHECK(zrcNavMeshQueryCreate(navmesh, 2048, &query) == ZRC_OK);
-  zrcQueryFilterDefault(&filter);
-  CHECK(zrcFindNearestPoly(query, near_wall, half_extents, &filter, &poly,
+  filter = default_filter();
+  CHECK(zrcFindNearestPoly(query, near_wall, half_extents, filter, &poly,
                            point, NULL) == ZRC_OK);
   CHECK(poly != 0);
 
@@ -2991,7 +3004,7 @@ static void test_local_boundary(void) {
   CHECK(zrcLocalBoundarySegmentCount(boundary, &count) == ZRC_OK);
   CHECK(count == 0);
 
-  CHECK(zrcLocalBoundaryUpdate(boundary, poly, point, 4.f, query, &filter) ==
+  CHECK(zrcLocalBoundaryUpdate(boundary, poly, point, 4.f, query, filter) ==
         ZRC_OK);
   CHECK(zrcLocalBoundaryCenter(boundary, centre) == ZRC_OK);
   CHECK(centre[0] == point[0]);
@@ -3002,20 +3015,20 @@ static void test_local_boundary(void) {
   CHECK(zrcLocalBoundarySegments(boundary, 0, count + 1, segments) ==
         ZRC_ERR_INVALID_ARGUMENT);
 
-  CHECK(zrcLocalBoundaryIsValid(boundary, query, &filter, &valid) == ZRC_OK);
+  CHECK(zrcLocalBoundaryIsValid(boundary, query, filter, &valid) == ZRC_OK);
   CHECK(valid == ZRC_TRUE);
 
   /* A polygon of 0 resets it rather than collecting anything, and a range of
      zero or a non-finite position never reaches upstream, which stores the
      position before it validates it. */
-  CHECK(zrcLocalBoundaryUpdate(boundary, poly, point, 0.f, query, &filter) ==
+  CHECK(zrcLocalBoundaryUpdate(boundary, poly, point, 0.f, query, filter) ==
         ZRC_ERR_INVALID_ARGUMENT);
   {
     const float poisoned[3] = {(float)NAN, 0.f, 0.f};
     CHECK(zrcLocalBoundaryUpdate(boundary, poly, poisoned, 4.f, query,
-                                 &filter) == ZRC_ERR_INVALID_ARGUMENT);
+                                 filter) == ZRC_ERR_INVALID_ARGUMENT);
   }
-  CHECK(zrcLocalBoundaryUpdate(boundary, 0, point, 4.f, query, &filter) ==
+  CHECK(zrcLocalBoundaryUpdate(boundary, 0, point, 4.f, query, filter) ==
         ZRC_OK);
   CHECK(zrcLocalBoundarySegmentCount(boundary, &count) == ZRC_OK);
   CHECK(count == 0);
@@ -3025,6 +3038,7 @@ static void test_local_boundary(void) {
   CHECK(centre[0] > 1e30f);
 
   zrcLocalBoundaryDestroy(boundary);
+  zrcQueryFilterDestroy(filter);
   zrcNavMeshQueryDestroy(query);
   zrcNavMeshDestroy(navmesh);
 }
@@ -3033,7 +3047,7 @@ static void test_path_queue(void) {
   ZrcNavMesh* navmesh = bake_fixture_navmesh();
   ZrcNavMeshQuery* query = NULL;
   ZrcPathQueue* queue = NULL;
-  ZrcQueryFilter filter;
+  ZrcQueryFilter* filter = NULL;
   ZrcPathRequestRef ref = ZRC_PATH_REQUEST_NONE;
   ZrcPathRequestState state = ZRC_PATH_REQUEST_UNKNOWN;
   ZrcPolyRef start_poly = 0;
@@ -3049,10 +3063,10 @@ static void test_path_queue(void) {
 
   if (navmesh == NULL) return;
   CHECK(zrcNavMeshQueryCreate(navmesh, 2048, &query) == ZRC_OK);
-  zrcQueryFilterDefault(&filter);
-  CHECK(zrcFindNearestPoly(query, start, half_extents, &filter, &start_poly,
+  filter = default_filter();
+  CHECK(zrcFindNearestPoly(query, start, half_extents, filter, &start_poly,
                            start_point, NULL) == ZRC_OK);
-  CHECK(zrcFindNearestPoly(query, goal, half_extents, &filter, &goal_poly,
+  CHECK(zrcFindNearestPoly(query, goal, half_extents, filter, &goal_poly,
                            goal_point, NULL) == ZRC_OK);
 
   /* Fewer than four search nodes leaves upstream's hash table with zero
@@ -3068,7 +3082,7 @@ static void test_path_queue(void) {
   CHECK(zrcPathQueueResult(queue, 1, path, 256, &count) == ZRC_ERR_NOT_FOUND);
 
   CHECK(zrcPathQueueRequest(queue, start_poly, goal_poly, start_point,
-                            goal_point, &filter, &ref) == ZRC_OK);
+                            goal_point, filter, &ref) == ZRC_OK);
   CHECK(ref != ZRC_PATH_REQUEST_NONE);
 
   /* Taking a result before the search finished frees the slot upstream and
@@ -3099,11 +3113,11 @@ static void test_path_queue(void) {
     int i;
     for (i = 0; i < 8; ++i) {
       CHECK(zrcPathQueueRequest(queue, start_poly, goal_poly, start_point,
-                                goal_point, &filter, &refs[i]) == ZRC_OK);
+                                goal_point, filter, &refs[i]) == ZRC_OK);
       CHECK(refs[i] != ZRC_PATH_REQUEST_NONE);
     }
     CHECK(zrcPathQueueRequest(queue, start_poly, goal_poly, start_point,
-                              goal_point, &filter, &refs[8]) == ZRC_OK);
+                              goal_point, filter, &refs[8]) == ZRC_OK);
     CHECK(refs[8] == ZRC_PATH_REQUEST_NONE);
   }
 
@@ -3116,6 +3130,7 @@ static void test_path_queue(void) {
   }
 
   zrcPathQueueDestroy(queue);
+  zrcQueryFilterDestroy(filter);
   zrcNavMeshQueryDestroy(query);
   zrcNavMeshDestroy(navmesh);
 }
@@ -3743,6 +3758,58 @@ static void test_log_build_times(void) {
   CHECK(zrcLogBuildTimes(NULL, -5) == ZRC_ERR_INVALID_ARGUMENT);
 }
 
+/* A filter checks its costs once, where it is made or where one is set, so
+   no query has to. */
+static void test_query_filter(void) {
+  ZrcQueryFilterDesc desc;
+  zrcQueryFilterDescDefault(&desc);
+  ZrcQueryFilter* filter = (ZrcQueryFilter*)0x1;
+  CHECK(zrcQueryFilterCreate(NULL, &filter) == ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(filter == NULL);
+  CHECK(zrcQueryFilterCreate(&desc, NULL) == ZRC_ERR_INVALID_ARGUMENT);
+
+  const float bad[] = {-1.f, (float)NAN, (float)INFINITY, -(float)INFINITY};
+  for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i) {
+    zrcQueryFilterDescDefault(&desc);
+    desc.area_cost[ZRC_AREA_WALKABLE] = bad[i];
+    filter = (ZrcQueryFilter*)0x1;
+    CHECK(zrcQueryFilterCreate(&desc, &filter) == ZRC_ERR_INVALID_ARGUMENT);
+    CHECK(filter == NULL);
+  }
+
+  zrcQueryFilterDescDefault(&desc);
+  desc.area_cost[7] = 3.5f;
+  desc.include_flags = 0x00ff;
+  desc.exclude_flags = 0x0010;
+  CHECK(zrcQueryFilterCreate(&desc, &filter) == ZRC_OK);
+  ZrcQueryFilterDesc back;
+  CHECK(zrcQueryFilterDescribe(filter, &back) == ZRC_OK);
+  CHECK(memcmp(&back, &desc, sizeof(desc)) == 0);
+
+  for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i) {
+    CHECK(zrcQueryFilterSetAreaCost(filter, 7, bad[i]) ==
+          ZRC_ERR_INVALID_ARGUMENT);
+  }
+  CHECK(zrcQueryFilterSetAreaCost(filter, ZRC_MAX_AREAS, 1.f) ==
+        ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcQueryFilterDescribe(filter, &back) == ZRC_OK);
+  CHECK(memcmp(&back, &desc, sizeof(desc)) == 0);
+
+  CHECK(zrcQueryFilterSetAreaCost(filter, 7, 0.f) == ZRC_OK);
+  CHECK(zrcQueryFilterSetIncludeFlags(filter, 0xffff) == ZRC_OK);
+  CHECK(zrcQueryFilterSetExcludeFlags(filter, 0) == ZRC_OK);
+  CHECK(zrcQueryFilterDescribe(filter, &back) == ZRC_OK);
+  CHECK(back.area_cost[7] == 0.f);
+  CHECK(back.include_flags == 0xffff);
+  CHECK(back.exclude_flags == 0);
+  zrcQueryFilterDestroy(filter);
+
+  CHECK(zrcQueryFilterDescribe(NULL, &back) == ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcQueryFilterSetAreaCost(NULL, 0, 1.f) == ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcQueryFilterSetIncludeFlags(NULL, 0) == ZRC_ERR_INVALID_ARGUMENT);
+  CHECK(zrcQueryFilterSetExcludeFlags(NULL, 0) == ZRC_ERR_INVALID_ARGUMENT);
+}
+
 int main(void) {
   Counters counters = {0, 0};
   ZrcAllocator allocator;
@@ -3761,6 +3828,7 @@ int main(void) {
   CHECK(zrcSetAllocator(&allocator) == ZRC_OK);
 
   test_null_arguments();
+  test_query_filter();
   test_bad_bake_input();
   test_bad_navmesh_input();
   test_allocator_swapping(&counters);

@@ -47,10 +47,11 @@ pub fn main(init: std.process.Init) !void {
     const query = try zrecast.NavMeshQuery.init(mesh, 2048);
     defer query.deinit();
 
-    const filter = zrecast.defaultFilter();
+    const filter = try zrecast.QueryFilter.initDefault();
+    defer filter.deinit();
     const extents = [3]f32{ 2, 4, 2 };
-    const from = try query.findNearestPoly(agent_pos, extents, &filter);
-    const to = try query.findNearestPoly(target_pos, extents, &filter);
+    const from = try query.findNearestPoly(agent_pos, extents, filter);
+    const to = try query.findNearestPoly(target_pos, extents, filter);
     if (from.ref == null or to.ref == null) return error.OffMesh;
 
     var corridor: [256]zrecast.PolyRef = undefined;
@@ -59,7 +60,7 @@ pub fn main(init: std.process.Init) !void {
         to.ref.?,
         from.point,
         to.point,
-        &filter,
+        filter,
         &corridor,
     );
 

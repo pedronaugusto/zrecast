@@ -1,0 +1,11 @@
+# expect: a filter checks its costs where it is made and where one is set
+--- a/ffi/zrecast_query.cpp
++++ b/ffi/zrecast_query.cpp
+@@ -281,7 +281,6 @@
+                                     float cost) {
+   if (filter == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
+   if (area >= ZRC_MAX_AREAS) return ZRC_ERR_INVALID_ARGUMENT;
+-  if (!zrc::IsAreaCost(cost)) return ZRC_ERR_INVALID_ARGUMENT;
+   filter->impl.setAreaCost(area, cost);
+   return ZRC_OK;
+ }

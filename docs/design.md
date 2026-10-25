@@ -133,6 +133,11 @@ corridors), so upstream's documentation stays usable as this package's.
 - Flags are named option structs (`StraightPathOptions`), never bare `u32`s.
 - Bytes the package parses arrive as `Image`, `aegis.input.Untrusted`: a
   navmesh, a tile, a tile's stored state, a tile-cache layer.
+- A query filter is a handle, `QueryFilter`, made from a `QueryFilterDesc`.
+  Its costs are checked when it is made and when one is set, and every query
+  hands Detour the filter the handle holds, so no call checks a cost or
+  rebuilds a filter. A sliced search, a path queue request and a crowd copy
+  the filter, so it need not outlive them.
 - A handle another object owns is lent as a `Borrowed` type whose handle is
   `*const`, as upstream's getter is: `Crowd.grid`, `Crowd.pathQueue`,
   `Crowd.navMeshQuery`, `PathQueue.navMeshQuery` and
@@ -633,7 +638,7 @@ are guarded:
 | Macro | State | Guard |
 |---|---|---|
 | `DT_POLYREF64` | not defined — `dtPolyRef` is 32-bit | `static_assert` in `ffi/zrecast_abi.cpp` that `ZrcPolyRef` and `dtPolyRef` are the same type. `ffi/zrecast_query.cpp` passes reference arrays straight through with no cast, so anything else is also a compile error at every call site. |
-| `DT_VIRTUAL_QUERYFILTER` | not defined — `dtQueryFilter` has no vtable | zrecast never subclasses it; the POD `ZrcQueryFilter` is copied into one per call. |
+| `DT_VIRTUAL_QUERYFILTER` | not defined — `dtQueryFilter` has no vtable | zrecast never subclasses it; a `ZrcQueryFilter` holds one, built once from a `ZrcQueryFilterDesc`. |
 
 ### The serialised navmesh format
 
@@ -1002,11 +1007,10 @@ header, because the parameter name invites the opposite reading.
 **A sliced path search keeps the caller's filter as a raw pointer.**
 `initSlicedFindPath` copies the start and end positions into its query state
 and stores `m_query.filter = filter` (`DetourNavMeshQuery.cpp:1230-1233`);
-every later `update` and `finalize` dereferences it. A host that passes a
-stack filter — which is what every other query in the API invites — has a
-dangling pointer the moment `init` returns. Worked around by giving
-`ZrcNavMeshQuery` a `dtQueryFilter` of its own that lives as long as the slice,
-so the boundary keeps the same copy-by-value contract everywhere.
+every later `update` and `finalize` dereferences it. A host that destroys its
+filter once `init` returns, as it may after any other call, leaves a dangling
+pointer. Worked around by giving `ZrcNavMeshQuery` a `dtQueryFilter` of its
+own that lives as long as the slice, copied from the caller's.
 
 **"No impact on an in-progress sliced path query" is not true.** The class
 comment says const member functions are safe to call alongside a slice
@@ -1549,23 +1553,26 @@ medians of three runs:
 
 | row | Zig | C++ |
 |---|---|---|
-| load the level's image, per navmesh | 6.1–6.4 µs | 2.1–2.2 µs |
-| the same through `setAllocator` | 5.5–5.8 µs | |
-| `findNearestPoly`, per query | 143–150 ns | 99–101 ns |
-| `findPath` then `findStraightPath`, per route | 2.13–2.17 µs | 2.08–2.12 µs |
-| `raycast`, per ray | 110–119 ns | 64–65 ns |
-| a crowd frame, an agent at every query point, first second after each is sent | 145–147 µs | 146–152 µs |
+| load the level's image, per navmesh | 5.9–6.0 µs | 2.0–2.2 µs |
+| the same through `setAllocator` | 5.3–5.6 µs | |
+| `findNearestPoly`, per query | 106–107 ns | 98–99 ns |
+| `findPath` then `findStraightPath`, per route | 2.14–2.21 µs | 2.15–2.20 µs |
+| `raycast`, per ray | 68–70 ns | 63–65 ns |
+| a crowd frame, an agent at every query point, first second after each is sent | 148–149 µs | 147–154 µs |
 
-The crowd frame is level with C++. Every query entry point builds Detour's
-filter from the caller's on each call, checking all `DT_MAX_AREAS` costs, and
-that is the nearest and raycast gaps: the C++ twin building its filter the
-same way per call measured within the binding's spread on both rows the same
-day. A route pays it once, the 2% the route row shows in every run. A load
-pays for the image check: the boundary validates the whole image before
-Detour reads any of it, and the C++ twin calling `zrcNavMeshValidate` first
-measured 5.4 µs against the binding's 6.1 µs in the same run. Through the Zig
-allocator a load measured faster than through upstream's `malloc`, on this
-machine.
+A route and a crowd frame are level with C++. A query pays for the boundary's
+checks on what the caller passed, and nothing else: the same calls made to the
+C boundary from a C++ loop measured what the Zig rows measure, so the wrapper
+and the crossing add nothing measurable. On `findNearestPoly` that is the query
+box check, which keeps Detour's float-to-int tile conversion defined and its
+scan of the box's cells bounded; with it removed the call measured within 3 ns
+of C++ the same day. On `raycast` no single check is the cost: removing the
+position checks, or the conversion of the hit into `RaycastHit`, each left the
+row where it was. A load pays for the image check: the boundary validates the
+whole image before Detour reads any of it, and the C++ twin calling
+`zrcNavMeshValidate` first measured 5.4 µs against the binding's 6.1 µs in the
+same run. Through the Zig allocator a load measured faster than through
+upstream's `malloc`, on this machine.
 
 ## Contributing
 

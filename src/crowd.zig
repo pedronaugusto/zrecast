@@ -24,7 +24,8 @@ const err = @import("error.zig");
 const NavMesh = @import("navmesh.zig").NavMesh;
 const NavMeshQuery = @import("query.zig").NavMeshQuery;
 const BorrowedNavMeshQuery = @import("query.zig").BorrowedNavMeshQuery;
-const Filter = @import("query.zig").Filter;
+const QueryFilter = @import("query.zig").QueryFilter;
+const QueryFilterDesc = @import("query.zig").QueryFilterDesc;
 const PolyRef = @import("query.zig").PolyRef;
 
 //===----------------------------------------------------------------------===//
@@ -387,17 +388,17 @@ pub const Crowd = struct {
         return out;
     }
 
-    /// Replaces one of the crowd's query filters. `index` is
-    /// `[0, crowd_max_filters)`.
-    pub fn setFilter(self: Crowd, index: u32, value: Filter) err.Error!void {
+    /// Replaces one of the crowd's query filters with a copy of `value`,
+    /// which need not outlive the call. `index` is `[0, crowd_max_filters)`.
+    pub fn setFilter(self: Crowd, index: u32, value: QueryFilter) err.Error!void {
         const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
-        try err.check(c.zrcCrowdSetFilter(self.handle, i, &value));
+        try err.check(c.zrcCrowdSetFilter(self.handle, i, value.handle));
     }
 
     /// Reads one back.
-    pub fn filter(self: Crowd, index: u32) err.Error!Filter {
+    pub fn filter(self: Crowd, index: u32) err.Error!QueryFilterDesc {
         const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
-        var out: Filter = undefined;
+        var out: QueryFilterDesc = undefined;
         try err.check(c.zrcCrowdFilter(self.handle, i, &out));
         return out;
     }
@@ -813,7 +814,7 @@ pub const PathCorridor = struct {
     pub fn findCorners(
         self: PathCorridor,
         query: NavMeshQuery,
-        filter: *const Filter,
+        filter: QueryFilter,
         out: []CrowdCorner,
     ) err.Error!usize {
         const max_corners = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
@@ -822,7 +823,7 @@ pub const PathCorridor = struct {
         try err.check(c.zrcPathCorridorFindCorners(
             self.handle,
             query.handle,
-            filter,
+            filter.handle,
             ptr,
             max_corners,
             &count,
@@ -838,14 +839,14 @@ pub const PathCorridor = struct {
         next: [3]f32,
         range: f32,
         query: NavMeshQuery,
-        filter: *const Filter,
+        filter: QueryFilter,
     ) err.Error!void {
         try err.check(c.zrcPathCorridorOptimizeVisibility(
             self.handle,
             &next,
             range,
             query.handle,
-            filter,
+            filter.handle,
         ));
     }
 
@@ -854,13 +855,13 @@ pub const PathCorridor = struct {
     pub fn optimizeTopology(
         self: PathCorridor,
         query: NavMeshQuery,
-        filter: *const Filter,
+        filter: QueryFilter,
     ) err.Error!bool {
         var changed: c.Bool = c.c_false;
         try err.check(c.zrcPathCorridorOptimizeTopology(
             self.handle,
             query.handle,
-            filter,
+            filter.handle,
             &changed,
         ));
         return changed != c.c_false;
@@ -921,7 +922,7 @@ pub const PathCorridor = struct {
         safe_poly: PolyRef,
         safe_position: [3]f32,
         query: NavMeshQuery,
-        filter: *const Filter,
+        filter: QueryFilter,
     ) err.Error!bool {
         var trimmed: c.Bool = c.c_false;
         try err.check(c.zrcPathCorridorTrimInvalid(
@@ -929,7 +930,7 @@ pub const PathCorridor = struct {
             safe_poly,
             &safe_position,
             query.handle,
-            filter,
+            filter.handle,
             &trimmed,
         ));
         return trimmed != c.c_false;
@@ -941,7 +942,7 @@ pub const PathCorridor = struct {
         self: PathCorridor,
         max_lookahead: u32,
         query: NavMeshQuery,
-        filter: *const Filter,
+        filter: QueryFilter,
     ) err.Error!bool {
         const lookahead = aegis.int.cast(i32, max_lookahead) catch
             return err.Error.InvalidArgument;
@@ -950,7 +951,7 @@ pub const PathCorridor = struct {
             self.handle,
             lookahead,
             query.handle,
-            filter,
+            filter.handle,
             &valid,
         ));
         return valid != c.c_false;
@@ -963,14 +964,14 @@ pub const PathCorridor = struct {
         self: PathCorridor,
         position: [3]f32,
         query: NavMeshQuery,
-        filter: *const Filter,
+        filter: QueryFilter,
     ) err.Error!bool {
         var moved: c.Bool = c.c_false;
         try err.check(c.zrcPathCorridorMovePosition(
             self.handle,
             &position,
             query.handle,
-            filter,
+            filter.handle,
             &moved,
         ));
         return moved != c.c_false;
@@ -981,14 +982,14 @@ pub const PathCorridor = struct {
         self: PathCorridor,
         position: [3]f32,
         query: NavMeshQuery,
-        filter: *const Filter,
+        filter: QueryFilter,
     ) err.Error!bool {
         var moved: c.Bool = c.c_false;
         try err.check(c.zrcPathCorridorMoveTargetPosition(
             self.handle,
             &position,
             query.handle,
-            filter,
+            filter.handle,
             &moved,
         ));
         return moved != c.c_false;
@@ -1094,7 +1095,7 @@ pub const LocalBoundary = struct {
         position: [3]f32,
         range: f32,
         query: NavMeshQuery,
-        filter: *const Filter,
+        filter: QueryFilter,
     ) err.Error!void {
         try err.check(c.zrcLocalBoundaryUpdate(
             self.handle,
@@ -1102,7 +1103,7 @@ pub const LocalBoundary = struct {
             &position,
             range,
             query.handle,
-            filter,
+            filter.handle,
         ));
     }
 
@@ -1111,10 +1112,10 @@ pub const LocalBoundary = struct {
     pub fn isValid(
         self: LocalBoundary,
         query: NavMeshQuery,
-        filter: *const Filter,
+        filter: QueryFilter,
     ) err.Error!bool {
         var valid: c.Bool = c.c_false;
-        try err.check(c.zrcLocalBoundaryIsValid(self.handle, query.handle, filter, &valid));
+        try err.check(c.zrcLocalBoundaryIsValid(self.handle, query.handle, filter.handle, &valid));
         return valid != c.c_false;
     }
 
@@ -1212,7 +1213,7 @@ fn PathQueueOf(comptime access: c.Access) type {
             end_poly: PolyRef,
             start_position: [3]f32,
             end_position: [3]f32,
-            filter: *const Filter,
+            filter: QueryFilter,
         ) err.Error!PathRequestRef {
             var ref: PathRequestRef = path_request_none;
             try err.check(c.zrcPathQueueRequest(
@@ -1221,7 +1222,7 @@ fn PathQueueOf(comptime access: c.Access) type {
                 end_poly,
                 &start_position,
                 &end_position,
-                filter,
+                filter.handle,
                 &ref,
             ));
             return ref;

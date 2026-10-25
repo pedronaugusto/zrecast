@@ -1,7 +1,7 @@
-# expect: FAIL zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, &filter,
+# expect: FAIL zrcFindPath(query, start_ref, goal_ref, start_pt, goal_pt, filter,
 --- a/ffi/zrecast_query.cpp
 +++ b/ffi/zrecast_query.cpp
-@@ -358,10 +358,8 @@
+@@ -396,10 +396,8 @@
    }
    if (start_ref == 0 || end_ref == 0) return ZRC_ERR_INVALID_ARGUMENT;
  
@@ -11,5 +11,5 @@
 -  if (slicing != ZRC_OK) return slicing;
 +  if (slicing == ZRC_ERR_INVALID_ARGUMENT) return slicing;
  
-   dtQueryFilter dt_filter;
    const ZrcResult ready =
+       BeginQuery(query, filter, start_pos, end_pos);
