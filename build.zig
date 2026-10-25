@@ -391,6 +391,10 @@ fn suite(b: *std.Build, p: *std.Build, target: std.Build.ResolvedTarget, optimiz
     });
     tests.root_module.linkLibrary(library);
     tests.root_module.linkLibrary(fixtureLibrary(b, p, target, optimize, options, library));
+    // The surface check reads the header translated as `zrecast_h`, on the
+    // test module alone, never on the shipped one.
+    const header = b.addTranslateC(.{ .root_source_file = p.path("ffi/zrecast.h"), .target = target, .optimize = optimize, .link_libc = true });
+    tests.root_module.addImport("zrecast_h", header.createModule());
     // The sanitized C++ calls into the sanitizer's runtime, which Zig
     // bundles by itself only into a Debug compilation.
     tests.bundle_ubsan_rt = options.sanitize_c;

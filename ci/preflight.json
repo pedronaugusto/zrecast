@@ -1,7 +1,7 @@
 {
   "sources": ["src"],
   "test_roots": ["src/zrecast.zig"],
-  "test_dependencies": ["shakedown"],
+  "test_dependencies": ["shakedown", "zrecast_h"],
   "shipped": {
     "ffi": "the C boundary: the library compiles its translation units, and the installed header is ffi/zrecast.h",
     "libs": "the vendored Recast and Detour, which the library compiles"

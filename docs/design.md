@@ -24,8 +24,8 @@ package is three layers and a new capability lands in each.
 3. **`src/` is the Zig layer.** The externs (`pub extern fn zrc…`) sit in the
    module that owns them (`bake.zig`, `navmesh.zig`, `query.zig`, `crowd.zig`,
    `tilecache.zig`, `pipeline.zig`), next to the wrapper that calls them.
-   Nothing translates the header; the ABI is held by the layout test and the
-   C smoke test instead.
+   The shipped module translates no header; the test module does, and the
+   surface check holds the externs to it (see [The ABI guard](#the-abi-guard)).
 
 `ci/layers.zig` holds the order of the Zig modules: the C boundary, errors and
 memory, geometry and bake, navmesh and pipeline, query and tile cache, crowd,
@@ -453,11 +453,24 @@ first.
 
 ### The ABI guard
 
-The Zig side hand-writes `extern struct`s mirroring `zrecast.h`. Nothing in
-either compiler checks those two declarations still agree — a field reordered
-on one side and not the other is silent corruption. `zrcAbiLayout()` reports
-what the C++ actually compiled to, and a test asserts every size and offset
-against the Zig declarations.
+The Zig side hand-writes `src/c.zig` mirroring `zrecast.h`, and neither
+compiler checks that the two still agree: a field reordered on one side and
+not the other is silent corruption. Two checks close that.
+
+`src/abi_test.zig` holds `src/c.zig` to the header at compile time. The test
+module alone translates `ffi/zrecast.h` as `zrecast_h`, and the check pairs
+every declaration by name: each function with the C function of the same name,
+by parameter count and by each parameter's size, alignment and scalar kind;
+each type `X` with `ZrcX`, a struct field by field and by name, a callback
+signature-deep; each enumerator with its C constant; each mirrored constant
+`x` with `ZRC_X`. A declaration it does not know how to compare is a compile
+error, and the reverse sweep requires every function the header declares to be
+bound. Each comparison is shown to name a planted drift. It also counts the two
+caller shapes Zig 0.16.0 was measured to miscompile in zmeshopt, and the
+boundary has neither.
+
+`zrcAbiLayout()` reports what the C++ actually compiled to, and a test asserts
+every size and offset against the Zig declarations.
 
 Every offset, looked up **by name**. Sampling a few is not a guard:
 `ZrcBakeConfig` is ten consecutive floats followed by seven more 4-byte fields,

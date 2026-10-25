@@ -2,11 +2,10 @@
 //!
 //! These are written by hand rather than produced by `@cImport` so the package
 //! stays translate-c-free and every type is exactly the shape the rest of the
-//! wrapper wants. The cost of hand-writing is drift: nothing in either compiler
-//! checks that this file still agrees with the header. That gap is closed by
-//! `zrcAbiLayout`, asserted in the test at the bottom of `zrecast.zig` — if a
-//! field moves on either side, the test fails loudly instead of corrupting
-//! memory quietly.
+//! wrapper wants. The cost of hand-writing is drift, which two tests close:
+//! `abi_test.zig` holds every declaration here to the translated header at
+//! compile time, and the `zrcAbiLayout` test in `zrecast.zig` holds the layouts
+//! to what the C++ compiled to.
 
 const aegis = @import("aegis");
 

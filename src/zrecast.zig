@@ -356,6 +356,7 @@ test {
     _ = debugdraw_mod;
     // Only reachable in a test build, where the fixture library is linked.
     _ = @import("integration_test.zig");
+    _ = @import("abi_test.zig");
 }
 
 test "the C library agrees with the extern declarations in c.zig" {

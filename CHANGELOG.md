@@ -34,6 +34,10 @@ not express, so a port has the reason and not only the diff.
 
 ### Added
 
+- A compile-time surface check holds every declaration in `src/c.zig` to
+  `ffi/zrecast.h`, translated for the tests alone: every function by
+  signature, every struct field by name, every callback, enumerator and
+  mirrored constant, and every header function bound.
 - `DebugUtils` is bound. Upstream's fifth directory is compiled and every
   public name in it carries a verdict, so the whole vendored tree is now
   accounted for rather than four fifths of it. A host can draw the heightfield,

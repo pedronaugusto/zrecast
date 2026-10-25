@@ -18,10 +18,12 @@ pub fn main(init: std.process.Init) !u8 {
     const cwd = Io.Dir.cwd();
 
     const entry_points = try countInDirectory(a, io, cwd, "ffi", ".h", "ZRC_API");
-    const externs = try countInDirectory(a, io, cwd, "src", ".zig", "pub extern fn zrc");
+    // The boundary's externs, which src/c.zig alone declares; the surface
+    // check's planted drifts declare others on purpose.
+    const externs = try countLines(a, io, cwd, "src/c.zig", "pub extern fn zrc");
     var buffer: [4096]u8 = undefined;
-    // The ABI check pairs every declaration with its extern, so a difference
-    // is a defect in this program.
+    // The surface check pairs every declaration with its extern, so a
+    // difference is a defect in this program.
     if (entry_points != externs) {
         var stderr = Io.File.stderr().writer(io, &buffer);
         try stderr.interface.print("{d} C entry points but {d} Zig externs\n", .{ entry_points, externs });

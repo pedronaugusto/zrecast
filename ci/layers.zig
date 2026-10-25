@@ -23,6 +23,7 @@ pub const references: []const gantry.rules.ReferenceRule = &.{
         "builtin",
         "shakedown",
         "std",
+        "zrecast_h",
         "zrecast_options",
     } },
     .{ .name = "source siblings", .suffix = ".zig", .relative = true, .except_targets = &.{"src/**"} },
@@ -34,8 +35,8 @@ pub const required = [_][]const u8{
 };
 
 /// Tokens only their owners may spell: the C boundary is declared in
-/// src/c.zig alone, and the test fixture's entry points in the test that
-/// links it.
+/// src/c.zig alone, the test fixture's entry points in the test that links
+/// it, and the surface check compares layouts and plants extern drifts.
 pub const owned: []const gantry.rules.TokenRule = &.{
-    .{ .name = "the C boundary", .tokens = &.{"extern"}, .owners = &.{ "src/c.zig", "src/integration_test.zig" } },
+    .{ .name = "the C boundary", .tokens = &.{"extern"}, .owners = &.{ "src/c.zig", "src/integration_test.zig", "src/abi_test.zig" } },
 };
