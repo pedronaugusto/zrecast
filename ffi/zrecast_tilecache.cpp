@@ -127,6 +127,63 @@ ZrcResult ValidateLayerHeader(const ZrcTileCacheLayerHeader& header) {
   return ZRC_OK;
 }
 
+/// Whether every connection a `width` by `height` grid's cells claim leads to
+/// a cell of the grid.
+///
+/// A cell's low four `cons` bits are its connections, one per direction: -x,
+/// +z, +x, -z (getDirOffsetX and getDirOffsetY,
+/// DetourTileCacheBuilder.cpp:49-59). Upstream follows a set bit to the
+/// neighbouring cell with no bounds test (getNeighbourReg,
+/// DetourTileCacheBuilder.cpp:452-456), and walkContour then steps onto that
+/// cell and reads its height (DetourTileCacheBuilder.cpp:509), so a border
+/// cell whose bit points off the grid walks the contour out of the layer's
+/// buffers. dtBuildTileCacheRegions bounds the same steps itself; walkContour
+/// does not. The high four bits are portals to the neighbouring tile and are
+/// never followed. Recast sets a connection only for a neighbour inside the
+/// layer (RecastLayers.cpp:638), so no layer it builds fails this.
+bool ConnectionsStayOnGrid(int32_t width, int32_t height, const unsigned char* cons) {
+  for (int32_t z = 0; z < height; ++z) {
+    for (int32_t x = 0; x < width; ++x) {
+      const unsigned char con = cons[x + z * width] & 0xf;
+      if (x == 0 && (con & 1) != 0) return false;
+      if (z == height - 1 && (con & 2) != 0) return false;
+      if (x == width - 1 && (con & 4) != 0) return false;
+      if (z == 0 && (con & 8) != 0) return false;
+    }
+  }
+  return true;
+}
+
+/// A native layer header in the boundary's shape.
+void HeaderFromNative(const dtTileCacheLayerHeader& h, ZrcTileCacheLayerHeader* out) {
+  out->tile_x = h.tx;
+  out->tile_y = h.ty;
+  out->tile_layer = h.tlayer;
+  memcpy(out->bmin, h.bmin, sizeof(out->bmin));
+  memcpy(out->bmax, h.bmax, sizeof(out->bmax));
+  out->height_min = h.hmin;
+  out->height_max = h.hmax;
+  out->width = h.width;
+  out->height = h.height;
+  out->min_x = h.minx;
+  out->max_x = h.maxx;
+  out->min_z = h.miny;
+  out->max_z = h.maxy;
+}
+
+/// The checks zrcTileCacheLayerBuild makes of a header and its grids, made of
+/// a layer decompressed from a caller's bytes, so a layer is held to one
+/// contract however it arrives. A failure is ZRC_ERR_BAD_FORMAT: the bytes
+/// are what is wrong.
+ZrcResult ValidateDecompressedLayer(const dtTileCacheLayer& layer) {
+  ZrcTileCacheLayerHeader header;
+  memset(&header, 0, sizeof(header));
+  HeaderFromNative(*layer.header, &header);
+  if (ValidateLayerHeader(header) != ZRC_OK) return ZRC_ERR_BAD_FORMAT;
+  if (!ConnectionsStayOnGrid(header.width, header.height, layer.cons)) return ZRC_ERR_BAD_FORMAT;
+  return ZRC_OK;
+}
+
 
 //===----------------------------------------------------------------------===//
 // Salt-protected reference resolution
@@ -547,6 +604,29 @@ ZrcResult zrcTileCacheAddTile(ZrcTileCache* cache, const void* data, size_t size
   if (copy == nullptr) return ZRC_ERR_OUT_OF_MEMORY;
   memcpy(copy, data, size);
 
+  // Upstream decompresses a stored layer only when it builds one, and builds
+  // from whatever comes out. It is decompressed once here, through the
+  // cache's codec, and checked before the cache stores it. The scratch layer
+  // takes upstream's default allocator, which is dtAlloc, rather than the
+  // cache's: a host's tile cache allocator may be a linear one that frees
+  // nothing until the next build resets it.
+  {
+    dtTileCacheAlloc scratch;
+    dtTileCacheLayer* layer = nullptr;
+    const dtStatus unpacked = dtDecompressTileCacheLayer(
+        &scratch, &cache->compressor, copy, static_cast<int>(size), &layer);
+    if (dtStatusFailed(unpacked)) {
+      zrc::Free(copy);
+      return zrc::ResultFromStatus(unpacked);
+    }
+    const ZrcResult valid = ValidateDecompressedLayer(*layer);
+    dtFreeTileCacheLayer(&scratch, layer);
+    if (valid != ZRC_OK) {
+      zrc::Free(copy);
+      return valid;
+    }
+  }
+
   dtCompressedTileRef ref = 0;
   const dtStatus status =
       cache->impl->addTile(copy, static_cast<int>(size), DT_COMPRESSEDTILE_FREE_DATA, &ref);
@@ -956,6 +1036,9 @@ ZrcResult zrcTileCacheLayerBuild(const ZrcTileCacheCompressor* compressor,
   if (heights == nullptr || areas == nullptr || cons == nullptr) {
     return ZRC_ERR_INVALID_ARGUMENT;
   }
+  if (!ConnectionsStayOnGrid(header->width, header->height, cons)) {
+    return ZRC_ERR_INVALID_ARGUMENT;
+  }
 
   dtTileCacheLayerHeader native;
   memset(&native, 0, sizeof(native));
@@ -1054,6 +1137,12 @@ ZrcResult zrcTileCacheLayerDecompress(const ZrcTileCacheCompressor* compressor,
     zrc::Delete(handle);
     return zrc::ResultFromStatus(status);
   }
+  const ZrcResult valid = ValidateDecompressedLayer(*layer);
+  if (valid != ZRC_OK) {
+    dtFreeTileCacheLayer(&handle->allocator, layer);
+    zrc::Delete(handle);
+    return valid;
+  }
   handle->impl = layer;
   *out = handle;
   return ZRC_OK;
@@ -1076,20 +1165,7 @@ ZrcResult zrcTileCacheLayerHeaderOf(const ZrcTileCacheLayer* layer,
   if (layer == nullptr || layer->impl == nullptr || layer->impl->header == nullptr) {
     return ZRC_ERR_INVALID_ARGUMENT;
   }
-  const dtTileCacheLayerHeader& h = *layer->impl->header;
-  out->tile_x = h.tx;
-  out->tile_y = h.ty;
-  out->tile_layer = h.tlayer;
-  memcpy(out->bmin, h.bmin, sizeof(out->bmin));
-  memcpy(out->bmax, h.bmax, sizeof(out->bmax));
-  out->height_min = h.hmin;
-  out->height_max = h.hmax;
-  out->width = h.width;
-  out->height = h.height;
-  out->min_x = h.minx;
-  out->max_x = h.maxx;
-  out->min_z = h.miny;
-  out->max_z = h.maxy;
+  HeaderFromNative(*layer->impl->header, out);
   return ZRC_OK;
 }
 

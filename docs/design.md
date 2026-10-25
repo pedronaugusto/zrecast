@@ -1219,6 +1219,22 @@ each of those is a misaligned access. Worked around by handing upstream an
 aligned copy: a block from the allocator seam for the three that take a whole
 buffer, a local header for the swap.
 
+**The contour walk follows a layer's connections off its grid.** A cell's low
+four `cons` bits are its connections, one per direction, and
+`getNeighbourReg` follows a set bit to the neighbouring cell with no bounds
+test (`DetourTileCacheBuilder.cpp:452-456`). `walkContour` then steps onto that
+cell and reads its height (`DetourTileCacheBuilder.cpp:509`), so a border cell
+claiming a neighbour off the grid walks the contour out of the layer's
+buffers; `dtBuildTileCacheRegions` bounds the same steps and `walkContour`
+does not. Recast never writes such a bit (`RecastLayers.cpp:638`), but a layer
+from bytes is whatever the bytes say, and the cache decompresses a stored
+layer only when it builds one. The fuzz property for compressed layers found
+it, as a segmentation fault inside `walkContour`. Worked around by holding
+every layer to one contract wherever its grids enter: `buildTileCacheLayer`
+refuses such a `cons`, and `TileCacheLayer.initFromBytes` and
+`TileCache.addTile` decompress the bytes and refuse a layer whose header or
+connections fail the same checks. `addTile` pays one decompression for it.
+
 **`buildNavMeshTile` bounds a tile index with `>` where the file uses `>=`
 everywhere else.** `if (idx > (unsigned int)m_params.maxTiles)`
 (`DetourTileCache.cpp:662-663`) admits one `dtCompressedTile` past the

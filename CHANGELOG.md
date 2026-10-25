@@ -104,6 +104,14 @@ not express, so a port has the reason and not only the diff.
 
 ### Fixed
 
+- A tile cache layer whose cells claim a connection off its grid is refused
+  wherever it enters: `buildTileCacheLayer` returns `error.InvalidArgument`,
+  and `TileCacheLayer.initFromBytes` and `TileCache.addTile` return
+  `error.BadFormat`. Upstream's contour walk follows a connection with no
+  bounds test, so building such a layer read past the layer's buffers. A
+  layer from bytes is also held to the header checks `buildTileCacheLayer`
+  makes, which `addTile` never applied; `addTile` now decompresses the layer
+  once to check it.
 - Tile state, a compressed layer and a layer header are read and written at
   any alignment. `storeTileState`, `restoreTileState`,
   `TileCacheLayer.initFromBytes` and `swapTileCacheHeaderEndian` handed the

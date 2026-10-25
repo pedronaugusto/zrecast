@@ -3256,9 +3256,14 @@ ZRC_API ZrcResult zrcTileCacheParams(const ZrcTileCache* cache,
 /// reads the header off the buffer before comparing `size` against anything
 /// and then stores a compressed length computed by subtraction, which goes
 /// negative for a short buffer and is handed to the host codec as an int; the
-/// header and the length are checked here first. See docs/design.md.
+/// header and the length are checked here first. The layer is then
+/// decompressed once, through the cache's codec, and held to what
+/// zrcTileCacheLayerBuild requires of a header and its connections; upstream
+/// would decompress it only to build it, and trust what came out. See
+/// docs/design.md.
 ///
-/// ZRC_ERR_TILE_OCCUPIED when a layer already sits at that position.
+/// ZRC_ERR_BAD_FORMAT for bytes that do not decompress into such a layer,
+/// and ZRC_ERR_TILE_OCCUPIED when a layer already sits at that position.
 ZRC_API ZrcResult zrcTileCacheAddTile(ZrcTileCache* cache, const void* data,
                                       size_t size,
                                       ZrcCompressedTileRef* out_ref);
@@ -3513,8 +3518,10 @@ typedef struct ZrcTileCacheLayerHeader {
 /// Compresses one layer into the bytes zrcTileCacheAddTile takes.
 ///
 /// `heights`, `areas` and `cons` are each `width * height` bytes, the three
-/// arrays zrcHeightfieldLayerHeights and its siblings report. `*out_data` is
-/// the caller's to free with zrcFree.
+/// arrays zrcHeightfieldLayerHeights and its siblings report. No cell of
+/// `cons` may claim a connection off the grid, which upstream's contour walk
+/// would follow out of the layer; a layer Recast built never does.
+/// `*out_data` is the caller's to free with zrcFree.
 ZRC_API ZrcResult zrcTileCacheLayerBuild(
     const ZrcTileCacheCompressor* compressor,
     const ZrcTileCacheLayerHeader* header, const uint8_t* heights,
@@ -3534,7 +3541,8 @@ ZRC_API ZrcResult zrcTileCacheHeaderSwapEndian(void* data, size_t size);
 typedef struct ZrcTileCacheLayer ZrcTileCacheLayer;
 
 /// Decompresses a layer, through the same codec that produced it. `data` may
-/// have any alignment.
+/// have any alignment. ZRC_ERR_BAD_FORMAT for a layer that does not meet
+/// what zrcTileCacheLayerBuild requires of a header and its connections.
 ZRC_API ZrcResult zrcTileCacheLayerDecompress(
     const ZrcTileCacheCompressor* compressor,
     const ZrcTileCacheAllocator* allocator, const void* data, size_t size,

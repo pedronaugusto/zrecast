@@ -2598,6 +2598,7 @@ test "a layer built from a header reads that header back, field for field" {
         .max_z = 5,
     };
     const n: usize = @intCast(header.width * header.height);
+    const width: usize = @intCast(header.width);
     const heights = try gpa.alloc(u8, n);
     defer gpa.free(heights);
     const areas = try gpa.alloc(u8, n);
@@ -2607,7 +2608,7 @@ test "a layer built from a header reads that header back, field for field" {
     for (heights, areas, cons, 0..) |*h, *a, *con, i| {
         h.* = @intCast(i % 32);
         a.* = if (i % 3 == 0) 0 else 1;
-        con.* = @intCast(i % 16);
+        con.* = onGrid(@intCast(i % 16), i % width, i / width, width, n / width);
     }
 
     var codec = StoreCodec.compressor();
@@ -2641,6 +2642,86 @@ test "a layer built from a header reads that header back, field for field" {
     try std.testing.expect(!std.mem.eql(u8, bytes.bytes, odd[1..]));
     try zrecast.swapTileCacheHeaderEndian(odd[1..]);
     try std.testing.expectEqualSlices(u8, bytes.bytes, odd[1..]);
+}
+
+/// `con` without the connections that would leave a `width` by `height`
+/// grid from cell (x, z): -x, +z, +x and -z are its bits 1, 2, 4 and 8.
+fn onGrid(con: u8, x: usize, z: usize, width: usize, height: usize) u8 {
+    var kept = con;
+    if (x == 0) kept &= ~@as(u8, 1);
+    if (z == height - 1) kept &= ~@as(u8, 2);
+    if (x == width - 1) kept &= ~@as(u8, 4);
+    if (z == 0) kept &= ~@as(u8, 8);
+    return kept;
+}
+
+test "a layer whose connections leave its grid is refused however it arrives" {
+    const gpa = std.testing.allocator;
+    zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    // Upstream's contour walk follows a connection with no bounds test, so a
+    // border cell claiming a neighbour off the grid walks it out of the
+    // layer's buffers. Every border is tried, each from a layer that is
+    // otherwise connected everywhere it can be.
+    const header = zrecast.TileCacheLayerHeader{
+        .tile_x = 0,
+        .tile_y = 0,
+        .tile_layer = 0,
+        .bmin = .{ 0, 0, 0 },
+        .bmax = .{ 4, 1, 3 },
+        .height_min = 0,
+        .height_max = 1,
+        .width = 4,
+        .height = 3,
+        .min_x = 0,
+        .max_x = 3,
+        .min_z = 0,
+        .max_z = 2,
+    };
+    const n = 4 * 3;
+    var heights: [n]u8 = @splat(0);
+    var areas: [n]u8 = @splat(1);
+    var cons: [n]u8 = undefined;
+    for (&cons, 0..) |*con, i| con.* = onGrid(0xf, i % 4, i / 4, 4, 3);
+    var codec = StoreCodec.compressor();
+    const bytes = try zrecast.buildTileCacheLayer(&codec, header, &heights, &areas, &cons);
+    defer bytes.deinit();
+    // The store codec copies, so the grids follow the header as they went
+    // in, and the connections are the last of them.
+    const cons_at = bytes.bytes.len - n;
+    try std.testing.expectEqualSlices(u8, &cons, bytes.bytes[cons_at..]);
+
+    var world = try CachedWorld.init(gpa);
+    defer world.deinit();
+    const cache = try zrecast.TileCache.init(try world.cache.params(), &codec, null, .{ .process = WalkableFlags.process });
+    defer cache.deinit();
+
+    const off_grid = [_]struct { cell: usize, bit: u8 }{
+        .{ .cell = 4, .bit = 1 }, // (0, 1), towards -x
+        .{ .cell = 9, .bit = 2 }, // (1, 2), towards +z
+        .{ .cell = 7, .bit = 4 }, // (3, 1), towards +x
+        .{ .cell = 1, .bit = 8 }, // (1, 0), towards -z
+    };
+    for (off_grid) |o| {
+        var claimed = cons;
+        claimed[o.cell] |= o.bit;
+        try std.testing.expectError(zrecast.Error.InvalidArgument, zrecast.buildTileCacheLayer(&codec, header, &heights, &areas, &claimed));
+
+        const crafted = try gpa.dupe(u8, bytes.bytes);
+        defer gpa.free(crafted);
+        crafted[cons_at + o.cell] |= o.bit;
+        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(crafted)));
+        try std.testing.expectError(zrecast.Error.BadFormat, cache.addTile(.init(crafted)));
+    }
+
+    // The layer they were made from goes in, and builds.
+    const layer = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes.bytes));
+    layer.deinit();
+    const mesh = try zrecast.NavMesh.initTiled(try zrecast.tileGrid(tiledConfig(), fixtureMesh()), @intCast((try cache.params()).max_tiles), 1 << 14);
+    defer mesh.deinit();
+    const ref = try cache.addTile(.init(bytes.bytes));
+    try cache.buildNavMeshTile(ref, mesh);
 }
 
 test "bytes that are not a compressed layer never reach the tile cache" {

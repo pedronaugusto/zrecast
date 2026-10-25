@@ -296,9 +296,12 @@ pub const TileCache = struct {
 
     /// Adds one compressed layer, produced by `buildTileCacheLayer`. The
     /// bytes are copied, so `layer` stays the caller's and may be freed
-    /// immediately.
+    /// immediately. They are decompressed once, through the cache's codec,
+    /// and held to what `buildTileCacheLayer` requires of a header and its
+    /// connections.
     ///
-    /// `error.TileOccupied` when a layer already sits at that position.
+    /// `error.BadFormat` for bytes that do not decompress into such a layer,
+    /// and `error.TileOccupied` when a layer already sits at that position.
     pub fn addTile(self: TileCache, layer: Image) err.Error!CompressedTileRef {
         const data = layer.readForParse();
         var ref: CompressedTileRef = 0;
@@ -481,7 +484,9 @@ pub const TileCacheLayerHeader = c.TileCacheLayerHeader;
 /// `HeightfieldLayerSet.heights` and its siblings report for one layer. The
 /// C side is handed three bare pointers it cannot relate to the header's
 /// dimensions, so the match is checked here; nothing else in this package
-/// checks it.
+/// checks it. No cell of `cons` may claim a connection off the grid, which
+/// upstream's contour walk would follow out of the layer; a layer Recast
+/// built never does.
 pub fn buildTileCacheLayer(
     compressor: *const Compressor,
     header: TileCacheLayerHeader,
@@ -524,6 +529,8 @@ pub const TileCacheLayer = struct {
     handle: *c.TileCacheLayer,
 
     /// Decompresses a layer, through the same codec that produced it.
+    /// `error.BadFormat` for a layer that does not meet what
+    /// `buildTileCacheLayer` requires of a header and its connections.
     pub fn initFromBytes(
         compressor: *const Compressor,
         allocator: ?*const Allocator,

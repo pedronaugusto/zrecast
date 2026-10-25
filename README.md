@@ -175,7 +175,7 @@ so no third-party meshes are shipped. `bay probe` breaks each invariant in
 | **1** | declared upstream and defined nowhere (`UNDEFINED`), so no host can call it |
 | **1145** | assertions in the standalone C smoke test |
 | **30** | vendored recastnavigation translation units `build.zig` compiles |
-| **97** | invariants `bay probe` mutates, each with the test that must notice |
+| **98** | invariants `bay probe` mutates, each with the test that must notice |
 <!-- END GENERATED -->
 
 `bay measurements` recomputes those from the tree, and the gate fails if the

@@ -1,0 +1,11 @@
+# expect: a layer whose connections leave its grid is refused however it arrives
+--- a/ffi/zrecast_tilecache.cpp
++++ b/ffi/zrecast_tilecache.cpp
+@@ -147,7 +147,6 @@
+       const unsigned char con = cons[x + z * width] & 0xf;
+       if (x == 0 && (con & 1) != 0) return false;
+       if (z == height - 1 && (con & 2) != 0) return false;
+-      if (x == width - 1 && (con & 4) != 0) return false;
+       if (z == 0 && (con & 8) != 0) return false;
+     }
+   }
