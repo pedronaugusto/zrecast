@@ -42,15 +42,15 @@ pub const QueryFilter = struct {
     /// `error.InvalidArgument` when any area cost is negative or not finite:
     /// either makes A* incoherent, and a negative edge can make the search
     /// loop.
-    pub fn init(desc: QueryFilterDesc) err.Error!QueryFilter {
+    pub fn init(desc: QueryFilterDesc, failure: *err.Failure) err.Error!QueryFilter {
         var handle: *c.QueryFilter = undefined;
-        try err.check(c.zrcQueryFilterCreate(&desc, &handle));
+        try err.check(failure, .query_filter_create, c.zrcQueryFilterCreate(&desc, &handle));
         return .{ .handle = handle };
     }
 
     /// A filter made from `defaultFilterDesc`.
-    pub fn initDefault() err.Error!QueryFilter {
-        return init(defaultFilterDesc());
+    pub fn initDefault(failure: *err.Failure) err.Error!QueryFilter {
+        return init(defaultFilterDesc(), failure);
     }
 
     pub fn deinit(self: QueryFilter) void {
@@ -62,25 +62,25 @@ pub const QueryFilter = struct {
         var desc: QueryFilterDesc = undefined;
         // The boundary refuses only a null filter or output, and neither can
         // be passed from here.
-        err.check(c.zrcQueryFilterDescribe(self.handle, &desc)) catch aegis.assert.never("a live filter describes itself");
+        err.map(c.zrcQueryFilterDescribe(self.handle, &desc)) catch aegis.assert.never("a live filter describes itself");
         return desc;
     }
 
     /// Sets one area's cost, under the check `init` makes.
     /// `error.InvalidArgument` for an area of `max_areas` or more, or a cost
     /// that is negative or not finite; the filter is then unchanged.
-    pub fn setAreaCost(self: QueryFilter, area: u8, cost: f32) err.Error!void {
-        try err.check(c.zrcQueryFilterSetAreaCost(self.handle, area, cost));
+    pub fn setAreaCost(self: QueryFilter, area: u8, cost: f32, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .query_filter_set_area_cost, c.zrcQueryFilterSetAreaCost(self.handle, area, cost));
     }
 
     /// A polygon is visitable only if it shares a bit with `flags`.
     pub fn setIncludeFlags(self: QueryFilter, flags: u16) void {
-        err.check(c.zrcQueryFilterSetIncludeFlags(self.handle, flags)) catch aegis.assert.never("a live filter takes any flags");
+        err.map(c.zrcQueryFilterSetIncludeFlags(self.handle, flags)) catch aegis.assert.never("a live filter takes any flags");
     }
 
     /// A polygon is skipped if it shares a bit with `flags`.
     pub fn setExcludeFlags(self: QueryFilter, flags: u16) void {
-        err.check(c.zrcQueryFilterSetExcludeFlags(self.handle, flags)) catch aegis.assert.never("a live filter takes any flags");
+        err.map(c.zrcQueryFilterSetExcludeFlags(self.handle, flags)) catch aegis.assert.never("a live filter takes any flags");
     }
 };
 
@@ -365,23 +365,23 @@ fn nodeFromC(raw: c.Node) Node {
 /// other error through — the pattern `NavMeshQuery.findNode` and
 /// `NavMeshQuery.nodeAt` share, since "not visited" is a real answer rather
 /// than a failure.
-fn nodeOrNotFound(result: c.Result, raw: c.Node) err.Error!?Node {
+fn nodeOrNotFound(result: c.Result, raw: c.Node, failure: *err.Failure, call: err.Call) err.Error!?Node {
     if (result == .not_found) return null;
-    try err.check(result);
+    try err.check(failure, call, result);
     return nodeFromC(raw);
 }
 
 /// Checks a group of output slices that share one C-side `max_result`. See
 /// `ReachedPolys` for the rule this enforces. Returns the shared length.
-fn sharedCapacity(lens: []const usize) err.Error!i32 {
+fn sharedCapacity(lens: []const usize, failure: *err.Failure, call: err.Call) err.Error!i32 {
     var shared: ?usize = null;
     for (lens) |l| {
         if (l == 0) continue;
         if (shared) |s| {
-            if (l != s) return err.Error.InvalidArgument;
+            if (l != s) return err.refuse(failure, call, error.InvalidArgument);
         } else shared = l;
     }
-    return aegis.int.cast(i32, shared orelse 0) catch err.Error.InvalidArgument;
+    return aegis.int.cast(i32, shared orelse 0) catch err.refuse(failure, call, error.InvalidArgument);
 }
 
 /// A navmesh plus the node pool a search needs.
@@ -407,12 +407,12 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         /// [Limit: 4 ... 65535]. Four, not one: Detour sizes the pool's hash table
         /// as `dtNextPow2(max_nodes / 4)`, which is zero for anything smaller, and
         /// every bucket index it then computes lands outside the allocation.
-        pub fn init(navmesh: NavMesh, max_nodes: u32) err.Error!NavMeshQuery {
+        pub fn init(navmesh: NavMesh, max_nodes: u32, failure: *err.Failure) err.Error!NavMeshQuery {
             comptime c.ownedOnly(access);
             const nodes = aegis.int.cast(i32, max_nodes) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .nav_mesh_query_create, error.InvalidArgument);
             var handle: *c.NavMeshQuery = undefined;
-            try err.check(c.zrcNavMeshQueryCreate(navmesh.handle, nodes, &handle));
+            try err.check(failure, .nav_mesh_query_create, c.zrcNavMeshQueryCreate(navmesh.handle, nodes, &handle));
             return .{ .handle = handle };
         }
 
@@ -430,11 +430,12 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             center: [3]f32,
             half_extents: [3]f32,
             filter: QueryFilter,
+            failure: *err.Failure,
         ) err.Error!NearestPoly {
             var ref: PolyRef = 0;
             var point: [3]f32 = undefined;
             var over_poly: c.Bool = c.c_false;
-            try err.check(c.zrcFindNearestPoly(
+            try err.check(failure, .find_nearest_poly, c.zrcFindNearestPoly(
                 self.handle,
                 &center,
                 &half_extents,
@@ -462,12 +463,13 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             end_pos: [3]f32,
             filter: QueryFilter,
             out_path: []PolyRef,
+            failure: *err.Failure,
         ) err.Error!PathResult {
             const capacity = aegis.int.cast(i32, out_path.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .find_path, error.InvalidArgument);
             var count: i32 = 0;
             var partial: c.Bool = c.c_false;
-            try err.check(c.zrcFindPath(
+            try err.check(failure, .find_path, c.zrcFindPath(
                 self.handle,
                 start_ref,
                 end_ref,
@@ -495,22 +497,23 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             out_points: [][3]f32,
             out_flags: ?[]u8,
             out_refs: ?[]PolyRef,
+            failure: *err.Failure,
         ) err.Error!PathResult {
             const path_count = aegis.int.cast(i32, path.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .find_straight_path, error.InvalidArgument);
             const capacity = aegis.int.cast(i32, out_points.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .find_straight_path, error.InvalidArgument);
             // Detour writes these three arrays in lockstep and bounds only the
             // first; the C layer rejects a short companion, and the slice lengths
             // below are what it checks against.
             const flags_capacity = aegis.int.cast(i32, if (out_flags) |f| f.len else 0) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .find_straight_path, error.InvalidArgument);
             const refs_capacity = aegis.int.cast(i32, if (out_refs) |r| r.len else 0) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .find_straight_path, error.InvalidArgument);
 
             var count: i32 = 0;
             var partial: c.Bool = c.c_false;
-            try err.check(c.zrcFindStraightPath(
+            try err.check(failure, .find_straight_path, c.zrcFindStraightPath(
                 self.handle,
                 &start_pos,
                 &end_pos,
@@ -543,15 +546,16 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             end_pos: [3]f32,
             filter: QueryFilter,
             out_visited: ?[]PolyRef,
+            failure: *err.Failure,
         ) err.Error!MoveResult {
             const capacity: i32 = if (out_visited) |visited|
-                aegis.int.cast(i32, visited.len) catch return err.Error.InvalidArgument
+                aegis.int.cast(i32, visited.len) catch return err.refuse(failure, .move_along_surface, error.InvalidArgument)
             else
                 0;
             var position: [3]f32 = undefined;
             var count: i32 = 0;
             var truncated: c.Bool = c.c_false;
-            try err.check(c.zrcMoveAlongSurface(
+            try err.check(failure, .move_along_surface, c.zrcMoveAlongSurface(
                 self.handle,
                 start_ref,
                 &start_pos,
@@ -586,15 +590,16 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             options: RaycastOptions,
             prev_ref: ?PolyRef,
             out_path: ?[]PolyRef,
+            failure: *err.Failure,
         ) err.Error!RaycastResult {
             const capacity: i32 = if (out_path) |path|
-                aegis.int.cast(i32, path.len) catch return err.Error.InvalidArgument
+                aegis.int.cast(i32, path.len) catch return err.refuse(failure, .raycast, error.InvalidArgument)
             else
                 0;
             var raw_hit: c.RaycastHit = undefined;
             var path_len: i32 = 0;
             var truncated: c.Bool = c.c_false;
-            try err.check(c.zrcRaycast(
+            try err.check(failure, .raycast, c.zrcRaycast(
                 self.handle,
                 start_ref,
                 &start_pos,
@@ -629,8 +634,9 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             end_pos: Vec3,
             filter: QueryFilter,
             options: FindPathOptions,
+            failure: *err.Failure,
         ) err.Error!void {
-            try err.check(c.zrcSlicedFindPathInit(
+            try err.check(failure, .sliced_find_path_init, c.zrcSlicedFindPathInit(
                 self.handle,
                 start_ref,
                 end_ref,
@@ -645,12 +651,12 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         ///
         /// A search that ran out of nodes, or whose start or end polygon stopped
         /// being valid, reports the failure here rather than at finalise.
-        pub fn slicedFindPathUpdate(self: Self, max_iters: u32) err.Error!SliceProgress {
+        pub fn slicedFindPathUpdate(self: Self, max_iters: u32, failure: *err.Failure) err.Error!SliceProgress {
             const iters = aegis.int.cast(i32, max_iters) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .sliced_find_path_update, error.InvalidArgument);
             var iterations: i32 = 0;
             var in_progress: c.Bool = c.c_false;
-            try err.check(c.zrcSlicedFindPathUpdate(self.handle, iters, &iterations, &in_progress));
+            try err.check(failure, .sliced_find_path_update, c.zrcSlicedFindPathUpdate(self.handle, iters, &iterations, &in_progress));
             return .{
                 .iterations = c.reported(u32, iterations),
                 .in_progress = in_progress != c.c_false,
@@ -664,12 +670,12 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         /// the state it guards, so a second call would otherwise fall into the
         /// "start and end are the same polygon" branch and report success with a
         /// one-element path holding the null reference.
-        pub fn slicedFindPathFinalize(self: Self, out_path: []PolyRef) err.Error!PathResult {
+        pub fn slicedFindPathFinalize(self: Self, out_path: []PolyRef, failure: *err.Failure) err.Error!PathResult {
             const capacity = aegis.int.cast(i32, out_path.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .sliced_find_path_finalize, error.InvalidArgument);
             var count: i32 = 0;
             var partial: c.Bool = c.c_false;
-            try err.check(c.zrcSlicedFindPathFinalize(
+            try err.check(failure, .sliced_find_path_finalize, c.zrcSlicedFindPathFinalize(
                 self.handle,
                 out_path.ptr,
                 capacity,
@@ -688,14 +694,15 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             self: Self,
             existing: []const PolyRef,
             out_path: []PolyRef,
+            failure: *err.Failure,
         ) err.Error!PathResult {
             const existing_count = aegis.int.cast(i32, existing.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .sliced_find_path_finalize_partial, error.InvalidArgument);
             const capacity = aegis.int.cast(i32, out_path.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .sliced_find_path_finalize_partial, error.InvalidArgument);
             var count: i32 = 0;
             var partial: c.Bool = c.c_false;
-            try err.check(c.zrcSlicedFindPathFinalizePartial(
+            try err.check(failure, .sliced_find_path_finalize_partial, c.zrcSlicedFindPathFinalizePartial(
                 self.handle,
                 existing.ptr,
                 existing_count,
@@ -712,7 +719,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         pub fn slicedFindPathCancel(self: Self) void {
             // The boundary refuses only a query that was never made, and a
             // NavMeshQuery is one that was.
-            err.check(c.zrcSlicedFindPathCancel(self.handle)) catch aegis.assert.never("a NavMeshQuery is a live query");
+            err.map(c.zrcSlicedFindPathCancel(self.handle)) catch aegis.assert.never("a NavMeshQuery is a live query");
         }
 
         /// Whether a sliced search is in flight on this query.
@@ -725,11 +732,12 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             self: Self,
             filter: QueryFilter,
             random: RandomSource,
+            failure: *err.Failure,
         ) err.Error!RandomPoint {
             const source = random.toC();
             var ref: PolyRef = 0;
             var point: Vec3 = undefined;
-            try err.check(c.zrcFindRandomPoint(self.handle, filter.handle, &source, &ref, &point));
+            try err.check(failure, .find_random_point, c.zrcFindRandomPoint(self.handle, filter.handle, &source, &ref, &point));
             return .{ .ref = ref, .point = point };
         }
 
@@ -748,11 +756,12 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             max_radius: f32,
             filter: QueryFilter,
             random: RandomSource,
+            failure: *err.Failure,
         ) err.Error!RandomPoint {
             const source = random.toC();
             var ref: PolyRef = 0;
             var point: Vec3 = undefined;
-            try err.check(c.zrcFindRandomPointAroundCircle(
+            try err.check(failure, .find_random_point_around_circle, c.zrcFindRandomPointAroundCircle(
                 self.handle,
                 start_ref,
                 &center,
@@ -772,12 +781,13 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             half_extents: Vec3,
             filter: QueryFilter,
             out_refs: []PolyRef,
+            failure: *err.Failure,
         ) err.Error!PolyList {
             const capacity = aegis.int.cast(i32, out_refs.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .query_polygons, error.InvalidArgument);
             var count: i32 = 0;
             var truncated: c.Bool = c.c_false;
-            try err.check(c.zrcQueryPolygons(
+            try err.check(failure, .query_polygons, c.zrcQueryPolygons(
                 self.handle,
                 &center,
                 &half_extents,
@@ -801,17 +811,18 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             half_extents: Vec3,
             filter: QueryFilter,
             sink: PolySink,
+            failure: *err.Failure,
         ) err.Error!void {
             const raw_sink = sink.toC();
-            try err.check(c.zrcQueryPolygonsBatched(self.handle, &center, &half_extents, filter.handle, &raw_sink));
+            try err.check(failure, .query_polygons_batched, c.zrcQueryPolygonsBatched(self.handle, &center, &half_extents, filter.handle, &raw_sink));
         }
 
         /// Closest point on `ref` to `pos`, using the polygon's detail mesh for
         /// height.
-        pub fn closestPointOnPoly(self: Self, ref: PolyRef, pos: Vec3) err.Error!ClosestPoint {
+        pub fn closestPointOnPoly(self: Self, ref: PolyRef, pos: Vec3, failure: *err.Failure) err.Error!ClosestPoint {
             var point: Vec3 = undefined;
             var over_poly: c.Bool = c.c_false;
-            try err.check(c.zrcClosestPointOnPoly(self.handle, ref, &pos, &point, &over_poly));
+            try err.check(failure, .closest_point_on_poly, c.zrcClosestPointOnPoly(self.handle, ref, &pos, &point, &over_poly));
             return .{ .point = point, .over_poly = over_poly != c.c_false };
         }
 
@@ -819,18 +830,18 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         /// itself when `pos` is outside it and the projection onto its edge
         /// otherwise. Cheaper than `closestPointOnPoly` and does not consult the
         /// detail mesh, so the height it reports is the polygon's own.
-        pub fn closestPointOnPolyBoundary(self: Self, ref: PolyRef, pos: Vec3) err.Error!Vec3 {
+        pub fn closestPointOnPolyBoundary(self: Self, ref: PolyRef, pos: Vec3, failure: *err.Failure) err.Error!Vec3 {
             var point: Vec3 = undefined;
-            try err.check(c.zrcClosestPointOnPolyBoundary(self.handle, ref, &pos, &point));
+            try err.check(failure, .closest_point_on_poly_boundary, c.zrcClosestPointOnPolyBoundary(self.handle, ref, &pos, &point));
             return point;
         }
 
         /// Height of `ref`'s surface directly under `pos`. `error.InvalidArgument`
         /// when `pos` is not over the polygon at all, which is the answer rather
         /// than an approximation.
-        pub fn polyHeight(self: Self, ref: PolyRef, pos: Vec3) err.Error!f32 {
+        pub fn polyHeight(self: Self, ref: PolyRef, pos: Vec3, failure: *err.Failure) err.Error!f32 {
             var height: f32 = 0;
-            try err.check(c.zrcPolyHeight(self.handle, ref, &pos, &height));
+            try err.check(failure, .poly_height, c.zrcPolyHeight(self.handle, ref, &pos, &height));
             return height;
         }
 
@@ -848,12 +859,13 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             out_refs: []PolyRef,
             out_parents: []PolyRef,
             out_costs: []f32,
+            failure: *err.Failure,
         ) err.Error!ReachedPolys {
             const lens = [_]usize{ out_refs.len, out_parents.len, out_costs.len };
-            const capacity = try sharedCapacity(&lens);
+            const capacity = try sharedCapacity(&lens, failure, .find_polys_around_circle);
             var count: i32 = 0;
             var truncated: c.Bool = c.c_false;
-            try err.check(c.zrcFindPolysAroundCircle(
+            try err.check(failure, .find_polys_around_circle, c.zrcFindPolysAroundCircle(
                 self.handle,
                 start_ref,
                 &center,
@@ -879,14 +891,15 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             out_refs: []PolyRef,
             out_parents: []PolyRef,
             out_costs: []f32,
+            failure: *err.Failure,
         ) err.Error!ReachedPolys {
             const vert_count = aegis.int.cast(i32, verts.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .find_polys_around_shape, error.InvalidArgument);
             const lens = [_]usize{ out_refs.len, out_parents.len, out_costs.len };
-            const capacity = try sharedCapacity(&lens);
+            const capacity = try sharedCapacity(&lens, failure, .find_polys_around_shape);
             var count: i32 = 0;
             var truncated: c.Bool = c.c_false;
-            try err.check(c.zrcFindPolysAroundShape(
+            try err.check(failure, .find_polys_around_shape, c.zrcFindPolysAroundShape(
                 self.handle,
                 start_ref,
                 // A []Vec3 is tightly packed floats, the same memory Detour wants.
@@ -911,12 +924,13 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             self: Self,
             end_ref: PolyRef,
             out_path: []PolyRef,
+            failure: *err.Failure,
         ) err.Error!PolyList {
             const capacity = aegis.int.cast(i32, out_path.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .path_from_dijkstra_search, error.InvalidArgument);
             var count: i32 = 0;
             var truncated: c.Bool = c.c_false;
-            try err.check(c.zrcPathFromDijkstraSearch(
+            try err.check(failure, .path_from_dijkstra_search, c.zrcPathFromDijkstraSearch(
                 self.handle,
                 end_ref,
                 out_path.ptr,
@@ -940,14 +954,15 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             filter: QueryFilter,
             out_refs: []PolyRef,
             out_parents: []PolyRef,
+            failure: *err.Failure,
         ) err.Error!ReachedPolys {
             if (out_parents.len != 0 and out_parents.len != out_refs.len)
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .find_local_neighbourhood, error.InvalidArgument);
             const capacity = aegis.int.cast(i32, out_refs.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .find_local_neighbourhood, error.InvalidArgument);
             var count: i32 = 0;
             var truncated: c.Bool = c.c_false;
-            try err.check(c.zrcFindLocalNeighbourhood(
+            try err.check(failure, .find_local_neighbourhood, c.zrcFindLocalNeighbourhood(
                 self.handle,
                 start_ref,
                 &center,
@@ -972,14 +987,15 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             filter: QueryFilter,
             out_verts: [][2]Vec3,
             out_refs: []PolyRef,
+            failure: *err.Failure,
         ) err.Error!WallSegments {
             if (out_refs.len != 0 and out_refs.len != out_verts.len)
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .poly_wall_segments, error.InvalidArgument);
             const capacity = aegis.int.cast(i32, out_verts.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .poly_wall_segments, error.InvalidArgument);
             var count: i32 = 0;
             var truncated: c.Bool = c.c_false;
-            try err.check(c.zrcPolyWallSegments(
+            try err.check(failure, .poly_wall_segments, c.zrcPolyWallSegments(
                 self.handle,
                 ref,
                 filter.handle,
@@ -1002,12 +1018,13 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             center: Vec3,
             max_radius: f32,
             filter: QueryFilter,
+            failure: *err.Failure,
         ) err.Error!?WallHit {
             var dist: f32 = 0;
             var pos: Vec3 = undefined;
             var normal: Vec3 = undefined;
             var found: c.Bool = c.c_false;
-            try err.check(c.zrcFindDistanceToWall(
+            try err.check(failure, .find_distance_to_wall, c.zrcFindDistanceToWall(
                 self.handle,
                 start_ref,
                 &center,
@@ -1025,33 +1042,33 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         /// Whether `ref` names a live polygon, and — when `filter` is given —
         /// one this filter would admit. A null filter asks the plainer question:
         /// does `ref` decode to a polygon that exists, with no admission test.
-        pub fn isValidPolyRef(self: Self, ref: PolyRef, filter: ?QueryFilter) err.Error!bool {
+        pub fn isValidPolyRef(self: Self, ref: PolyRef, filter: ?QueryFilter, failure: *err.Failure) err.Error!bool {
             var valid: c.Bool = c.c_false;
             const handle: ?*const c.QueryFilter = if (filter) |f| f.handle else null;
-            try err.check(c.zrcIsValidPolyRef(self.handle, ref, handle, &valid));
+            try err.check(failure, .is_valid_poly_ref, c.zrcIsValidPolyRef(self.handle, ref, handle, &valid));
             return valid != c.c_false;
         }
 
         /// Whether the last search closed `ref` — visited it and settled its
         /// cost.
-        pub fn isInClosedList(self: Self, ref: PolyRef) err.Error!bool {
+        pub fn isInClosedList(self: Self, ref: PolyRef, failure: *err.Failure) err.Error!bool {
             var closed: c.Bool = c.c_false;
-            try err.check(c.zrcIsInClosedList(self.handle, ref, &closed));
+            try err.check(failure, .is_in_closed_list, c.zrcIsInClosedList(self.handle, ref, &closed));
             return closed != c.c_false;
         }
 
         /// The navmesh this query was created against. Borrowed; the caller
         /// still owns it.
-        pub fn attachedNavMesh(self: Self) err.Error!BorrowedNavMesh {
+        pub fn attachedNavMesh(self: Self, failure: *err.Failure) err.Error!BorrowedNavMesh {
             var handle: *const c.NavMesh = undefined;
-            try err.check(c.zrcQueryNavMesh(self.handle, &handle));
+            try err.check(failure, .query_nav_mesh, c.zrcQueryNavMesh(self.handle, &handle));
             return .{ .handle = handle };
         }
 
         /// How full this query's node pool is.
-        pub fn nodePoolInfo(self: Self) err.Error!NodePoolInfo {
+        pub fn nodePoolInfo(self: Self, failure: *err.Failure) err.Error!NodePoolInfo {
             var raw: c.NodePoolInfo = undefined;
-            try err.check(c.zrcQueryNodePoolInfo(self.handle, &raw));
+            try err.check(failure, .query_node_pool_info, c.zrcQueryNodePoolInfo(self.handle, &raw));
             return .{
                 .node_count = c.reported(u32, raw.node_count),
                 .max_nodes = c.reported(u32, raw.max_nodes),
@@ -1064,20 +1081,20 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         /// one. Null rather than an error when the search never reached that
         /// polygon in that state — the difference between "cost zero" and "not
         /// visited".
-        pub fn findNode(self: Self, ref: PolyRef, state: u32) err.Error!?Node {
+        pub fn findNode(self: Self, ref: PolyRef, state: u32, failure: *err.Failure) err.Error!?Node {
             var raw: c.Node = undefined;
             const result = c.zrcQueryFindNode(self.handle, ref, state, &raw);
-            return nodeOrNotFound(result, raw);
+            return nodeOrNotFound(result, raw, failure, .query_find_node);
         }
 
         /// Every node the last search made for `ref`, across its states, written
         /// into `out`. Returns how many were written, at most four — the width of
         /// upstream's per-polygon state table.
-        pub fn findNodes(self: Self, ref: PolyRef, out: []Node) err.Error!usize {
+        pub fn findNodes(self: Self, ref: PolyRef, out: []Node, failure: *err.Failure) err.Error!usize {
             var raw: [c.max_node_states]c.Node = undefined;
             const capacity = aegis.int.cast(i32, @min(out.len, raw.len));
             var count: i32 = 0;
-            try err.check(c.zrcQueryFindNodes(self.handle, ref, &raw, capacity, &count));
+            try err.check(failure, .query_find_nodes, c.zrcQueryFindNodes(self.handle, ref, &raw, capacity, &count));
             const found: usize = c.reported(usize, count);
             for (out[0..found], raw[0..found]) |*dst, src| dst.* = nodeFromC(src);
             return found;
@@ -1085,29 +1102,29 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
 
         /// The node at a one-based pool index, which is what `Node.parent_index`
         /// carries. Null for index 0, "no node".
-        pub fn nodeAt(self: Self, index: u32) err.Error!?Node {
+        pub fn nodeAt(self: Self, index: u32, failure: *err.Failure) err.Error!?Node {
             var raw: c.Node = undefined;
             const result = c.zrcQueryNodeAt(self.handle, index, &raw);
-            return nodeOrNotFound(result, raw);
+            return nodeOrNotFound(result, raw, failure, .query_node_at);
         }
     };
 }
 
 /// Splits a polygon reference into the three fields packed into it.
-pub fn decodePolyRef(navmesh: NavMesh, ref: PolyRef) err.Error!DecodedPolyRef {
+pub fn decodePolyRef(navmesh: NavMesh, ref: PolyRef, failure: *err.Failure) err.Error!DecodedPolyRef {
     var salt: u32 = 0;
     var tile: u32 = 0;
     var poly: u32 = 0;
-    try err.check(c.zrcDecodePolyRef(navmesh.handle, ref, &salt, &tile, &poly));
+    try err.check(failure, .decode_poly_ref, c.zrcDecodePolyRef(navmesh.handle, ref, &salt, &tile, &poly));
     return .{ .salt = salt, .tile = tile, .poly = poly };
 }
 
 /// Packs the three fields back into a reference. `error.InvalidArgument`
 /// when any of them is too wide for the navmesh's own bit layout, which
 /// upstream instead truncates silently.
-pub fn encodePolyRef(navmesh: NavMesh, salt: u32, tile: u32, poly: u32) err.Error!PolyRef {
+pub fn encodePolyRef(navmesh: NavMesh, salt: u32, tile: u32, poly: u32, failure: *err.Failure) err.Error!PolyRef {
     var ref: PolyRef = 0;
-    try err.check(c.zrcEncodePolyRef(navmesh.handle, salt, tile, poly, &ref));
+    try err.check(failure, .encode_poly_ref, c.zrcEncodePolyRef(navmesh.handle, salt, tile, poly, &ref));
     return ref;
 }
 
@@ -1131,7 +1148,7 @@ const EmptyWorld = struct {
     mesh: NavMesh,
     query: NavMeshQuery,
 
-    fn init() !EmptyWorld {
+    fn init(failure: *err.Failure) !EmptyWorld {
         const grid: c.TileGrid = .{
             .origin = .{ 0, 0, 0 },
             .extent_max = .{ 10, 0, 10 },
@@ -1139,9 +1156,9 @@ const EmptyWorld = struct {
             .tile_count_x = 1,
             .tile_count_z = 1,
         };
-        const mesh = try NavMesh.initTiled(grid, 1, 256);
+        const mesh = try NavMesh.initTiled(grid, 1, 256, failure);
         errdefer mesh.deinit();
-        const query = try NavMeshQuery.init(mesh, 8);
+        const query = try NavMeshQuery.init(mesh, 8, failure);
         return .{ .mesh = mesh, .query = query };
     }
 
@@ -1152,24 +1169,26 @@ const EmptyWorld = struct {
 };
 
 test "a fresh query has no sliced search in flight" {
+    var failure: err.Failure = .{};
     const gpa = std.testing.allocator;
     memory.setAllocator(gpa);
     defer memory.resetAllocator();
 
-    const world = try EmptyWorld.init();
+    const world = try EmptyWorld.init(&failure);
     defer world.deinit();
 
     try std.testing.expect(!world.query.slicedFindPathActive());
-    try std.testing.expectError(err.Error.NoSearch, world.query.slicedFindPathUpdate(1));
+    try std.testing.expectError(err.Error.NoSearch, world.query.slicedFindPathUpdate(1, &failure));
 }
 
 test "findNode on a query that has run no search is null rather than an error" {
+    var failure: err.Failure = .{};
     const gpa = std.testing.allocator;
     memory.setAllocator(gpa);
     defer memory.resetAllocator();
 
-    const world = try EmptyWorld.init();
+    const world = try EmptyWorld.init(&failure);
     defer world.deinit();
 
-    try std.testing.expectEqual(@as(?Node, null), try world.query.findNode(1, 0));
+    try std.testing.expectEqual(@as(?Node, null), try world.query.findNode(1, 0, &failure));
 }

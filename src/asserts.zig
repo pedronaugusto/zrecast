@@ -6,6 +6,7 @@
 //! called. `assertsEnabled` is the only way to tell which build this is.
 
 const std = @import("std");
+const aegis = @import("aegis");
 const c = @import("c.zig");
 const err = @import("error.zig");
 
@@ -55,14 +56,14 @@ pub fn assertsEnabled() bool {
 
 /// Installs a process-wide handler for Recast's and Detour's internal
 /// assertions. `null` clears it and restores upstream's default, `assert()`.
-pub fn setHandler(h: ?Handler) err.Error!void {
+pub fn setHandler(h: ?Handler) void {
     installed = h;
     if (h == null) {
-        try err.check(c.zrcSetAssertHandler(null));
+        err.map(c.zrcSetAssertHandler(null)) catch aegis.assert.never("the boundary takes a null handler");
         return;
     }
     const bridge = c.AssertHandler{ .fail = trampoline, .user = null };
-    try err.check(c.zrcSetAssertHandler(&bridge));
+    err.map(c.zrcSetAssertHandler(&bridge)) catch aegis.assert.never("the bridge has its fail function");
 }
 
 /// The handler this library is actually routed to, or `null`.
@@ -72,9 +73,9 @@ pub fn setHandler(h: ?Handler) err.Error!void {
 /// says whether the routing is still in place. A handler cleared or replaced
 /// through the C entry point directly reports `null` here, which a mirror of
 /// the last Zig call could not.
-pub fn handler() err.Error!?Handler {
+pub fn handler() ?Handler {
     var out: c.AssertHandler = undefined;
-    try err.check(c.zrcAssertHandler(&out));
+    err.map(c.zrcAssertHandler(&out)) catch aegis.assert.never("the boundary refuses only a null output");
     if (out.fail != &trampoline) return null;
     return installed;
 }
@@ -87,21 +88,21 @@ test "setHandler round-trips through handler, and null clears it" {
         }
     };
 
-    try setHandler(.{ .fail = Static.onFail, .user = null });
-    const got = (try handler()) orelse return error.TestUnexpectedResult;
+    setHandler(.{ .fail = Static.onFail, .user = null });
+    const got = handler() orelse return error.TestUnexpectedResult;
     try std.testing.expect(got.fail == &Static.onFail);
     try std.testing.expect(got.user == null);
 
-    try setHandler(null);
-    try std.testing.expect((try handler()) == null);
+    setHandler(null);
+    try std.testing.expect(handler() == null);
 
     // Cleared through the C entry point behind this module's back: the slot
     // still holds the handler, and the answer is still `null`, because the
     // library is no longer routed to it.
-    try setHandler(.{ .fail = Static.onFail, .user = null });
+    setHandler(.{ .fail = Static.onFail, .user = null });
     try std.testing.expectEqual(c.Result.ok, c.zrcSetAssertHandler(null));
-    try std.testing.expect((try handler()) == null);
-    try setHandler(null);
+    try std.testing.expect(handler() == null);
+    setHandler(null);
 }
 
 test "assertsEnabled agrees with how the C library was actually compiled" {

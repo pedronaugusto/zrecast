@@ -15,29 +15,30 @@
 //! // Cook:
 //! zrecast.setAllocator(gpa);
 //! defer zrecast.resetAllocator();
+//! var failure: zrecast.Failure = .{};
 //!
 //! const poly = try zrecast.PolyMesh.bake(zrecast.defaultConfig(), .{
 //!     .verts = level_verts,
 //!     .tris = level_indices,
-//! }, null, null);
+//! }, null, null, &failure);
 //! defer poly.deinit();
 //!
-//! const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+//! const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
 //! defer mesh.deinit();
 //!
-//! const image = try mesh.serialize();
+//! const image = try mesh.serialize(&failure);
 //! defer image.deinit();
 //!
 //! // Runtime:
-//! const loaded = try zrecast.NavMesh.initFromBytes(image.bytes);
+//! const loaded = try zrecast.NavMesh.initFromBytes(.init(image.bytes), &failure);
 //! defer loaded.deinit();
 //!
-//! const query = try zrecast.NavMeshQuery.init(loaded, 2048);
+//! const query = try zrecast.NavMeshQuery.init(loaded, 2048, &failure);
 //! defer query.deinit();
 //!
-//! const filter = try zrecast.QueryFilter.initDefault();
+//! const filter = try zrecast.QueryFilter.initDefault(&failure);
 //! defer filter.deinit();
-//! const near = try query.findNearestPoly(pos, .{ 2, 4, 2 }, filter);
+//! const near = try query.findNearestPoly(pos, .{ 2, 4, 2 }, filter, &failure);
 //! ```
 
 const std = @import("std");
@@ -62,6 +63,9 @@ const debugdraw_mod = @import("debugdraw.zig");
 //=============================================================================
 
 pub const Error = error_mod.Error;
+pub const Failure = error_mod.Failure;
+pub const Frame = error_mod.Frame;
+pub const Call = error_mod.Call;
 pub const resultName = error_mod.name;
 
 pub const setAllocator = memory_mod.setAllocator;

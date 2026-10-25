@@ -26,32 +26,36 @@ pub fn main(init: std.process.Init) !void {
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
+    // Every call that can fail is given a `Failure`; a refusal leaves a frame
+    // on it naming the call and the result, and success leaves nothing.
+    var failure: zrecast.Failure = .{};
+
     // In the cook: geometry in, bytes out. `log` is optional, and the
     // difference between a diagnosable failure and a bare error code.
     var log: [1024]u8 = undefined;
     const poly = try zrecast.PolyMesh.bake(zrecast.defaultConfig(), .{
         .verts = &level_verts, // 3 floats per vertex, right-handed, Y up
         .tris = &level_indices, // 3 indices per triangle
-    }, null, &log);
+    }, null, &log, &failure);
     defer poly.deinit();
 
-    const baked = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const baked = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer baked.deinit();
-    const image = try baked.serialize();
+    const image = try baked.serialize(&failure);
     defer image.deinit();
     // ...write `image.bytes` wherever the pipeline puts build artefacts.
 
     // In the game: bytes in, answers out.
-    const mesh = try zrecast.NavMesh.initFromBytes(.init(image.bytes));
+    const mesh = try zrecast.NavMesh.initFromBytes(.init(image.bytes), &failure);
     defer mesh.deinit();
-    const query = try zrecast.NavMeshQuery.init(mesh, 2048);
+    const query = try zrecast.NavMeshQuery.init(mesh, 2048, &failure);
     defer query.deinit();
 
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
     const extents = [3]f32{ 2, 4, 2 };
-    const from = try query.findNearestPoly(agent_pos, extents, filter);
-    const to = try query.findNearestPoly(target_pos, extents, filter);
+    const from = try query.findNearestPoly(agent_pos, extents, filter, &failure);
+    const to = try query.findNearestPoly(target_pos, extents, filter, &failure);
     if (from.ref == null or to.ref == null) return error.OffMesh;
 
     var corridor: [256]zrecast.PolyRef = undefined;
@@ -62,6 +66,7 @@ pub fn main(init: std.process.Init) !void {
         to.point,
         filter,
         &corridor,
+        &failure,
     );
 
     var corners: [64][3]f32 = undefined;
@@ -73,6 +78,7 @@ pub fn main(init: std.process.Init) !void {
         &corners,
         null,
         null,
+        &failure,
     );
     // Walk `corners[0..walk.len]`; `path.partial` says the goal was out of
     // reach and the corridor stops at the closest polygon instead.

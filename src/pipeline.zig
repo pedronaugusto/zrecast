@@ -100,37 +100,37 @@ fn toCContext(context: ?*const BuildContext, storage: *c.BuildContext) ?*const c
 /// Logs one message through `context`, as a Recast stage would. `message`
 /// crosses already NUL-terminated: a varargs entry point cannot be checked
 /// at this boundary, so formatting is the caller's.
-pub fn log(context: ?*const BuildContext, category: LogCategory, message: [:0]const u8) err.Error!void {
+pub fn log(context: ?*const BuildContext, category: LogCategory, message: [:0]const u8, failure: *err.Failure) err.Error!void {
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcBuildContextLog(toCContext(context, &context_storage), category, message.ptr));
+    try err.check(failure, .build_context_log, c.zrcBuildContextLog(toCContext(context, &context_storage), category, message.ptr));
 }
 
-pub fn resetLog(context: ?*const BuildContext) err.Error!void {
+pub fn resetLog(context: ?*const BuildContext, failure: *err.Failure) err.Error!void {
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcBuildContextResetLog(toCContext(context, &context_storage)));
+    try err.check(failure, .build_context_reset_log, c.zrcBuildContextResetLog(toCContext(context, &context_storage)));
 }
 
-pub fn resetTimers(context: ?*const BuildContext) err.Error!void {
+pub fn resetTimers(context: ?*const BuildContext, failure: *err.Failure) err.Error!void {
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcBuildContextResetTimers(toCContext(context, &context_storage)));
+    try err.check(failure, .build_context_reset_timers, c.zrcBuildContextResetTimers(toCContext(context, &context_storage)));
 }
 
-pub fn startTimer(context: ?*const BuildContext, label: TimerLabel) err.Error!void {
+pub fn startTimer(context: ?*const BuildContext, label: TimerLabel, failure: *err.Failure) err.Error!void {
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcBuildContextStartTimer(toCContext(context, &context_storage), label));
+    try err.check(failure, .build_context_start_timer, c.zrcBuildContextStartTimer(toCContext(context, &context_storage), label));
 }
 
-pub fn stopTimer(context: ?*const BuildContext, label: TimerLabel) err.Error!void {
+pub fn stopTimer(context: ?*const BuildContext, label: TimerLabel, failure: *err.Failure) err.Error!void {
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcBuildContextStopTimer(toCContext(context, &context_storage), label));
+    try err.check(failure, .build_context_stop_timer, c.zrcBuildContextStopTimer(toCContext(context, &context_storage), label));
 }
 
 /// Microseconds accumulated on `label`, or -1 when `context`'s timers are
 /// disabled or `label` has never run.
-pub fn accumulatedTime(context: ?*const BuildContext, label: TimerLabel) err.Error!i32 {
+pub fn accumulatedTime(context: ?*const BuildContext, label: TimerLabel, failure: *err.Failure) err.Error!i32 {
     var context_storage: c.BuildContext = undefined;
     var out: i32 = 0;
-    try err.check(c.zrcBuildContextAccumulatedTime(toCContext(context, &context_storage), label, &out));
+    try err.check(failure, .build_context_accumulated_time, c.zrcBuildContextAccumulatedTime(toCContext(context, &context_storage), label, &out));
     return out;
 }
 
@@ -142,18 +142,18 @@ pub fn accumulatedTime(context: ?*const BuildContext, label: TimerLabel) err.Err
 pub const GridSize = struct { width: i32, height: i32 };
 
 /// Axis-aligned bounds of `mesh`'s vertices, `.{ min, max }`.
-pub fn calcBounds(mesh: TriMesh) err.Error![2][3]f32 {
-    const c_mesh = try mesh.toC();
+pub fn calcBounds(mesh: TriMesh, failure: *err.Failure) err.Error![2][3]f32 {
+    const c_mesh = try mesh.toC(failure, .calc_bounds);
     var result: [2][3]f32 = undefined;
-    try err.check(c.zrcCalcBounds(&c_mesh, &result[0], &result[1]));
+    try err.check(failure, .calc_bounds, c.zrcCalcBounds(&c_mesh, &result[0], &result[1]));
     return result;
 }
 
 /// Width and height, in cells, of the voxel grid `bmin`..`bmax` implies at
 /// `cell_size`.
-pub fn calcGridSize(bmin: [3]f32, bmax: [3]f32, cell_size: f32) err.Error!GridSize {
+pub fn calcGridSize(bmin: [3]f32, bmax: [3]f32, cell_size: f32, failure: *err.Failure) err.Error!GridSize {
     var size: GridSize = undefined;
-    try err.check(c.zrcCalcGridSize(&bmin, &bmax, cell_size, &size.width, &size.height));
+    try err.check(failure, .calc_grid_size, c.zrcCalcGridSize(&bmin, &bmax, cell_size, &size.width, &size.height));
     return size;
 }
 
@@ -170,11 +170,12 @@ pub fn markWalkableTriangles(
     walkable_slope_angle: f32,
     mesh: TriMesh,
     out_areas: []u8,
+    failure: *err.Failure,
 ) err.Error!void {
-    const c_mesh = try mesh.toC();
-    if (out_areas.len != c.reported(usize, c_mesh.tri_count)) return err.Error.InvalidArgument;
+    const c_mesh = try mesh.toC(failure, .mark_walkable_triangles);
+    if (out_areas.len != c.reported(usize, c_mesh.tri_count)) return err.refuse(failure, .mark_walkable_triangles, error.InvalidArgument);
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcMarkWalkableTriangles(
+    try err.check(failure, .mark_walkable_triangles, c.zrcMarkWalkableTriangles(
         toCContext(context, &context_storage),
         walkable_slope_angle,
         &c_mesh,
@@ -191,11 +192,12 @@ pub fn clearUnwalkableTriangles(
     walkable_slope_angle: f32,
     mesh: TriMesh,
     io_areas: []u8,
+    failure: *err.Failure,
 ) err.Error!void {
-    const c_mesh = try mesh.toC();
-    if (io_areas.len != c.reported(usize, c_mesh.tri_count)) return err.Error.InvalidArgument;
+    const c_mesh = try mesh.toC(failure, .clear_unwalkable_triangles);
+    if (io_areas.len != c.reported(usize, c_mesh.tri_count)) return err.refuse(failure, .clear_unwalkable_triangles, error.InvalidArgument);
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcClearUnwalkableTriangles(
+    try err.check(failure, .clear_unwalkable_triangles, c.zrcClearUnwalkableTriangles(
         toCContext(context, &context_storage),
         walkable_slope_angle,
         &c_mesh,
@@ -242,10 +244,11 @@ pub const Heightfield = struct {
         bmax: [3]f32,
         cell_size: f32,
         cell_height: f32,
+        failure: *err.Failure,
     ) err.Error!Heightfield {
         var context_storage: c.BuildContext = undefined;
         var handle: *c.Heightfield = undefined;
-        try err.check(c.zrcHeightfieldCreate(
+        try err.check(failure, .heightfield_create, c.zrcHeightfieldCreate(
             toCContext(context, &context_storage),
             width,
             height,
@@ -262,15 +265,15 @@ pub const Heightfield = struct {
         c.zrcHeightfieldDestroy(self.handle);
     }
 
-    pub fn info(self: Heightfield) err.Error!HeightfieldInfo {
+    pub fn info(self: Heightfield, failure: *err.Failure) err.Error!HeightfieldInfo {
         var out: HeightfieldInfo = undefined;
-        try err.check(c.zrcHeightfieldInfo(self.handle, &out));
+        try err.check(failure, .heightfield_info, c.zrcHeightfieldInfo(self.handle, &out));
         return out;
     }
 
-    pub fn storage(self: Heightfield) err.Error!HeightfieldStorage {
+    pub fn storage(self: Heightfield, failure: *err.Failure) err.Error!HeightfieldStorage {
         var out: HeightfieldStorage = undefined;
-        try err.check(c.zrcHeightfieldStorage(self.handle, &out));
+        try err.check(failure, .heightfield_storage, c.zrcHeightfieldStorage(self.handle, &out));
         return out;
     }
 
@@ -282,21 +285,21 @@ pub const Heightfield = struct {
     /// it against `out.len` to see whether a second, larger call is needed
     /// rather than treating a short column as failure. An empty `out` asks
     /// only for the count.
-    pub fn column(self: Heightfield, x: i32, z: i32, out: []Span) err.Error!usize {
-        const max_spans = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn column(self: Heightfield, x: i32, z: i32, out: []Span, failure: *err.Failure) err.Error!usize {
+        const max_spans = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .heightfield_column, error.InvalidArgument);
         const ptr: ?[*]Span = if (out.len == 0) null else out.ptr;
         var count: i32 = 0;
         const result = c.zrcHeightfieldColumn(self.handle, x, z, ptr, max_spans, &count);
         if (result == .buffer_too_small) return c.reported(usize, count);
-        try err.check(result);
+        try err.check(failure, .heightfield_column, result);
         return c.reported(usize, count);
     }
 
     /// Total spans across every column. Walks the whole field.
-    pub fn spanCount(self: Heightfield, context: ?*const BuildContext) err.Error!u32 {
+    pub fn spanCount(self: Heightfield, context: ?*const BuildContext, failure: *err.Failure) err.Error!u32 {
         var context_storage: c.BuildContext = undefined;
         var out: i32 = 0;
-        try err.check(c.zrcHeightfieldSpanCount(toCContext(context, &context_storage), self.handle, &out));
+        try err.check(failure, .heightfield_span_count, c.zrcHeightfieldSpanCount(toCContext(context, &context_storage), self.handle, &out));
         return c.reported(u32, out);
     }
 
@@ -312,9 +315,10 @@ pub const Heightfield = struct {
         span_max: u32,
         area: u8,
         flag_merge_threshold: i32,
+        failure: *err.Failure,
     ) err.Error!void {
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcHeightfieldAddSpan(
+        try err.check(failure, .heightfield_add_span, c.zrcHeightfieldAddSpan(
             toCContext(context, &context_storage),
             self.handle,
             x,
@@ -339,9 +343,10 @@ pub const Heightfield = struct {
         v2: [3]f32,
         area: u8,
         flag_merge_threshold: i32,
+        failure: *err.Failure,
     ) err.Error!void {
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcHeightfieldRasterizeTriangle(
+        try err.check(failure, .heightfield_rasterize_triangle, c.zrcHeightfieldRasterizeTriangle(
             toCContext(context, &context_storage),
             self.handle,
             &v0,
@@ -362,11 +367,12 @@ pub const Heightfield = struct {
         mesh: TriMesh,
         tri_areas: []const u8,
         flag_merge_threshold: i32,
+        failure: *err.Failure,
     ) err.Error!void {
-        const c_mesh = try mesh.toC();
-        if (tri_areas.len != c.reported(usize, c_mesh.tri_count)) return err.Error.InvalidArgument;
+        const c_mesh = try mesh.toC(failure, .heightfield_rasterize_triangles);
+        if (tri_areas.len != c.reported(usize, c_mesh.tri_count)) return err.refuse(failure, .heightfield_rasterize_triangles, error.InvalidArgument);
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcHeightfieldRasterizeTriangles(
+        try err.check(failure, .heightfield_rasterize_triangles, c.zrcHeightfieldRasterizeTriangles(
             toCContext(context, &context_storage),
             self.handle,
             &c_mesh,
@@ -386,14 +392,15 @@ pub const Heightfield = struct {
         tris: []const u16,
         tri_areas: []const u8,
         flag_merge_threshold: i32,
+        failure: *err.Failure,
     ) err.Error!void {
-        if (verts.len == 0 or verts.len % 3 != 0) return err.Error.InvalidArgument;
-        if (tris.len == 0 or tris.len % 3 != 0) return err.Error.InvalidArgument;
-        const vert_count = aegis.int.cast(i32, verts.len / 3) catch return err.Error.InvalidArgument;
-        const tri_count = aegis.int.cast(i32, tris.len / 3) catch return err.Error.InvalidArgument;
-        if (tri_areas.len != tris.len / 3) return err.Error.InvalidArgument;
+        if (verts.len == 0 or verts.len % 3 != 0) return err.refuse(failure, .heightfield_rasterize_triangles_u16, error.InvalidArgument);
+        if (tris.len == 0 or tris.len % 3 != 0) return err.refuse(failure, .heightfield_rasterize_triangles_u16, error.InvalidArgument);
+        const vert_count = aegis.int.cast(i32, verts.len / 3) catch return err.refuse(failure, .heightfield_rasterize_triangles_u16, error.InvalidArgument);
+        const tri_count = aegis.int.cast(i32, tris.len / 3) catch return err.refuse(failure, .heightfield_rasterize_triangles_u16, error.InvalidArgument);
+        if (tri_areas.len != tris.len / 3) return err.refuse(failure, .heightfield_rasterize_triangles_u16, error.InvalidArgument);
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcHeightfieldRasterizeTrianglesU16(
+        try err.check(failure, .heightfield_rasterize_triangles_u16, c.zrcHeightfieldRasterizeTrianglesU16(
             toCContext(context, &context_storage),
             self.handle,
             verts.ptr,
@@ -415,11 +422,12 @@ pub const Heightfield = struct {
         verts: []const f32,
         tri_areas: []const u8,
         flag_merge_threshold: i32,
+        failure: *err.Failure,
     ) err.Error!void {
-        const tri_count = aegis.int.cast(i32, tri_areas.len) catch return err.Error.InvalidArgument;
-        if (verts.len != tri_areas.len * 9) return err.Error.InvalidArgument;
+        const tri_count = aegis.int.cast(i32, tri_areas.len) catch return err.refuse(failure, .heightfield_rasterize_triangle_soup, error.InvalidArgument);
+        if (verts.len != tri_areas.len * 9) return err.refuse(failure, .heightfield_rasterize_triangle_soup, error.InvalidArgument);
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcHeightfieldRasterizeTriangleSoup(
+        try err.check(failure, .heightfield_rasterize_triangle_soup, c.zrcHeightfieldRasterizeTriangleSoup(
             toCContext(context, &context_storage),
             self.handle,
             verts.ptr,
@@ -435,9 +443,10 @@ pub const Heightfield = struct {
         self: Heightfield,
         context: ?*const BuildContext,
         walkable_climb: i32,
+        failure: *err.Failure,
     ) err.Error!void {
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcHeightfieldFilterLowHangingObstacles(
+        try err.check(failure, .heightfield_filter_low_hanging_obstacles, c.zrcHeightfieldFilterLowHangingObstacles(
             toCContext(context, &context_storage),
             self.handle,
             walkable_climb,
@@ -451,9 +460,10 @@ pub const Heightfield = struct {
         context: ?*const BuildContext,
         walkable_height: i32,
         walkable_climb: i32,
+        failure: *err.Failure,
     ) err.Error!void {
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcHeightfieldFilterLedgeSpans(
+        try err.check(failure, .heightfield_filter_ledge_spans, c.zrcHeightfieldFilterLedgeSpans(
             toCContext(context, &context_storage),
             self.handle,
             walkable_height,
@@ -467,9 +477,10 @@ pub const Heightfield = struct {
         self: Heightfield,
         context: ?*const BuildContext,
         walkable_height: i32,
+        failure: *err.Failure,
     ) err.Error!void {
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcHeightfieldFilterWalkableLowHeightSpans(
+        try err.check(failure, .heightfield_filter_walkable_low_height_spans, c.zrcHeightfieldFilterWalkableLowHeightSpans(
             toCContext(context, &context_storage),
             self.handle,
             walkable_height,
@@ -502,10 +513,11 @@ pub const CompactHeightfield = struct {
         walkable_height: i32,
         walkable_climb: i32,
         heightfield: Heightfield,
+        failure: *err.Failure,
     ) err.Error!CompactHeightfield {
         var context_storage: c.BuildContext = undefined;
         var handle: *c.CompactHeightfield = undefined;
-        try err.check(c.zrcCompactHeightfieldCreate(
+        try err.check(failure, .compact_heightfield_create, c.zrcCompactHeightfieldCreate(
             toCContext(context, &context_storage),
             walkable_height,
             walkable_climb,
@@ -519,67 +531,67 @@ pub const CompactHeightfield = struct {
         c.zrcCompactHeightfieldDestroy(self.handle);
     }
 
-    pub fn info(self: CompactHeightfield) err.Error!CompactHeightfieldInfo {
+    pub fn info(self: CompactHeightfield, failure: *err.Failure) err.Error!CompactHeightfieldInfo {
         var out: CompactHeightfieldInfo = undefined;
-        try err.check(c.zrcCompactHeightfieldInfo(self.handle, &out));
+        try err.check(failure, .compact_heightfield_info, c.zrcCompactHeightfieldInfo(self.handle, &out));
         return out;
     }
 
     /// Copies cells into `out`, starting at `first`. The array is
     /// `width * height` long, row-major: the cell at (x, z) is at
     /// `x + z * width`.
-    pub fn cells(self: CompactHeightfield, first: u32, out: []CompactCell) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn cells(self: CompactHeightfield, first: u32, out: []CompactCell, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .compact_heightfield_cells, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .compact_heightfield_cells, error.InvalidArgument);
         const ptr: ?[*]CompactCell = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcCompactHeightfieldCells(self.handle, first_i, count, ptr));
+        try err.check(failure, .compact_heightfield_cells, c.zrcCompactHeightfieldCells(self.handle, first_i, count, ptr));
     }
 
     /// Copies spans into `out`, starting at `first`. The array is
     /// `info().span_count` long.
-    pub fn spans(self: CompactHeightfield, first: u32, out: []CompactSpan) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn spans(self: CompactHeightfield, first: u32, out: []CompactSpan, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .compact_heightfield_spans, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .compact_heightfield_spans, error.InvalidArgument);
         const ptr: ?[*]CompactSpan = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcCompactHeightfieldSpans(self.handle, first_i, count, ptr));
+        try err.check(failure, .compact_heightfield_spans, c.zrcCompactHeightfieldSpans(self.handle, first_i, count, ptr));
     }
 
     /// Writes `spans_in` back, starting at `first`. Every packed field is
     /// checked against the width upstream gives it: a value that does not
     /// fit is silently truncated on the way into the bitfield and reads
     /// back as a different span otherwise.
-    pub fn setSpans(self: CompactHeightfield, first: u32, spans_in: []const CompactSpan) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, spans_in.len) catch return err.Error.InvalidArgument;
-        try err.check(c.zrcCompactHeightfieldSetSpans(self.handle, first_i, count, spans_in.ptr));
+    pub fn setSpans(self: CompactHeightfield, first: u32, spans_in: []const CompactSpan, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .compact_heightfield_set_spans, error.InvalidArgument);
+        const count = aegis.int.cast(i32, spans_in.len) catch return err.refuse(failure, .compact_heightfield_set_spans, error.InvalidArgument);
+        try err.check(failure, .compact_heightfield_set_spans, c.zrcCompactHeightfieldSetSpans(self.handle, first_i, count, spans_in.ptr));
     }
 
     /// Copies distance-field values into `out`, one per span, starting at
     /// `first`. `error.NotFound` before `buildDistanceField` has run: the
     /// array does not exist yet.
-    pub fn distances(self: CompactHeightfield, first: u32, out: []u16) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn distances(self: CompactHeightfield, first: u32, out: []u16, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .compact_heightfield_distances, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .compact_heightfield_distances, error.InvalidArgument);
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcCompactHeightfieldDistances(self.handle, first_i, count, ptr));
+        try err.check(failure, .compact_heightfield_distances, c.zrcCompactHeightfieldDistances(self.handle, first_i, count, ptr));
     }
 
     /// Copies area ids into `out`, one per span, starting at `first`.
-    pub fn areas(self: CompactHeightfield, first: u32, out: []u8) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn areas(self: CompactHeightfield, first: u32, out: []u8, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .compact_heightfield_areas, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .compact_heightfield_areas, error.InvalidArgument);
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcCompactHeightfieldAreas(self.handle, first_i, count, ptr));
+        try err.check(failure, .compact_heightfield_areas, c.zrcCompactHeightfieldAreas(self.handle, first_i, count, ptr));
     }
 
     /// Writes area ids back, one per span, starting at `first`. Each must
     /// be below `c.max_areas`. How a host marks areas from data the volume
     /// shapes cannot express: a painted mask, a per-triangle table carried
     /// through rasterisation.
-    pub fn setAreas(self: CompactHeightfield, first: u32, areas_in: []const u8) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, areas_in.len) catch return err.Error.InvalidArgument;
-        try err.check(c.zrcCompactHeightfieldSetAreas(self.handle, first_i, count, areas_in.ptr));
+    pub fn setAreas(self: CompactHeightfield, first: u32, areas_in: []const u8, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .compact_heightfield_set_areas, error.InvalidArgument);
+        const count = aegis.int.cast(i32, areas_in.len) catch return err.refuse(failure, .compact_heightfield_set_areas, error.InvalidArgument);
+        try err.check(failure, .compact_heightfield_set_areas, c.zrcCompactHeightfieldSetAreas(self.handle, first_i, count, areas_in.ptr));
     }
 
     /// Marks `authoring`'s volumes into the area array, exactly as a bake
@@ -589,10 +601,11 @@ pub const CompactHeightfield = struct {
         self: CompactHeightfield,
         context: ?*const BuildContext,
         authoring: AreaAuthoring,
+        failure: *err.Failure,
     ) err.Error!void {
-        const c_authoring = try authoring.toC();
+        const c_authoring = try authoring.toC(failure, .compact_heightfield_mark_areas);
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcCompactHeightfieldMarkAreas(
+        try err.check(failure, .compact_heightfield_mark_areas, c.zrcCompactHeightfieldMarkAreas(
             toCContext(context, &context_storage),
             self.handle,
             &c_authoring,
@@ -601,23 +614,23 @@ pub const CompactHeightfield = struct {
 
     /// Erodes the walkable area by `radius` cells, so the surface that
     /// survives is where an agent's centre may stand.
-    pub fn erode(self: CompactHeightfield, context: ?*const BuildContext, radius: i32) err.Error!void {
+    pub fn erode(self: CompactHeightfield, context: ?*const BuildContext, radius: i32, failure: *err.Failure) err.Error!void {
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcCompactHeightfieldErode(toCContext(context, &context_storage), self.handle, radius));
+        try err.check(failure, .compact_heightfield_erode, c.zrcCompactHeightfieldErode(toCContext(context, &context_storage), self.handle, radius));
     }
 
     /// Applies a median filter to the area ids, smoothing away single-span
     /// noise without moving a boundary.
-    pub fn medianFilter(self: CompactHeightfield, context: ?*const BuildContext) err.Error!void {
+    pub fn medianFilter(self: CompactHeightfield, context: ?*const BuildContext, failure: *err.Failure) err.Error!void {
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcCompactHeightfieldMedianFilter(toCContext(context, &context_storage), self.handle));
+        try err.check(failure, .compact_heightfield_median_filter, c.zrcCompactHeightfieldMedianFilter(toCContext(context, &context_storage), self.handle));
     }
 
     /// Builds the distance field: for every span, how far it is from the
     /// nearest unwalkable one. Required before `.watershed` regions.
-    pub fn buildDistanceField(self: CompactHeightfield, context: ?*const BuildContext) err.Error!void {
+    pub fn buildDistanceField(self: CompactHeightfield, context: ?*const BuildContext, failure: *err.Failure) err.Error!void {
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcCompactHeightfieldBuildDistanceField(toCContext(context, &context_storage), self.handle));
+        try err.check(failure, .compact_heightfield_build_distance_field, c.zrcCompactHeightfieldBuildDistanceField(toCContext(context, &context_storage), self.handle));
     }
 
     /// Splits the walkable surface into regions by `partition`.
@@ -633,9 +646,10 @@ pub const CompactHeightfield = struct {
         border_size: i32,
         min_region_area: i32,
         merge_region_area: i32,
+        failure: *err.Failure,
     ) err.Error!void {
         var context_storage: c.BuildContext = undefined;
-        try err.check(c.zrcCompactHeightfieldBuildRegions(
+        try err.check(failure, .compact_heightfield_build_regions, c.zrcCompactHeightfieldBuildRegions(
             toCContext(context, &context_storage),
             self.handle,
             partition,
@@ -693,10 +707,11 @@ pub const ContourSet = struct {
         max_error: f32,
         max_edge_len: i32,
         options: ContourOptions,
+        failure: *err.Failure,
     ) err.Error!ContourSet {
         var context_storage: c.BuildContext = undefined;
         var handle: *c.ContourSet = undefined;
-        try err.check(c.zrcContourSetCreate(
+        try err.check(failure, .contour_set_create, c.zrcContourSetCreate(
             toCContext(context, &context_storage),
             field.handle,
             max_error,
@@ -711,36 +726,36 @@ pub const ContourSet = struct {
         c.zrcContourSetDestroy(self.handle);
     }
 
-    pub fn info(self: ContourSet) err.Error!ContourSetInfo {
+    pub fn info(self: ContourSet, failure: *err.Failure) err.Error!ContourSetInfo {
         var out: ContourSetInfo = undefined;
-        try err.check(c.zrcContourSetInfo(self.handle, &out));
+        try err.check(failure, .contour_set_info, c.zrcContourSetInfo(self.handle, &out));
         return out;
     }
 
-    pub fn at(self: ContourSet, index: u32) err.Error!ContourInfo {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+    pub fn at(self: ContourSet, index: u32, failure: *err.Failure) err.Error!ContourInfo {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .contour_at, error.InvalidArgument);
         var out: ContourInfo = undefined;
-        try err.check(c.zrcContourAt(self.handle, i, &out));
+        try err.check(failure, .contour_at, c.zrcContourAt(self.handle, i, &out));
         return out;
     }
 
     /// Copies simplified vertices of contour `index` into `out`, starting
     /// at `first`.
-    pub fn verts(self: ContourSet, index: u32, first: u32, out: []ContourVertex) err.Error!void {
-        const idx = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn verts(self: ContourSet, index: u32, first: u32, out: []ContourVertex, failure: *err.Failure) err.Error!void {
+        const idx = aegis.int.cast(i32, index) catch return err.refuse(failure, .contour_verts, error.InvalidArgument);
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .contour_verts, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .contour_verts, error.InvalidArgument);
         const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-        try err.check(c.zrcContourVerts(self.handle, idx, first_i, count, ptr));
+        try err.check(failure, .contour_verts, c.zrcContourVerts(self.handle, idx, first_i, count, ptr));
     }
 
     /// The same, for the raw traced outline before simplification.
-    pub fn rawVerts(self: ContourSet, index: u32, first: u32, out: []ContourVertex) err.Error!void {
-        const idx = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn rawVerts(self: ContourSet, index: u32, first: u32, out: []ContourVertex, failure: *err.Failure) err.Error!void {
+        const idx = aegis.int.cast(i32, index) catch return err.refuse(failure, .contour_raw_verts, error.InvalidArgument);
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .contour_raw_verts, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .contour_raw_verts, error.InvalidArgument);
         const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-        try err.check(c.zrcContourRawVerts(self.handle, idx, first_i, count, ptr));
+        try err.check(failure, .contour_raw_verts, c.zrcContourRawVerts(self.handle, idx, first_i, count, ptr));
     }
 };
 
@@ -757,9 +772,10 @@ pub fn polyMeshBuild(
     contours: ContourSet,
     verts_per_poly: i32,
     mesh: PolyMesh,
+    failure: *err.Failure,
 ) err.Error!void {
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcPolyMeshBuild(
+    try err.check(failure, .poly_mesh_build, c.zrcPolyMeshBuild(
         toCContext(context, &context_storage),
         contours.handle,
         verts_per_poly,
@@ -777,9 +793,10 @@ pub fn polyMeshBuildDetail(
     field: CompactHeightfield,
     sample_dist: f32,
     sample_max_error: f32,
+    failure: *err.Failure,
 ) err.Error!void {
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcPolyMeshBuildDetail(
+    try err.check(failure, .poly_mesh_build_detail, c.zrcPolyMeshBuildDetail(
         toCContext(context, &context_storage),
         mesh.handle,
         field.handle,
@@ -791,9 +808,9 @@ pub fn polyMeshBuildDetail(
 /// Copies the polygons of `src` into `dst`, which must be empty. The
 /// detail half is not copied — rebuild it with `polyMeshBuildDetail`. The
 /// agent dimensions travel with the polygons.
-pub fn polyMeshCopy(context: ?*const BuildContext, src: PolyMesh, dst: PolyMesh) err.Error!void {
+pub fn polyMeshCopy(context: ?*const BuildContext, src: PolyMesh, dst: PolyMesh, failure: *err.Failure) err.Error!void {
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcPolyMeshCopy(toCContext(context, &context_storage), src.handle, dst.handle));
+    try err.check(failure, .poly_mesh_copy, c.zrcPolyMeshCopy(toCContext(context, &context_storage), src.handle, dst.handle));
 }
 
 /// Merges `meshes` into `out`, which must be empty in both halves. Both
@@ -810,18 +827,19 @@ pub fn polyMeshMerge(
     context: ?*const BuildContext,
     meshes: []const PolyMesh,
     out: PolyMesh,
+    failure: *err.Failure,
 ) err.Error!void {
-    if (meshes.len == 0) return err.Error.InvalidArgument;
-    const count = aegis.int.cast(i32, meshes.len) catch return err.Error.InvalidArgument;
+    if (meshes.len == 0) return err.refuse(failure, .poly_mesh_merge, error.InvalidArgument);
+    const count = aegis.int.cast(i32, meshes.len) catch return err.refuse(failure, .poly_mesh_merge, error.InvalidArgument);
     const bytes_len = (aegis.int.Checked(usize).init(meshes.len).mul(@sizeOf(*const c.PolyMesh)) catch
-        return err.Error.InvalidArgument).raw();
-    const handle_bytes = try memory.alloc(bytes_len, .temp);
+        return err.refuse(failure, .poly_mesh_merge, error.InvalidArgument)).raw();
+    const handle_bytes = try memory.alloc(bytes_len, .temp, failure);
     defer memory.free(handle_bytes);
     const handles: [*]*const c.PolyMesh = @ptrCast(@alignCast(handle_bytes.ptr)); // safe: memory.alloc aligns every block to alloc_alignment, which a pointer's alignment divides
     for (meshes, 0..) |mesh, i| handles[i] = mesh.handle;
 
     var context_storage: c.BuildContext = undefined;
-    try err.check(c.zrcPolyMeshMerge(toCContext(context, &context_storage), handles, count, out.handle));
+    try err.check(failure, .poly_mesh_merge, c.zrcPolyMeshMerge(toCContext(context, &context_storage), handles, count, out.handle));
 }
 
 //===----------------------------------------------------------------------===//
@@ -877,13 +895,13 @@ pub fn dirOffsetY(direction: i32) i32 {
 /// combination inside that range still derives an index outside the table.
 /// Both the arguments and the derived index are checked here, and
 /// `error.InvalidArgument` replaces upstream's out-of-bounds read.
-pub fn dirForOffset(offset_x: i32, offset_z: i32) err.Error!i32 {
+pub fn dirForOffset(offset_x: i32, offset_z: i32, failure: *err.Failure) err.Error!i32 {
     if (offset_x < -1 or offset_x > 1 or offset_z < -1 or offset_z > 1) {
-        return err.Error.InvalidArgument;
+        return err.refuse(failure, .dir_for_offset, error.InvalidArgument);
     }
     const dirs = [5]i32{ 3, 0, -1, 2, 1 };
     const idx = ((offset_z + 1) << 1) + offset_x;
-    if (idx < 0 or idx >= dirs.len) return err.Error.InvalidArgument;
+    if (idx < 0 or idx >= dirs.len) return err.refuse(failure, .dir_for_offset, error.InvalidArgument);
     return dirs[@intCast(idx)];
 }
 
@@ -914,29 +932,32 @@ test "dirOffsetX and dirOffsetY match upstream's tables, and any input is safe" 
 }
 
 test "dirForOffset inverts dirOffsetX/dirOffsetY and rejects a diagonal" {
+    var failure: err.Failure = .{};
     inline for (0..4) |i| {
         const direction: i32 = i;
         const x = dirOffsetX(direction);
         const z = dirOffsetY(direction);
-        try std.testing.expectEqual(direction, try dirForOffset(x, z));
+        try std.testing.expectEqual(direction, try dirForOffset(x, z, &failure));
     }
-    try std.testing.expectError(err.Error.InvalidArgument, dirForOffset(-1, -1));
-    try std.testing.expectError(err.Error.InvalidArgument, dirForOffset(1, 1));
-    try std.testing.expectError(err.Error.InvalidArgument, dirForOffset(2, 0));
+    try std.testing.expectError(err.Error.InvalidArgument, dirForOffset(-1, -1, &failure));
+    try std.testing.expectError(err.Error.InvalidArgument, dirForOffset(1, 1, &failure));
+    try std.testing.expectError(err.Error.InvalidArgument, dirForOffset(2, 0, &failure));
 }
 
 test "markWalkableTriangles rejects an area slice that does not match the triangle count" {
+    var failure: err.Failure = .{};
     const verts = [_]f32{ 0, 0, 0, 1, 0, 0, 0, 0, 1 };
     const tris = [_]i32{ 0, 1, 2 };
     var short: [0]u8 = .{};
     try std.testing.expectError(
         err.Error.InvalidArgument,
-        markWalkableTriangles(null, 45.0, TriMesh{ .verts = &verts, .tris = &tris }, &short),
+        markWalkableTriangles(null, 45.0, TriMesh{ .verts = &verts, .tris = &tris }, &short, &failure),
     );
 }
 
 test "calcGridSize matches upstream's rounding rule" {
-    const size = try calcGridSize(.{ 0, 0, 0 }, .{ 10, 0, 10 }, 1.0);
+    var failure: err.Failure = .{};
+    const size = try calcGridSize(.{ 0, 0, 0 }, .{ 10, 0, 10 }, 1.0, &failure);
     try std.testing.expectEqual(@as(i32, 10), size.width);
     try std.testing.expectEqual(@as(i32, 10), size.height);
 }

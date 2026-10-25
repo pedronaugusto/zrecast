@@ -35,9 +35,9 @@ pub const SegSegHit = struct { s: f32, t: f32 };
 /// A degenerate triangle — three collinear or coincident vertices — can make
 /// upstream's barycentric division produce a non-finite result, reported as
 /// it comes rather than refused.
-pub fn closestPointOnTriangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) Error!Vec3 {
+pub fn closestPointOnTriangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3, failure: *err.Failure) Error!Vec3 {
     var out: Vec3 = undefined;
-    try err.check(zc.zrcClosestPointOnTriangle(&point, &a, &b, &c, &out));
+    try err.check(failure, .closest_point_on_triangle, zc.zrcClosestPointOnTriangle(&point, &a, &b, &c, &out));
     return out;
 }
 
@@ -46,10 +46,10 @@ pub fn closestPointOnTriangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) Error!Vec3
 ///
 /// A triangle degenerate on the xz-plane — its projected area under 1e-6 — is
 /// not inside anything and answers `null`.
-pub fn closestHeightPointTriangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) Error!?f32 {
+pub fn closestHeightPointTriangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3, failure: *err.Failure) Error!?f32 {
     var height: f32 = undefined;
     var inside: zc.Bool = zc.c_false;
-    try err.check(zc.zrcClosestHeightPointTriangle(&point, &a, &b, &c, &height, &inside));
+    try err.check(failure, .closest_height_point_triangle, zc.zrcClosestHeightPointTriangle(&point, &a, &b, &c, &height, &inside));
     if (inside == zc.c_false) return null;
     return height;
 }
@@ -57,10 +57,10 @@ pub fn closestHeightPointTriangle(point: Vec3, a: Vec3, b: Vec3, c: Vec3) Error!
 /// Squared distance from `point` to the segment p-q, on the xz-plane. `t` is
 /// where the nearest point falls along the segment, clamped to `[0, 1]`; a
 /// zero-length segment reports `t = 0`.
-pub fn distancePointToSegment2D(point: Vec3, p: Vec3, q: Vec3) Error!SegmentDistance {
+pub fn distancePointToSegment2D(point: Vec3, p: Vec3, q: Vec3, failure: *err.Failure) Error!SegmentDistance {
     var dist_sqr: f32 = undefined;
     var t: f32 = undefined;
-    try err.check(zc.zrcDistancePointToSegment2D(&point, &p, &q, &dist_sqr, &t));
+    try err.check(failure, .distance_point_to_segment_2d, zc.zrcDistancePointToSegment2D(&point, &p, &q, &dist_sqr, &t));
     return .{ .dist_sqr = dist_sqr, .t = t };
 }
 
@@ -76,13 +76,14 @@ pub fn distancePointToPolyEdges(
     verts: []const Vec3,
     out_edge_dist_sqr: []f32,
     out_edge_t: []f32,
+    failure: *err.Failure,
 ) Error!bool {
-    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
+    const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .distance_point_to_poly_edges, error.InvalidArgument);
     if (out_edge_dist_sqr.len < verts.len or out_edge_t.len < verts.len) {
-        return Error.InvalidArgument;
+        return err.refuse(failure, .distance_point_to_poly_edges, error.InvalidArgument);
     }
     var inside: zc.Bool = zc.c_false;
-    try err.check(zc.zrcDistancePointToPolyEdges(
+    try err.check(failure, .distance_point_to_poly_edges, zc.zrcDistancePointToPolyEdges(
         &point,
         @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
@@ -94,10 +95,10 @@ pub fn distancePointToPolyEdges(
 }
 
 /// Whether `point` lies inside a polygon, on the xz-plane.
-pub fn pointInPolygon(point: Vec3, verts: []const Vec3) Error!bool {
-    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
+pub fn pointInPolygon(point: Vec3, verts: []const Vec3, failure: *err.Failure) Error!bool {
+    const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .point_in_polygon, error.InvalidArgument);
     var inside: zc.Bool = zc.c_false;
-    try err.check(zc.zrcPointInPolygon(&point, @ptrCast(verts.ptr), vert_count, &inside)); // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+    try err.check(failure, .point_in_polygon, zc.zrcPointInPolygon(&point, @ptrCast(verts.ptr), vert_count, &inside)); // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
     return inside != zc.c_false;
 }
 
@@ -105,14 +106,14 @@ pub fn pointInPolygon(point: Vec3, verts: []const Vec3) Error!bool {
 /// xz-plane. `t_min` and `t_max` are always written: a segment wholly inside
 /// the polygon reports 0 and 1. `seg_min` and `seg_max` are the polygon edge
 /// crossed at each end, or -1 where that endpoint is inside.
-pub fn intersectSegmentPoly2D(p0: Vec3, p1: Vec3, verts: []const Vec3) Error!SegmentPolyHit {
-    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
+pub fn intersectSegmentPoly2D(p0: Vec3, p1: Vec3, verts: []const Vec3, failure: *err.Failure) Error!SegmentPolyHit {
+    const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .intersect_segment_poly_2d, error.InvalidArgument);
     var t_min: f32 = undefined;
     var t_max: f32 = undefined;
     var seg_min: i32 = undefined;
     var seg_max: i32 = undefined;
     var intersects: zc.Bool = zc.c_false;
-    try err.check(zc.zrcIntersectSegmentPoly2D(
+    try err.check(failure, .intersect_segment_poly_2d, zc.zrcIntersectSegmentPoly2D(
         &p0,
         &p1,
         @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
@@ -137,21 +138,21 @@ pub fn intersectSegmentPoly2D(p0: Vec3, p1: Vec3, verts: []const Vec3) Error!Seg
 /// `t` are fractions along ap-aq and bp-bq, not clamped to `[0, 1]`, so a
 /// value outside that range means the infinite lines cross beyond the
 /// segment's end.
-pub fn intersectSegSeg2D(ap: Vec3, aq: Vec3, bp: Vec3, bq: Vec3) Error!?SegSegHit {
+pub fn intersectSegSeg2D(ap: Vec3, aq: Vec3, bp: Vec3, bq: Vec3, failure: *err.Failure) Error!?SegSegHit {
     var s: f32 = undefined;
     var t: f32 = undefined;
     var intersects: zc.Bool = zc.c_false;
-    try err.check(zc.zrcIntersectSegSeg2D(&ap, &aq, &bp, &bq, &s, &t, &intersects));
+    try err.check(failure, .intersect_seg_seg_2d, zc.zrcIntersectSegSeg2D(&ap, &aq, &bp, &bq, &s, &t, &intersects));
     if (intersects == zc.c_false) return null;
     return .{ .s = s, .t = t };
 }
 
 /// Whether two convex polygons overlap, on the xz-plane, by separating axis.
-pub fn overlapPolyPoly2D(a: []const Vec3, b: []const Vec3) Error!bool {
-    const count_a = aegis.int.cast(i32, a.len) catch return Error.InvalidArgument;
-    const count_b = aegis.int.cast(i32, b.len) catch return Error.InvalidArgument;
+pub fn overlapPolyPoly2D(a: []const Vec3, b: []const Vec3, failure: *err.Failure) Error!bool {
+    const count_a = aegis.int.cast(i32, a.len) catch return err.refuse(failure, .overlap_poly_poly_2d, error.InvalidArgument);
+    const count_b = aegis.int.cast(i32, b.len) catch return err.refuse(failure, .overlap_poly_poly_2d, error.InvalidArgument);
     var overlap: zc.Bool = zc.c_false;
-    try err.check(zc.zrcOverlapPolyPoly2D(
+    try err.check(failure, .overlap_poly_poly_2d, zc.zrcOverlapPolyPoly2D(
         @ptrCast(a.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         count_a,
         @ptrCast(b.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
@@ -162,36 +163,36 @@ pub fn overlapPolyPoly2D(a: []const Vec3, b: []const Vec3) Error!bool {
 }
 
 /// Whether two axis-aligned boxes overlap. Touching counts as overlapping.
-pub fn overlapBounds(amin: Vec3, amax: Vec3, bmin: Vec3, bmax: Vec3) Error!bool {
+pub fn overlapBounds(amin: Vec3, amax: Vec3, bmin: Vec3, bmax: Vec3, failure: *err.Failure) Error!bool {
     var overlap: zc.Bool = zc.c_false;
-    try err.check(zc.zrcOverlapBounds(&amin, &amax, &bmin, &bmax, &overlap));
+    try err.check(failure, .overlap_bounds, zc.zrcOverlapBounds(&amin, &amax, &bmin, &bmax, &overlap));
     return overlap != zc.c_false;
 }
 
 /// Whether two boxes in a tile's quantised space overlap — the test a
 /// bounding-volume tree traversal runs.
-pub fn overlapQuantBounds(amin: [3]u16, amax: [3]u16, bmin: [3]u16, bmax: [3]u16) Error!bool {
+pub fn overlapQuantBounds(amin: [3]u16, amax: [3]u16, bmin: [3]u16, bmax: [3]u16, failure: *err.Failure) Error!bool {
     var overlap: zc.Bool = zc.c_false;
-    try err.check(zc.zrcOverlapQuantBounds(&amin, &amax, &bmin, &bmax, &overlap));
+    try err.check(failure, .overlap_quant_bounds, zc.zrcOverlapQuantBounds(&amin, &amax, &bmin, &bmax, &overlap));
     return overlap != zc.c_false;
 }
 
 /// Twice the signed area of triangle a-b-c on the xz-plane. Positive when c
 /// lies to the left of the line a-b looking from a toward b, which is
 /// Detour's own polygon winding direction.
-pub fn triArea2D(a: Vec3, b: Vec3, c: Vec3) Error!f32 {
+pub fn triArea2D(a: Vec3, b: Vec3, c: Vec3, failure: *err.Failure) Error!f32 {
     var area: f32 = undefined;
-    try err.check(zc.zrcTriArea2D(&a, &b, &c, &area));
+    try err.check(failure, .tri_area_2d, zc.zrcTriArea2D(&a, &b, &c, &area));
     return area;
 }
 
 /// Centroid of the polygon formed by indexing `verts` with `indices`. Every
 /// index must be less than `verts.len`.
-pub fn polyCenter(verts: []const Vec3, indices: []const u16) Error!Vec3 {
-    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
-    const index_count = aegis.int.cast(i32, indices.len) catch return Error.InvalidArgument;
+pub fn polyCenter(verts: []const Vec3, indices: []const u16, failure: *err.Failure) Error!Vec3 {
+    const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .poly_center, error.InvalidArgument);
+    const index_count = aegis.int.cast(i32, indices.len) catch return err.refuse(failure, .poly_center, error.InvalidArgument);
     var out: Vec3 = undefined;
-    try err.check(zc.zrcPolyCenter(@ptrCast(verts.ptr), vert_count, indices.ptr, index_count, &out)); // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+    try err.check(failure, .poly_center, zc.zrcPolyCenter(@ptrCast(verts.ptr), vert_count, indices.ptr, index_count, &out)); // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
     return out;
 }
 
@@ -201,11 +202,11 @@ pub fn polyCenter(verts: []const Vec3, indices: []const u16) Error!Vec3 {
 ///
 /// `scratch` is working storage for the fan's areas and must be at least
 /// `verts.len` long; its contents on return are unspecified.
-pub fn randomPointInConvexPoly(verts: []const Vec3, scratch: []f32, s: f32, t: f32) Error!Vec3 {
-    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
-    const scratch_count = aegis.int.cast(i32, scratch.len) catch return Error.InvalidArgument;
+pub fn randomPointInConvexPoly(verts: []const Vec3, scratch: []f32, s: f32, t: f32, failure: *err.Failure) Error!Vec3 {
+    const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .random_point_in_convex_poly, error.InvalidArgument);
+    const scratch_count = aegis.int.cast(i32, scratch.len) catch return err.refuse(failure, .random_point_in_convex_poly, error.InvalidArgument);
     var out: Vec3 = undefined;
-    try err.check(zc.zrcRandomPointInConvexPoly(
+    try err.check(failure, .random_point_in_convex_poly, zc.zrcRandomPointInConvexPoly(
         @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         scratch.ptr,
@@ -227,11 +228,11 @@ pub fn randomPointInConvexPoly(verts: []const Vec3, scratch: []f32, s: f32, t: f
 /// given, so `out` must be at least one longer than the result for the call
 /// to succeed. A result that would exactly fill `out` is reported as
 /// `Error.BufferTooSmall` rather than as a short write.
-pub fn offsetPoly(verts: []const Vec3, offset: f32, out: []Vec3) Error!usize {
-    const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
-    const max_out_verts = aegis.int.cast(i32, out.len) catch return Error.InvalidArgument;
+pub fn offsetPoly(verts: []const Vec3, offset: f32, out: []Vec3, failure: *err.Failure) Error!usize {
+    const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .offset_poly, error.InvalidArgument);
+    const max_out_verts = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .offset_poly, error.InvalidArgument);
     var written: i32 = undefined;
-    try err.check(zc.zrcOffsetPoly(
+    try err.check(failure, .offset_poly, zc.zrcOffsetPoly(
         @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         offset,
@@ -243,21 +244,24 @@ pub fn offsetPoly(verts: []const Vec3, offset: f32, out: []Vec3) Error!usize {
 }
 
 test "an empty polygon is rejected before Recast ever sees it" {
-    try std.testing.expectError(Error.InvalidArgument, pointInPolygon(.{ 0, 0, 0 }, &.{}));
+    var failure: err.Failure = .{};
+    try std.testing.expectError(Error.InvalidArgument, pointInPolygon(.{ 0, 0, 0 }, &.{}, &failure));
 }
 
 test "polyCenter rejects an index past the end of the vertex array" {
+    var failure: err.Failure = .{};
     const verts = [_]Vec3{ .{ 0, 0, 0 }, .{ 1, 0, 0 }, .{ 0, 0, 1 } };
     const bad_indices = [_]u16{ 0, 1, 3 };
-    try std.testing.expectError(Error.InvalidArgument, polyCenter(&verts, &bad_indices));
+    try std.testing.expectError(Error.InvalidArgument, polyCenter(&verts, &bad_indices, &failure));
 }
 
 test "distancePointToPolyEdges rejects an output slice shorter than the polygon" {
+    var failure: err.Failure = .{};
     const verts = [_]Vec3{ .{ 0, 0, 0 }, .{ 1, 0, 0 }, .{ 0, 0, 1 } };
     var short_dist_sqr: [2]f32 = undefined;
     var full_t: [3]f32 = undefined;
     try std.testing.expectError(
         Error.InvalidArgument,
-        distancePointToPolyEdges(.{ 0.1, 0, 0.1 }, &verts, &short_dist_sqr, &full_t),
+        distancePointToPolyEdges(.{ 0.1, 0, 0.1 }, &verts, &short_dist_sqr, &full_t, &failure),
     );
 }

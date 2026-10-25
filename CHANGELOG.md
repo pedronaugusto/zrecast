@@ -10,6 +10,16 @@ not express, so a port has the reason and not only the diff.
 
 ### Breaking
 
+- Every call that can fail takes a `*zrecast.Failure` as its last argument,
+  and a refusal pushes a `zrecast.Frame` on it: the `zrecast.Call` that
+  refused and the result. An error alone said what went wrong but not which
+  call, and a bake, a load or a crowd update runs several. Declare one with
+  `var failure: zrecast.Failure = .{};` and pass `&failure`. `TriMesh.toC` and
+  `AreaAuthoring.toC` also take the call they prepare for.
+- `setAssertHandler` returns `void` and `assertHandler` returns `?AssertHandler`:
+  neither can be refused from Zig, so their error unions were never an
+  answer.
+
 - Builds on Zig 0.17.0, which `build.zig.zon` now requires. The wrapper walks
   0.17's reflection lists and `main` takes `std.process.Init`.
 - `-Dsanitize_c` is off by default, no longer tied to `optimize`. Zig's C

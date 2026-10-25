@@ -60,7 +60,7 @@ pub fn intToCol(i: i32, a: i32) u32 {
 pub fn intToColFloat(i: i32) [3]f32 {
     var out: [3]f32 = undefined;
     // The only refusal is a null `out`, and this passes a local.
-    err.check(c.zrcDebugIntToColFloat(i, &out)) catch aegis.assert.never("the boundary refuses only a null argument");
+    err.map(c.zrcDebugIntToColFloat(i, &out)) catch aegis.assert.never("the boundary refuses only a null argument");
     return out;
 }
 
@@ -89,7 +89,7 @@ pub fn transCol(col: u32, a: u32) u32 {
 pub fn boxColors(top: u32, side: u32) [6]u32 {
     var out: [6]u32 = undefined;
     // The only refusal is a null `out`, and this passes a local.
-    err.check(c.zrcDebugCalcBoxColors(&out, top, side)) catch aegis.assert.never("the boundary refuses only a null argument");
+    err.map(c.zrcDebugCalcBoxColors(&out, top, side)) catch aegis.assert.never("the boundary refuses only a null argument");
     return out;
 }
 
@@ -293,9 +293,9 @@ pub const DebugDraw = struct {
     // own.
     //-------------------------------------------------------------------------
 
-    pub fn boxWire(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32, line_width: f32) err.Error!void {
+    pub fn boxWire(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32, line_width: f32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawBoxWire(
+        try err.check(failure, .debug_draw_box_wire, c.zrcDebugDrawBoxWire(
             &dd,
             bmin[0],
             bmin[1],
@@ -308,9 +308,9 @@ pub const DebugDraw = struct {
         ));
     }
 
-    pub fn cylinderWire(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32, line_width: f32) err.Error!void {
+    pub fn cylinderWire(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32, line_width: f32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawCylinderWire(
+        try err.check(failure, .debug_draw_cylinder_wire, c.zrcDebugDrawCylinderWire(
             &dd,
             bmin[0],
             bmin[1],
@@ -334,9 +334,10 @@ pub const DebugDraw = struct {
         head_end: f32,
         col: u32,
         line_width: f32,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawArc(
+        try err.check(failure, .debug_draw_arc, c.zrcDebugDrawArc(
             &dd,
             from[0],
             from[1],
@@ -360,9 +361,10 @@ pub const DebugDraw = struct {
         head_end: f32,
         col: u32,
         line_width: f32,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawArrow(
+        try err.check(failure, .debug_draw_arrow, c.zrcDebugDrawArrow(
             &dd,
             from[0],
             from[1],
@@ -378,9 +380,9 @@ pub const DebugDraw = struct {
     }
 
     /// A circle in the xz plane, centred on `center`.
-    pub fn circle(self: DebugDraw, center: Vec3, radius: f32, col: u32, line_width: f32) err.Error!void {
+    pub fn circle(self: DebugDraw, center: Vec3, radius: f32, col: u32, line_width: f32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawCircle(
+        try err.check(failure, .debug_draw_circle, c.zrcDebugDrawCircle(
             &dd,
             center[0],
             center[1],
@@ -392,9 +394,9 @@ pub const DebugDraw = struct {
     }
 
     /// Three axis-aligned segments through `center`, each `size` long each way.
-    pub fn cross(self: DebugDraw, center: Vec3, size: f32, col: u32, line_width: f32) err.Error!void {
+    pub fn cross(self: DebugDraw, center: Vec3, size: f32, col: u32, line_width: f32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawCross(
+        try err.check(failure, .debug_draw_cross, c.zrcDebugDrawCross(
             &dd,
             center[0],
             center[1],
@@ -406,9 +408,9 @@ pub const DebugDraw = struct {
     }
 
     /// A solid box, one colour per face as `boxColors` writes them.
-    pub fn box(self: DebugDraw, bmin: Vec3, bmax: Vec3, face_colors: *const [6]u32) err.Error!void {
+    pub fn box(self: DebugDraw, bmin: Vec3, bmax: Vec3, face_colors: *const [6]u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawBox(
+        try err.check(failure, .debug_draw_box, c.zrcDebugDrawBox(
             &dd,
             bmin[0],
             bmin[1],
@@ -420,9 +422,9 @@ pub const DebugDraw = struct {
         ));
     }
 
-    pub fn cylinder(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32) err.Error!void {
+    pub fn cylinder(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawCylinder(
+        try err.check(failure, .debug_draw_cylinder, c.zrcDebugDrawCylinder(
             &dd,
             bmin[0],
             bmin[1],
@@ -444,11 +446,12 @@ pub const DebugDraw = struct {
         size: f32,
         col: u32,
         line_width: f32,
+        failure: *err.Failure,
     ) err.Error!void {
-        const w = aegis.int.cast(i32, width) catch return err.Error.InvalidArgument;
-        const h = aegis.int.cast(i32, height) catch return err.Error.InvalidArgument;
+        const w = aegis.int.cast(i32, width) catch return err.refuse(failure, .debug_draw_grid_xz, error.InvalidArgument);
+        const h = aegis.int.cast(i32, height) catch return err.refuse(failure, .debug_draw_grid_xz, error.InvalidArgument);
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawGridXZ(
+        try err.check(failure, .debug_draw_grid_xz, c.zrcDebugDrawGridXZ(
             &dd,
             origin[0],
             origin[1],
@@ -461,9 +464,9 @@ pub const DebugDraw = struct {
         ));
     }
 
-    pub fn appendBoxWire(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32) err.Error!void {
+    pub fn appendBoxWire(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugAppendBoxWire(
+        try err.check(failure, .debug_append_box_wire, c.zrcDebugAppendBoxWire(
             &dd,
             bmin[0],
             bmin[1],
@@ -477,9 +480,9 @@ pub const DebugDraw = struct {
 
     /// The top and bottom outlines of the box, four segments each — sixteen
     /// vertices, with every corner emitted twice.
-    pub fn appendBoxPoints(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32) err.Error!void {
+    pub fn appendBoxPoints(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugAppendBoxPoints(
+        try err.check(failure, .debug_append_box_points, c.zrcDebugAppendBoxPoints(
             &dd,
             bmin[0],
             bmin[1],
@@ -491,9 +494,9 @@ pub const DebugDraw = struct {
         ));
     }
 
-    pub fn appendCylinderWire(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32) err.Error!void {
+    pub fn appendCylinderWire(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugAppendCylinderWire(
+        try err.check(failure, .debug_append_cylinder_wire, c.zrcDebugAppendCylinderWire(
             &dd,
             bmin[0],
             bmin[1],
@@ -513,9 +516,10 @@ pub const DebugDraw = struct {
         head_start: f32,
         head_end: f32,
         col: u32,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugAppendArc(
+        try err.check(failure, .debug_append_arc, c.zrcDebugAppendArc(
             &dd,
             from[0],
             from[1],
@@ -537,9 +541,10 @@ pub const DebugDraw = struct {
         head_start: f32,
         head_end: f32,
         col: u32,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugAppendArrow(
+        try err.check(failure, .debug_append_arrow, c.zrcDebugAppendArrow(
             &dd,
             from[0],
             from[1],
@@ -553,9 +558,9 @@ pub const DebugDraw = struct {
         ));
     }
 
-    pub fn appendCircle(self: DebugDraw, center: Vec3, radius: f32, col: u32) err.Error!void {
+    pub fn appendCircle(self: DebugDraw, center: Vec3, radius: f32, col: u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugAppendCircle(
+        try err.check(failure, .debug_append_circle, c.zrcDebugAppendCircle(
             &dd,
             center[0],
             center[1],
@@ -565,9 +570,9 @@ pub const DebugDraw = struct {
         ));
     }
 
-    pub fn appendCross(self: DebugDraw, center: Vec3, size: f32, col: u32) err.Error!void {
+    pub fn appendCross(self: DebugDraw, center: Vec3, size: f32, col: u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugAppendCross(
+        try err.check(failure, .debug_append_cross, c.zrcDebugAppendCross(
             &dd,
             center[0],
             center[1],
@@ -577,9 +582,9 @@ pub const DebugDraw = struct {
         ));
     }
 
-    pub fn appendBox(self: DebugDraw, bmin: Vec3, bmax: Vec3, face_colors: *const [6]u32) err.Error!void {
+    pub fn appendBox(self: DebugDraw, bmin: Vec3, bmax: Vec3, face_colors: *const [6]u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugAppendBox(
+        try err.check(failure, .debug_append_box, c.zrcDebugAppendBox(
             &dd,
             bmin[0],
             bmin[1],
@@ -591,9 +596,9 @@ pub const DebugDraw = struct {
         ));
     }
 
-    pub fn appendCylinder(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32) err.Error!void {
+    pub fn appendCylinder(self: DebugDraw, bmin: Vec3, bmax: Vec3, col: u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugAppendCylinder(
+        try err.check(failure, .debug_append_cylinder, c.zrcDebugAppendCylinder(
             &dd,
             bmin[0],
             bmin[1],
@@ -620,15 +625,16 @@ pub const DebugDraw = struct {
         normals: []const f32,
         flags: ?[]const u8,
         tex_scale: f32,
+        failure: *err.Failure,
     ) err.Error!void {
         const tri_count = mesh.tris.len / 3;
-        if (normals.len != tri_count * 3) return err.Error.InvalidArgument;
+        if (normals.len != tri_count * 3) return err.refuse(failure, .debug_draw_tri_mesh, error.InvalidArgument);
         if (flags) |f| {
-            if (f.len != tri_count) return err.Error.InvalidArgument;
+            if (f.len != tri_count) return err.refuse(failure, .debug_draw_tri_mesh, error.InvalidArgument);
         }
-        const raw = try mesh.toC();
+        const raw = try mesh.toC(failure, .debug_draw_tri_mesh);
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawTriMesh(
+        try err.check(failure, .debug_draw_tri_mesh, c.zrcDebugDrawTriMesh(
             &dd,
             &raw,
             normals.ptr,
@@ -645,12 +651,13 @@ pub const DebugDraw = struct {
         normals: []const f32,
         walkable_slope_angle: f32,
         tex_scale: f32,
+        failure: *err.Failure,
     ) err.Error!void {
         const tri_count = mesh.tris.len / 3;
-        if (normals.len != tri_count * 3) return err.Error.InvalidArgument;
-        const raw = try mesh.toC();
+        if (normals.len != tri_count * 3) return err.refuse(failure, .debug_draw_tri_mesh_slope, error.InvalidArgument);
+        const raw = try mesh.toC(failure, .debug_draw_tri_mesh_slope);
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawTriMeshSlope(
+        try err.check(failure, .debug_draw_tri_mesh_slope, c.zrcDebugDrawTriMeshSlope(
             &dd,
             &raw,
             normals.ptr,
@@ -660,40 +667,40 @@ pub const DebugDraw = struct {
     }
 
     /// Every span in the heightfield as a box.
-    pub fn heightfieldSolid(self: DebugDraw, field: Heightfield) err.Error!void {
+    pub fn heightfieldSolid(self: DebugDraw, field: Heightfield, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawHeightfieldSolid(&dd, field.handle));
+        try err.check(failure, .debug_draw_heightfield_solid, c.zrcDebugDrawHeightfieldSolid(&dd, field.handle));
     }
 
     /// The same, colouring a span by the area id it carries.
-    pub fn heightfieldWalkable(self: DebugDraw, field: Heightfield) err.Error!void {
+    pub fn heightfieldWalkable(self: DebugDraw, field: Heightfield, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawHeightfieldWalkable(&dd, field.handle));
+        try err.check(failure, .debug_draw_heightfield_walkable, c.zrcDebugDrawHeightfieldWalkable(&dd, field.handle));
     }
 
-    pub fn compactHeightfieldSolid(self: DebugDraw, field: CompactHeightfield) err.Error!void {
+    pub fn compactHeightfieldSolid(self: DebugDraw, field: CompactHeightfield, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawCompactHeightfieldSolid(&dd, field.handle));
+        try err.check(failure, .debug_draw_compact_heightfield_solid, c.zrcDebugDrawCompactHeightfieldSolid(&dd, field.handle));
     }
 
     /// Each span coloured by its region id; spans in no region are grey.
-    pub fn compactHeightfieldRegions(self: DebugDraw, field: CompactHeightfield) err.Error!void {
+    pub fn compactHeightfieldRegions(self: DebugDraw, field: CompactHeightfield, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawCompactHeightfieldRegions(&dd, field.handle));
+        try err.check(failure, .debug_draw_compact_heightfield_regions, c.zrcDebugDrawCompactHeightfieldRegions(&dd, field.handle));
     }
 
     /// Each span coloured by its distance to the nearest border.
     /// `error.EmptyResult` before `buildDistanceField` has run.
-    pub fn compactHeightfieldDistance(self: DebugDraw, field: CompactHeightfield) err.Error!void {
+    pub fn compactHeightfieldDistance(self: DebugDraw, field: CompactHeightfield, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawCompactHeightfieldDistance(&dd, field.handle));
+        try err.check(failure, .debug_draw_compact_heightfield_distance, c.zrcDebugDrawCompactHeightfieldDistance(&dd, field.handle));
     }
 
     /// One sheet of a layered heightfield, coloured by its index.
-    pub fn heightfieldLayer(self: DebugDraw, layers: HeightfieldLayerSet, index: u32) err.Error!void {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+    pub fn heightfieldLayer(self: DebugDraw, layers: HeightfieldLayerSet, index: u32, failure: *err.Failure) err.Error!void {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .debug_draw_heightfield_layer, error.InvalidArgument);
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawHeightfieldLayer(&dd, layers.handle, i));
+        try err.check(failure, .debug_draw_heightfield_layer, c.zrcDebugDrawHeightfieldLayer(&dd, layers.handle, i));
     }
 
     /// Every sheet, each in its own colour.
@@ -702,41 +709,41 @@ pub const DebugDraw = struct {
     /// that the vendored tree never defines and that would have nothing to
     /// draw: `rcHeightfieldLayer` carries no region ids. There is no method
     /// for it here.
-    pub fn heightfieldLayers(self: DebugDraw, layers: HeightfieldLayerSet) err.Error!void {
+    pub fn heightfieldLayers(self: DebugDraw, layers: HeightfieldLayerSet, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawHeightfieldLayers(&dd, layers.handle));
+        try err.check(failure, .debug_draw_heightfield_layers, c.zrcDebugDrawHeightfieldLayers(&dd, layers.handle));
     }
 
     /// Arcs joining each contour vertex to the region it borders, which is
     /// what makes a mis-merged region visible. [Limit: 0 <= alpha <= 1]
-    pub fn regionConnections(self: DebugDraw, set: ContourSet, alpha: f32) err.Error!void {
+    pub fn regionConnections(self: DebugDraw, set: ContourSet, alpha: f32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawRegionConnections(&dd, set.handle, alpha));
+        try err.check(failure, .debug_draw_region_connections, c.zrcDebugDrawRegionConnections(&dd, set.handle, alpha));
     }
 
     /// The traced outlines, before simplification.
-    pub fn rawContours(self: DebugDraw, set: ContourSet, alpha: f32) err.Error!void {
+    pub fn rawContours(self: DebugDraw, set: ContourSet, alpha: f32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawRawContours(&dd, set.handle, alpha));
+        try err.check(failure, .debug_draw_raw_contours, c.zrcDebugDrawRawContours(&dd, set.handle, alpha));
     }
 
     /// The simplified outlines the polygon mesh is built from.
-    pub fn contours(self: DebugDraw, set: ContourSet, alpha: f32) err.Error!void {
+    pub fn contours(self: DebugDraw, set: ContourSet, alpha: f32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawContours(&dd, set.handle, alpha));
+        try err.check(failure, .debug_draw_contours, c.zrcDebugDrawContours(&dd, set.handle, alpha));
     }
 
     /// Filled polygons, their internal and boundary edges, and their vertices.
-    pub fn polyMesh(self: DebugDraw, mesh: PolyMesh) err.Error!void {
+    pub fn polyMesh(self: DebugDraw, mesh: PolyMesh, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawPolyMesh(&dd, mesh.handle));
+        try err.check(failure, .debug_draw_poly_mesh, c.zrcDebugDrawPolyMesh(&dd, mesh.handle));
     }
 
     /// The detail mesh that restores the height Recast quantised away. A
     /// mesh that has not been through `polyMeshBuildDetail` draws nothing.
-    pub fn polyMeshDetail(self: DebugDraw, mesh: PolyMesh) err.Error!void {
+    pub fn polyMeshDetail(self: DebugDraw, mesh: PolyMesh, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawPolyMeshDetail(&dd, mesh.handle));
+        try err.check(failure, .debug_draw_poly_mesh_detail, c.zrcDebugDrawPolyMeshDetail(&dd, mesh.handle));
     }
 
     //-------------------------------------------------------------------------
@@ -744,9 +751,9 @@ pub const DebugDraw = struct {
     //-------------------------------------------------------------------------
 
     /// Every tile's polygons, plus whatever `options` asks for.
-    pub fn navMesh(self: DebugDraw, mesh: NavMesh, options: NavMeshDrawOptions) err.Error!void {
+    pub fn navMesh(self: DebugDraw, mesh: NavMesh, options: NavMeshDrawOptions, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawNavMesh(&dd, mesh.handle, options.toC()));
+        try err.check(failure, .debug_draw_nav_mesh, c.zrcDebugDrawNavMesh(&dd, mesh.handle, options.toC()));
     }
 
     /// The same, shading each polygon the last search on `query` closed.
@@ -755,9 +762,10 @@ pub const DebugDraw = struct {
         mesh: NavMesh,
         query: NavMeshQuery,
         options: NavMeshDrawOptions,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawNavMeshWithClosedList(
+        try err.check(failure, .debug_draw_nav_mesh_with_closed_list, c.zrcDebugDrawNavMeshWithClosedList(
             &dd,
             mesh.handle,
             query.handle,
@@ -766,22 +774,22 @@ pub const DebugDraw = struct {
     }
 
     /// The search's node pool: one point per node, and a line to its parent.
-    pub fn navMeshNodes(self: DebugDraw, query: NavMeshQuery) err.Error!void {
+    pub fn navMeshNodes(self: DebugDraw, query: NavMeshQuery, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawNavMeshNodes(&dd, query.handle));
+        try err.check(failure, .debug_draw_nav_mesh_nodes, c.zrcDebugDrawNavMeshNodes(&dd, query.handle));
     }
 
     /// Every tile's bounding-volume tree as nested boxes. A tile built
     /// without one contributes nothing.
-    pub fn navMeshBvTree(self: DebugDraw, mesh: NavMesh) err.Error!void {
+    pub fn navMeshBvTree(self: DebugDraw, mesh: NavMesh, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawNavMeshBVTree(&dd, mesh.handle));
+        try err.check(failure, .debug_draw_nav_mesh_bv_tree, c.zrcDebugDrawNavMeshBVTree(&dd, mesh.handle));
     }
 
     /// The portal edges tiles join across.
-    pub fn navMeshPortals(self: DebugDraw, mesh: NavMesh) err.Error!void {
+    pub fn navMeshPortals(self: DebugDraw, mesh: NavMesh, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawNavMeshPortals(&dd, mesh.handle));
+        try err.check(failure, .debug_draw_nav_mesh_portals, c.zrcDebugDrawNavMeshPortals(&dd, mesh.handle));
     }
 
     /// Every polygon sharing a bit with `poly_flags`, in one colour. Zero
@@ -791,16 +799,17 @@ pub const DebugDraw = struct {
         mesh: NavMesh,
         poly_flags: u16,
         col: u32,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawNavMeshPolysWithFlags(&dd, mesh.handle, poly_flags, col));
+        try err.check(failure, .debug_draw_nav_mesh_polys_with_flags, c.zrcDebugDrawNavMeshPolysWithFlags(&dd, mesh.handle, poly_flags, col));
     }
 
     /// One polygon. A reference naming no resident polygon draws nothing and
     /// is not an error, upstream's own behaviour.
-    pub fn navMeshPoly(self: DebugDraw, mesh: NavMesh, ref: PolyRef, col: u32) err.Error!void {
+    pub fn navMeshPoly(self: DebugDraw, mesh: NavMesh, ref: PolyRef, col: u32, failure: *err.Failure) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawNavMeshPoly(&dd, mesh.handle, ref, col));
+        try err.check(failure, .debug_draw_nav_mesh_poly, c.zrcDebugDrawNavMeshPoly(&dd, mesh.handle, ref, col));
     }
 
     /// A decompressed tile-cache layer, each cell coloured by its area id.
@@ -809,9 +818,10 @@ pub const DebugDraw = struct {
         layer: TileCacheLayer,
         cell_size: f32,
         cell_height: f32,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawTileCacheLayerAreas(&dd, layer.handle, cell_size, cell_height));
+        try err.check(failure, .debug_draw_tile_cache_layer_areas, c.zrcDebugDrawTileCacheLayerAreas(&dd, layer.handle, cell_size, cell_height));
     }
 
     /// The same, coloured by region id. A layer that has not been through
@@ -822,9 +832,10 @@ pub const DebugDraw = struct {
         layer: TileCacheLayer,
         cell_size: f32,
         cell_height: f32,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawTileCacheLayerRegions(&dd, layer.handle, cell_size, cell_height));
+        try err.check(failure, .debug_draw_tile_cache_layer_regions, c.zrcDebugDrawTileCacheLayerRegions(&dd, layer.handle, cell_size, cell_height));
     }
 
     /// The outlines a tile-cache rebuild traced.
@@ -834,9 +845,10 @@ pub const DebugDraw = struct {
         origin: Vec3,
         cell_size: f32,
         cell_height: f32,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawTileCacheContours(
+        try err.check(failure, .debug_draw_tile_cache_contours, c.zrcDebugDrawTileCacheContours(
             &dd,
             set.handle,
             &origin,
@@ -853,9 +865,10 @@ pub const DebugDraw = struct {
         origin: Vec3,
         cell_size: f32,
         cell_height: f32,
+        failure: *err.Failure,
     ) err.Error!void {
         const dd = self.toC();
-        try err.check(c.zrcDebugDrawTileCachePolyMesh(
+        try err.check(failure, .debug_draw_tile_cache_poly_mesh, c.zrcDebugDrawTileCachePolyMesh(
             &dd,
             mesh.handle,
             &origin,
@@ -881,10 +894,10 @@ pub const DisplayList = struct {
 
     /// [Limit: 0 <= capacity <= 0x10000000; upstream raises anything under
     /// 8 to 8]
-    pub fn init(capacity: u32) err.Error!DisplayList {
-        const cap = aegis.int.cast(i32, capacity) catch return err.Error.InvalidArgument;
+    pub fn init(capacity: u32, failure: *err.Failure) err.Error!DisplayList {
+        const cap = aegis.int.cast(i32, capacity) catch return err.refuse(failure, .display_list_create, error.InvalidArgument);
         var handle: *c.DisplayList = undefined;
-        try err.check(c.zrcDisplayListCreate(cap, &handle));
+        try err.check(failure, .display_list_create, c.zrcDisplayListCreate(cap, &handle));
         return .{ .handle = handle };
     }
 
@@ -898,7 +911,7 @@ pub const DisplayList = struct {
         var out: c.DebugDraw = undefined;
         // A DisplayList holds a live handle.
         // The only refusal is a null list or `out`, and neither is.
-        err.check(c.zrcDisplayListRecorder(self.handle, &out)) catch aegis.assert.never("the boundary refuses only a null argument");
+        err.map(c.zrcDisplayListRecorder(self.handle, &out)) catch aegis.assert.never("the boundary refuses only a null argument");
         return .{
             .user = out.user,
             .depth_mask = out.depth_mask,
@@ -913,49 +926,49 @@ pub const DisplayList = struct {
         };
     }
 
-    pub fn setDepthMask(self: DisplayList, state: bool) err.Error!void {
-        try err.check(c.zrcDisplayListDepthMask(
+    pub fn setDepthMask(self: DisplayList, state: bool, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .display_list_depth_mask, c.zrcDisplayListDepthMask(
             self.handle,
             if (state) c.c_true else c.c_false,
         ));
     }
 
     /// Opens a run, discarding whatever the list already held.
-    pub fn begin(self: DisplayList, prim: Primitive, size: f32) err.Error!void {
-        try err.check(c.zrcDisplayListBegin(self.handle, prim, size));
+    pub fn begin(self: DisplayList, prim: Primitive, size: f32, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .display_list_begin, c.zrcDisplayListBegin(self.handle, prim, size));
     }
 
-    pub fn vertex(self: DisplayList, pos: Vec3, color: u32) err.Error!void {
-        try err.check(c.zrcDisplayListVertex(self.handle, &pos, color));
+    pub fn vertex(self: DisplayList, pos: Vec3, color: u32, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .display_list_vertex, c.zrcDisplayListVertex(self.handle, &pos, color));
     }
 
     /// The same with the position spelled out, which is the form upstream's
     /// own replay reaches for.
-    pub fn vertexXyz(self: DisplayList, x: f32, y: f32, z: f32, color: u32) err.Error!void {
-        try err.check(c.zrcDisplayListVertexXYZ(self.handle, x, y, z, color));
+    pub fn vertexXyz(self: DisplayList, x: f32, y: f32, z: f32, color: u32, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .display_list_vertex_xyz, c.zrcDisplayListVertexXYZ(self.handle, x, y, z, color));
     }
 
-    pub fn end(self: DisplayList) err.Error!void {
-        try err.check(c.zrcDisplayListEnd(self.handle));
+    pub fn end(self: DisplayList, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .display_list_end, c.zrcDisplayListEnd(self.handle));
     }
 
     /// Drops every recorded vertex, keeping the primitive type and size.
-    pub fn clear(self: DisplayList) err.Error!void {
-        try err.check(c.zrcDisplayListClear(self.handle));
+    pub fn clear(self: DisplayList, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .display_list_clear, c.zrcDisplayListClear(self.handle));
     }
 
     /// Replays the recorded run into `dd`. An empty list draws nothing at
     /// all, not even the `begin`/`end` pair.
-    pub fn draw(self: DisplayList, dd: DebugDraw) err.Error!void {
+    pub fn draw(self: DisplayList, dd: DebugDraw, failure: *err.Failure) err.Error!void {
         const raw = dd.toC();
-        try err.check(c.zrcDisplayListDraw(self.handle, &raw));
+        try err.check(failure, .display_list_draw, c.zrcDisplayListDraw(self.handle, &raw));
     }
 
     /// How many vertices the list holds. Upstream keeps this private and
     /// offers no accessor.
-    pub fn count(self: DisplayList) err.Error!u32 {
+    pub fn count(self: DisplayList, failure: *err.Failure) err.Error!u32 {
         var out: i32 = 0;
-        try err.check(c.zrcDisplayListVertexCount(self.handle, &out));
+        try err.check(failure, .display_list_vertex_count, c.zrcDisplayListVertexCount(self.handle, &out));
         return c.reported(u32, out);
     }
 };
@@ -1043,22 +1056,22 @@ pub const FileIO = struct {
 
 /// Writes the polygon mesh as a Wavefront OBJ: one `v` line per vertex, one
 /// `f` line per triangle of each polygon's fan.
-pub fn dumpPolyMeshToObj(mesh: PolyMesh, io: FileIO) err.Error!void {
+pub fn dumpPolyMeshToObj(mesh: PolyMesh, io: FileIO, failure: *err.Failure) err.Error!void {
     const raw = io.toC();
-    try err.check(c.zrcDumpPolyMeshToObj(mesh.handle, &raw));
+    try err.check(failure, .dump_poly_mesh_to_obj, c.zrcDumpPolyMeshToObj(mesh.handle, &raw));
 }
 
 /// The same for the detail mesh. One that has not been built writes the two
 /// header lines and no geometry.
-pub fn dumpPolyMeshDetailToObj(mesh: PolyMesh, io: FileIO) err.Error!void {
+pub fn dumpPolyMeshDetailToObj(mesh: PolyMesh, io: FileIO, failure: *err.Failure) err.Error!void {
     const raw = io.toC();
-    try err.check(c.zrcDumpPolyMeshDetailToObj(mesh.handle, &raw));
+    try err.check(failure, .dump_poly_mesh_detail_to_obj, c.zrcDumpPolyMeshDetailToObj(mesh.handle, &raw));
 }
 
 /// Writes a contour set in upstream's own binary form.
-pub fn dumpContourSet(contours: ContourSet, io: FileIO) err.Error!void {
+pub fn dumpContourSet(contours: ContourSet, io: FileIO, failure: *err.Failure) err.Error!void {
     const raw = io.toC();
-    try err.check(c.zrcDumpContourSet(contours.handle, &raw));
+    try err.check(failure, .dump_contour_set, c.zrcDumpContourSet(contours.handle, &raw));
 }
 
 /// Reads one back. The result is the caller's, released with `deinit`.
@@ -1067,26 +1080,26 @@ pub fn dumpContourSet(contours: ContourSet, io: FileIO) err.Error!void {
 /// endian- nor padding-portable, and carrying no length a reader could check
 /// a count against. Feed it only bytes `dumpContourSet` wrote, in this build,
 /// on this target.
-pub fn readContourSet(io: FileIO) err.Error!ContourSet {
+pub fn readContourSet(io: FileIO, failure: *err.Failure) err.Error!ContourSet {
     const raw = io.toC();
     var handle: *c.ContourSet = undefined;
-    try err.check(c.zrcReadContourSet(&raw, &handle));
+    try err.check(failure, .read_contour_set, c.zrcReadContourSet(&raw, &handle));
     return .{ .handle = handle };
 }
 
 /// Writes a compact heightfield in upstream's own binary form. Whichever of
 /// the cell, span, distance and area arrays exist are written; the rest are
 /// recorded as absent.
-pub fn dumpCompactHeightfield(field: CompactHeightfield, io: FileIO) err.Error!void {
+pub fn dumpCompactHeightfield(field: CompactHeightfield, io: FileIO, failure: *err.Failure) err.Error!void {
     const raw = io.toC();
-    try err.check(c.zrcDumpCompactHeightfield(field.handle, &raw));
+    try err.check(failure, .dump_compact_heightfield, c.zrcDumpCompactHeightfield(field.handle, &raw));
 }
 
 /// Reads one back, under the same caution as `readContourSet`.
-pub fn readCompactHeightfield(io: FileIO) err.Error!CompactHeightfield {
+pub fn readCompactHeightfield(io: FileIO, failure: *err.Failure) err.Error!CompactHeightfield {
     const raw = io.toC();
     var handle: *c.CompactHeightfield = undefined;
-    try err.check(c.zrcReadCompactHeightfield(&raw, &handle));
+    try err.check(failure, .read_compact_heightfield, c.zrcReadCompactHeightfield(&raw, &handle));
     return .{ .handle = handle };
 }
 
@@ -1095,11 +1108,11 @@ pub fn readCompactHeightfield(io: FileIO) err.Error!CompactHeightfield {
 ///
 /// The context needs logging enabled and a log hook, or upstream formats
 /// twenty-six lines and discards every one. [Limit: 0 < total_usec]
-pub fn logBuildTimes(context: ?*const BuildContext, total_usec: i32) err.Error!void {
+pub fn logBuildTimes(context: ?*const BuildContext, total_usec: i32, failure: *err.Failure) err.Error!void {
     var storage: c.BuildContext = undefined;
     const ctx: ?*const c.BuildContext = if (context) |value| blk: {
         storage = value.toC();
         break :blk &storage;
     } else null;
-    try err.check(c.zrcLogBuildTimes(ctx, total_usec));
+    try err.check(failure, .log_build_times, c.zrcLogBuildTimes(ctx, total_usec));
 }

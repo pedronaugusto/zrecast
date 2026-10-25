@@ -12,6 +12,21 @@ const builtin = @import("builtin");
 const shakedown = @import("shakedown");
 const zrecast = @import("zrecast.zig");
 const c = @import("c.zig");
+const err = @import("error.zig");
+
+/// `result` is the refusal `expected`, and that refusal left one frame on
+/// `failure`, carrying the result `expected` stands for. The frames are then
+/// cleared for the next one.
+fn expectRefusal(expected: zrecast.Error, failure: *zrecast.Failure, result: anytype) !void {
+    try std.testing.expectError(expected, result);
+    if (failure.frames().len != 1) {
+        for (failure.frames()) |frame| std.debug.print("frame: {t} {t}\n", .{ frame.call, frame.result });
+    }
+    try std.testing.expectEqual(@as(usize, 1), failure.frames().len);
+    try std.testing.expect(!failure.truncated);
+    try std.testing.expectEqual(err.resultOf(expected), failure.frames()[0].result);
+    failure.reset();
+}
 
 //=============================================================================
 // Fixture bindings (tests/fixture.h)
@@ -56,7 +71,8 @@ fn unwalkableMesh() zrecast.TriMesh {
 /// The bake is not free, so most tests share one. Each caller still owns what
 /// it builds; this only centralises the config.
 fn bakeFixture(log: ?[]u8) !zrecast.PolyMesh {
-    return zrecast.PolyMesh.bake(zrecast.defaultConfig(), fixtureMesh(), null, log);
+    var failure: zrecast.Failure = .{};
+    return zrecast.PolyMesh.bake(zrecast.defaultConfig(), fixtureMesh(), null, log, &failure);
 }
 
 const search_extents = [3]f32{ 2, 4, 2 };
@@ -64,6 +80,48 @@ const search_extents = [3]f32{ 2, 4, 2 };
 //=============================================================================
 // The bake
 //=============================================================================
+
+test "a refusal names the call that refused it, and what it refused with" {
+    var failure: zrecast.Failure = .{};
+    const gpa = std.testing.allocator;
+    zrecast.setAllocator(gpa);
+    defer zrecast.resetAllocator();
+
+    // Refused by the C boundary: Detour's node pool needs at least four.
+    const poly = try bakeFixture(null);
+    defer poly.deinit();
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
+    defer mesh.deinit();
+    try std.testing.expectError(zrecast.Error.InvalidArgument, zrecast.NavMeshQuery.init(mesh, 0, &failure));
+    // Refused here before C is called: a triangle list C cannot be handed.
+    const triangles = fixtureMesh();
+    try std.testing.expectError(zrecast.Error.InvalidArgument, zrecast.PolyMesh.bake(zrecast.defaultConfig(), .{
+        .verts = triangles.verts,
+        .tris = triangles.tris[0 .. triangles.tris.len - 1],
+    }, null, null, &failure));
+    // Refused with no C call behind it at all.
+    try std.testing.expectError(zrecast.Error.InvalidArgument, zrecast.convexVolume(1, 0, 1, &.{ 0, 0, 0, 1, 0, 0 }, &failure));
+    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init("not a navmesh"), &failure));
+    try std.testing.expectEqualSlices(zrecast.Frame, &.{
+        .{ .call = .nav_mesh_query_create, .result = .invalid_argument },
+        .{ .call = .poly_mesh_bake, .result = .invalid_argument },
+        .{ .call = .convex_volume, .result = .invalid_argument },
+        .{ .call = .nav_mesh_validate, .result = .bad_format },
+    }, failure.frames());
+    try std.testing.expect(!failure.truncated);
+
+    // A fifth is not kept, and says so; the four oldest are.
+    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(""), &failure));
+    try std.testing.expectEqual(@as(usize, 4), failure.frames().len);
+    try std.testing.expect(failure.truncated);
+    try std.testing.expectEqual(zrecast.Call.nav_mesh_query_create, failure.frames()[0].call);
+
+    // Success leaves the frames as they were.
+    failure.reset();
+    const query = try zrecast.NavMeshQuery.init(mesh, 2048, &failure);
+    defer query.deinit();
+    try std.testing.expectEqual(@as(usize, 0), failure.frames().len);
+}
 
 test "the fixture geometry is the shape the assertions assume" {
     const mesh = fixtureMesh();
@@ -76,6 +134,7 @@ test "the fixture geometry is the shape the assertions assume" {
 }
 
 test "baking the fixture produces a mesh that covers the ground" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -84,7 +143,7 @@ test "baking the fixture produces a mesh that covers the ground" {
     const poly = try bakeFixture(&log_buffer);
     defer poly.deinit();
 
-    const baked = try poly.info();
+    const baked = try poly.info(&failure);
     try std.testing.expect(baked.poly_count > 0);
     try std.testing.expect(baked.vert_count >= 3);
     // The detail mesh restores the height Recast quantised away; without it
@@ -104,6 +163,7 @@ test "baking the fixture produces a mesh that covers the ground" {
 }
 
 test "geometry with no walkable surface is an empty result, and says why" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -116,8 +176,9 @@ test "geometry with no walkable surface is an empty result, and says why" {
         unwalkableMesh(),
         null,
         &log_buffer,
+        &failure,
     );
-    try std.testing.expectError(zrecast.Error.EmptyResult, baked);
+    try expectRefusal(zrecast.Error.EmptyResult, &failure, baked);
 
     // The whole reason the log exists: a bare error code would not tell the
     // caller their slope threshold was the problem.
@@ -127,6 +188,7 @@ test "geometry with no walkable surface is an empty result, and says why" {
 }
 
 test "a bake log smaller than the message is truncated, not overrun" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -135,8 +197,8 @@ test "a bake log smaller than the message is truncated, not overrun" {
     var storage = @as([32]u8, @splat(0xAA));
     const log = storage[8..16];
 
-    const baked = zrecast.PolyMesh.bake(zrecast.defaultConfig(), unwalkableMesh(), null, log);
-    try std.testing.expectError(zrecast.Error.EmptyResult, baked);
+    const baked = zrecast.PolyMesh.bake(zrecast.defaultConfig(), unwalkableMesh(), null, log, &failure);
+    try expectRefusal(zrecast.Error.EmptyResult, &failure, baked);
 
     for (storage[0..8]) |byte| try std.testing.expectEqual(@as(u8, 0xAA), byte);
     for (storage[16..]) |byte| try std.testing.expectEqual(@as(u8, 0xAA), byte);
@@ -146,6 +208,7 @@ test "a bake log smaller than the message is truncated, not overrun" {
 }
 
 test "a malformed configuration is refused before anything is allocated" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -154,30 +217,34 @@ test "a malformed configuration is refused before anything is allocated" {
 
     var zero_cell = zrecast.defaultConfig();
     zero_cell.cell_size = 0;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(zero_cell, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(zero_cell, mesh, null, null, &failure),
     );
 
     var nan_slope = zrecast.defaultConfig();
     nan_slope.agent_max_slope = std.math.nan(f32);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(nan_slope, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(nan_slope, mesh, null, null, &failure),
     );
 
     var vertical_slope = zrecast.defaultConfig();
     vertical_slope.agent_max_slope = 90;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(vertical_slope, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(vertical_slope, mesh, null, null, &failure),
     );
 
     var too_many_verts = zrecast.defaultConfig();
     too_many_verts.verts_per_poly = c.verts_per_polygon + 1;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(too_many_verts, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(too_many_verts, mesh, null, null, &failure),
     );
 
     // A cell so large the geometry does not fill one voxel.
@@ -185,13 +252,15 @@ test "a malformed configuration is refused before anything is allocated" {
     coarse.cell_size = 10000;
     coarse.cell_height = 10000;
     coarse.agent_height = 40000;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(coarse, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(coarse, mesh, null, null, &failure),
     );
 }
 
 test "a configuration whose voxel arithmetic overflows an int is refused" {
+    var failure: zrecast.Failure = .{};
     // Every voxel count in the bake is a caller-supplied world length divided
     // by a caller-supplied cell size. A float-to-int conversion that does not
     // fit is undefined behaviour rather than a wrap, so each of these would be
@@ -210,7 +279,7 @@ test "a configuration whose voxel arithmetic overflows an int is refused" {
     // bake still succeeds and produces the same mesh.
     var edge = zrecast.defaultConfig();
     edge.edge_max_len = huge;
-    const edge_baked = try zrecast.PolyMesh.bake(edge, mesh, null, null);
+    const edge_baked = try zrecast.PolyMesh.bake(edge, mesh, null, null, &failure);
     edge_baked.deinit();
 
     // minRegionArea and mergeRegionArea are squares, so they saturate sooner.
@@ -219,9 +288,10 @@ test "a configuration whose voxel arithmetic overflows an int is refused" {
     var region = zrecast.defaultConfig();
     region.region_min_size = huge;
     region.region_merge_size = huge;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.EmptyResult,
-        zrecast.PolyMesh.bake(region, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(region, mesh, null, null, &failure),
     );
 
     // The agent dimensions are rejected rather than clamped: silently baking
@@ -229,59 +299,67 @@ test "a configuration whose voxel arithmetic overflows an int is refused" {
     // error. Each bound is one of Recast's own storage limits.
     var agent = zrecast.defaultConfig();
     agent.agent_height = huge;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(agent, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(agent, mesh, null, null, &failure),
     );
 
     var wide = zrecast.defaultConfig();
     wide.agent_radius = huge;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(wide, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(wide, mesh, null, null, &failure),
     );
 
     var steppy = zrecast.defaultConfig();
     steppy.agent_max_climb = huge;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(steppy, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(steppy, mesh, null, null, &failure),
     );
 
     // And the grid itself: a cell so small the world does not fit in an int.
     var fine = zrecast.defaultConfig();
     fine.cell_size = 1e-30;
     fine.cell_height = 1e-30;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(fine, mesh, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(fine, mesh, null, null, &failure),
     );
 
     // Geometry so large the grid overflows even at a sane cell size.
     const far = [_]f32{ 0, 0, 0, 1e30, 0, 0, 0, 0, 1e30 };
     const tri = [_]i32{ 0, 1, 2 };
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(zrecast.defaultConfig(), .{ .verts = &far, .tris = &tri }, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(zrecast.defaultConfig(), .{ .verts = &far, .tris = &tri }, null, null, &failure),
     );
 
     // The tile grid reaches rcCalcGridSize too, and reaches it first: a host
     // computes the grid before it bakes a single tile of one. The same bound
     // has to hold there or the conversion is undefined before any bake runs.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.tileGrid(tiledConfig(), .{ .verts = &far, .tris = &tri }),
+        &failure,
+        zrecast.tileGrid(tiledConfig(), .{ .verts = &far, .tris = &tri }, &failure),
     );
     var fine_tiled = tiledConfig();
     fine_tiled.cell_size = 1e-30;
     fine_tiled.cell_height = 1e-30;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.tileGrid(fine_tiled, mesh),
+        &failure,
+        zrecast.tileGrid(fine_tiled, mesh, &failure),
     );
 }
 
 test "the walkable-slope threshold is the angle it says it is" {
+    var failure: zrecast.Failure = .{};
     // agent_max_slope becomes a cosine, and that cosine is the only
     // transcendental the bake would reach. It is computed by a polynomial here
     // rather than by the host's `cosf` so that a cook does not depend on the
@@ -304,19 +382,21 @@ test "the walkable-slope threshold is the angle it says it is" {
 
     var gentle = zrecast.defaultConfig();
     gentle.agent_max_slope = 41;
-    const walkable = try zrecast.PolyMesh.bake(gentle, ramp, null, null);
+    const walkable = try zrecast.PolyMesh.bake(gentle, ramp, null, null, &failure);
     defer walkable.deinit();
-    try std.testing.expect((try walkable.info()).poly_count > 0);
+    try std.testing.expect((try walkable.info(&failure)).poly_count > 0);
 
     var strict = zrecast.defaultConfig();
     strict.agent_max_slope = 39;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.EmptyResult,
-        zrecast.PolyMesh.bake(strict, ramp, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(strict, ramp, null, null, &failure),
     );
 }
 
 test "a slice length that is not a multiple of three is refused by bake itself" {
+    var failure: zrecast.Failure = .{};
     // bake.zig has a unit test for the conversion helper, but the helper is not
     // the entry point anyone calls. This drives the same rejection through
     // PolyMesh.bake, which is what a consumer actually reaches.
@@ -328,25 +408,30 @@ test "a slice length that is not a multiple of three is refused by bake itself" 
     const verts = [_]f32{ 0, 0, 0, 1, 0, 0, 0, 0, 1 };
     const tris = [_]i32{ 0, 1, 2 };
 
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(config, .{ .verts = verts[0..8], .tris = &tris }, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(config, .{ .verts = verts[0..8], .tris = &tris }, null, null, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = tris[0..2] }, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = tris[0..2] }, null, null, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(config, .{ .verts = &.{}, .tris = &tris }, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(config, .{ .verts = &.{}, .tris = &tris }, null, null, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = &.{} }, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = &.{} }, null, null, &failure),
     );
 }
 
 test "geometry with an out-of-range index or a NaN is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -357,26 +442,30 @@ test "geometry with an out-of-range index or a NaN is refused" {
     // the difference between an error and an out-of-bounds read.
     var verts = [_]f32{ 0, 0, 0, 1, 0, 0, 0, 0, 1 };
     const bad_index = [_]i32{ 0, 1, 7 };
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = &bad_index }, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = &bad_index }, null, null, &failure),
     );
 
     const negative_index = [_]i32{ 0, -1, 2 };
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = &negative_index }, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = &negative_index }, null, null, &failure),
     );
 
     const good_index = [_]i32{ 0, 1, 2 };
     verts[4] = std.math.nan(f32);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = &good_index }, null, null),
+        &failure,
+        zrecast.PolyMesh.bake(config, .{ .verts = &verts, .tris = &good_index }, null, null, &failure),
     );
 }
 
 test "every partition mode bakes the fixture" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -384,9 +473,9 @@ test "every partition mode bakes the fixture" {
     inline for (.{ .watershed, .monotone, .layers }) |mode| {
         var config = zrecast.defaultConfig();
         config.partition = mode;
-        const poly = try zrecast.PolyMesh.bake(config, fixtureMesh(), null, null);
+        const poly = try zrecast.PolyMesh.bake(config, fixtureMesh(), null, null, &failure);
         defer poly.deinit();
-        try std.testing.expect((try poly.info()).poly_count > 0);
+        try std.testing.expect((try poly.info(&failure)).poly_count > 0);
     }
 }
 
@@ -405,12 +494,13 @@ fn hexDigest(hash: std.crypto.hash.sha2.Sha256) [64]u8 {
 
 /// Untiled: the whole fixture as one image.
 fn cookUntiledDigest() ![64]u8 {
+    var failure: zrecast.Failure = .{};
     var untiled = std.crypto.hash.sha2.Sha256.init(.{});
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
     untiled.update(image.bytes);
     return hexDigest(untiled);
@@ -419,18 +509,19 @@ fn cookUntiledDigest() ![64]u8 {
 /// Tiled: every tile of the grid, in grid order, so the digest covers the
 /// per-tile path and the order it produces tiles in as well as the bytes.
 fn cookTiledDigest() ![64]u8 {
+    var failure: zrecast.Failure = .{};
     var tiled = std.crypto.hash.sha2.Sha256.init(.{});
     const config = tiledConfig();
     const geometry = fixtureMesh();
-    const grid = try zrecast.tileGrid(config, geometry);
+    const grid = try zrecast.tileGrid(config, geometry, &failure);
     var z: i32 = 0;
     while (z < grid.tile_count_z) : (z += 1) {
         var x: i32 = 0;
         while (x < grid.tile_count_x) : (x += 1) {
-            const tile = try zrecast.PolyMesh.bakeTile(config, geometry, grid, x, z, null, null);
+            const tile = try zrecast.PolyMesh.bakeTile(config, geometry, grid, x, z, null, null, &failure);
             if (tile == null) continue;
             defer tile.?.deinit();
-            const bytes = try zrecast.buildTileData(tile.?, x, z, 0, null);
+            const bytes = try zrecast.buildTileData(tile.?, x, z, 0, null, &failure);
             defer bytes.deinit();
             tiled.update(bytes.bytes);
         }
@@ -442,6 +533,7 @@ fn cookTiledDigest() ![64]u8 {
 /// the point-in-polygon test, the radius comparison and the box bound as
 /// well as the pipeline they sit in.
 fn cookAuthoredDigest() ![64]u8 {
+    var failure: zrecast.Failure = .{};
     var authored = std.crypto.hash.sha2.Sha256.init(.{});
     var table = @as([c.max_areas]u16, @splat(0));
     table[zrecast.area_walkable] = zrecast.poly_flag_walkable;
@@ -449,7 +541,7 @@ fn cookAuthoredDigest() ![64]u8 {
 
     const diamond = [_]f32{ -7, 0, -3, -5, 0, -5, -3, 0, -3, -5, 0, -1 };
     const volumes = [_]zrecast.AreaVolume{
-        try zrecast.convexVolume(marked_area, -1, 2, &diamond),
+        try zrecast.convexVolume(marked_area, -1, 2, &diamond, &failure),
         bandVolume(marked_area),
         zrecast.cylinderVolume(zrecast.area_null, -1, 2, .{ 6, -8 }, 2),
     };
@@ -458,11 +550,12 @@ fn cookAuthoredDigest() ![64]u8 {
         fixtureMesh(),
         .{ .volumes = &volumes, .area_flags = &table },
         null,
+        &failure,
     );
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
     authored.update(image.bytes);
     return hexDigest(authored);
@@ -504,6 +597,7 @@ test "a cook is deterministic" {
 //=============================================================================
 
 test "a navmesh survives a round trip through bytes" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -511,29 +605,29 @@ test "a navmesh survives a round trip through bytes" {
     const poly = try bakeFixture(null);
     defer poly.deinit();
 
-    const built = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const built = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer built.deinit();
 
-    const image = try built.serialize();
+    const image = try built.serialize(&failure);
     defer image.deinit();
     const bytes = image.bytes;
     try std.testing.expect(bytes.len > 0);
-    try zrecast.validate(.init(bytes));
+    try zrecast.validate(.init(bytes), &failure);
 
-    const loaded = try zrecast.NavMesh.initFromBytes(.init(bytes));
+    const loaded = try zrecast.NavMesh.initFromBytes(.init(bytes), &failure);
     defer loaded.deinit();
 
     try std.testing.expectEqual(built.polyCount(), loaded.polyCount());
     try std.testing.expect(loaded.polyCount() > 0);
 
-    const a = try built.bounds();
-    const b = try loaded.bounds();
+    const a = try built.bounds(&failure);
+    const b = try loaded.bounds(&failure);
     for (a[0], b[0]) |x, y| try std.testing.expectEqual(x, y);
     for (a[1], b[1]) |x, y| try std.testing.expectEqual(x, y);
 
     // Re-serialising the reloaded mesh must reproduce the same bytes: anything
     // else means the loader is mutating what it was handed.
-    const again = try loaded.serialize();
+    const again = try loaded.serialize(&failure);
     defer again.deinit();
     try std.testing.expectEqualSlices(u8, bytes, again.bytes);
 
@@ -543,68 +637,74 @@ test "a navmesh survives a round trip through bytes" {
     // "outside the grid" for the only tile it holds.
     for ([_]zrecast.NavMesh{ built, loaded }) |mesh| {
         try std.testing.expectEqual(@as(u32, 1), mesh.tileCount());
-        const ref = try mesh.tileRefAt(0, 0, 0);
+        const ref = try mesh.tileRefAt(0, 0, 0, &failure);
         try std.testing.expect(ref != 0);
-        const tile_bounds = try mesh.tileBounds(ref);
-        const mesh_bounds = try mesh.bounds();
+        const tile_bounds = try mesh.tileBounds(ref, &failure);
+        const mesh_bounds = try mesh.bounds(&failure);
         for (tile_bounds[0], mesh_bounds[0]) |x, y| try std.testing.expectEqual(x, y);
         for (tile_bounds[1], mesh_bounds[1]) |x, y| try std.testing.expectEqual(x, y);
     }
 }
 
 test "an image survives a round trip through the opposite byte order" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
 
-    const foreign = try zrecast.swapImageEndian(.init(image.bytes), true);
+    const foreign = try zrecast.swapImageEndian(.init(image.bytes), true, &failure);
     defer foreign.deinit();
 
     // Really the other byte order, not a copy: the header's magic is the first
     // four bytes, and swapping it is what makes the image unreadable here.
     try std.testing.expectEqual(image.bytes.len, foreign.bytes.len);
     try std.testing.expect(!std.mem.eql(u8, image.bytes, foreign.bytes));
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(foreign.bytes)));
-    try std.testing.expectError(
+    try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(foreign.bytes), &failure));
+    try expectRefusal(
         zrecast.Error.BadFormat,
-        zrecast.NavMesh.initFromBytes(.init(foreign.bytes)),
+        &failure,
+        zrecast.NavMesh.initFromBytes(.init(foreign.bytes), &failure),
     );
 
     // And back again, byte for byte. A swap that lost or reordered anything
     // would show up here rather than as a navmesh that loads and misbehaves.
-    const home = try zrecast.swapImageEndian(.init(foreign.bytes), false);
+    const home = try zrecast.swapImageEndian(.init(foreign.bytes), false, &failure);
     defer home.deinit();
     try std.testing.expectEqualSlices(u8, image.bytes, home.bytes);
 
     // The input is never touched, whichever direction was asked for.
-    const again = try mesh.serialize();
+    const again = try mesh.serialize(&failure);
     defer again.deinit();
     try std.testing.expectEqualSlices(u8, again.bytes, image.bytes);
 
     // Nonsense in either direction is refused rather than swapped.
     var junk = @as([256]u8, @splat(0xAB));
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.BadFormat,
-        zrecast.swapImageEndian(.init(&junk), true),
+        &failure,
+        zrecast.swapImageEndian(.init(&junk), true, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.BadFormat,
-        zrecast.swapImageEndian(.init(&junk), false),
+        &failure,
+        zrecast.swapImageEndian(.init(&junk), false, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.BadFormat,
-        zrecast.swapImageEndian(.init(image.bytes[0..8]), true),
+        &failure,
+        zrecast.swapImageEndian(.init(image.bytes[0..8]), true, &failure),
     );
 }
 
 test "every truncation of a valid navmesh image is rejected" {
+    var failure: zrecast.Failure = .{};
     // The dangerous case is not random bytes — the magic check catches those.
     // It is a VALID image cut short: the header passes, and then Detour derives
     // eight array pointers from counts that describe more data than exists.
@@ -616,19 +716,19 @@ test "every truncation of a valid navmesh image is rejected" {
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
     const bytes = image.bytes;
 
     var len: usize = 0;
     while (len < bytes.len) : (len += 1) {
-        if (zrecast.validate(.init(bytes[0..len]))) |_| {
+        if (zrecast.validate(.init(bytes[0..len]), &failure)) |_| {
             std.debug.print("truncated image accepted at {d} bytes\n", .{len});
             return error.TestUnexpectedResult;
         } else |_| {}
-        if (zrecast.NavMesh.initFromBytes(.init(bytes[0..len]))) |loaded| {
+        if (zrecast.NavMesh.initFromBytes(.init(bytes[0..len]), &failure)) |loaded| {
             loaded.deinit();
             std.debug.print("truncated image loaded at {d} bytes\n", .{len});
             return error.TestUnexpectedResult;
@@ -637,7 +737,7 @@ test "every truncation of a valid navmesh image is rejected" {
 
     // And the whole image must still load, so the test cannot pass by
     // rejecting everything.
-    const whole = try zrecast.NavMesh.initFromBytes(.init(bytes));
+    const whole = try zrecast.NavMesh.initFromBytes(.init(bytes), &failure);
     whole.deinit();
 }
 
@@ -673,21 +773,22 @@ const ImageSeed = struct {
     const extents = [3]f32{ 100, 100, 100 };
 
     fn init() !ImageSeed {
+        var failure: zrecast.Failure = .{};
         zrecast.setAllocator(std.testing.allocator);
         defer zrecast.resetAllocator();
         const poly = try bakeFixture(null);
         defer poly.deinit();
-        const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+        const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
         defer mesh.deinit();
-        const image = try mesh.serialize();
+        const image = try mesh.serialize(&failure);
         defer image.deinit();
-        const query = try zrecast.NavMeshQuery.init(mesh, 256);
+        const query = try zrecast.NavMeshQuery.init(mesh, 256, &failure);
         defer query.deinit();
         // A point on the pristine mesh, so a mutant's queries start from
         // coordinates that mean something.
-        const filter = try zrecast.QueryFilter.initDefault();
+        const filter = try zrecast.QueryFilter.initDefault(&failure);
         defer filter.deinit();
-        const anchor = try query.findNearestPoly(.{ 0, 0, 0 }, extents, filter);
+        const anchor = try query.findNearestPoly(.{ 0, 0, 0 }, extents, filter, &failure);
         if (anchor.ref == null) return error.OffMesh;
         return .{ .image = try keep(image.bytes), .anchor = anchor.point };
     }
@@ -700,16 +801,17 @@ const ImageSeed = struct {
 /// Any bytes as a navmesh image: the validator, the loader, the layout, the
 /// byte-order swap and the queries over whatever loads.
 fn anyImage(seed: *ImageSeed, case: *shakedown.Case) !void {
+    var failure: zrecast.Failure = .{};
     zrecast.setAllocator(std.testing.allocator);
     defer zrecast.resetAllocator();
     const bytes = try caseBytes(case, &.{seed.image});
     seed.cases += 1;
 
-    const valid = if (zrecast.validate(.init(bytes))) |_| true else |_| false;
+    const valid = if (zrecast.validate(.init(bytes), &failure)) |_| true else |_| false;
 
     // Every range the layout names is inside the bytes, and an image the
     // validator accepts has one.
-    if (zrecast.tileLayout(.init(bytes))) |layout| {
+    if (zrecast.tileLayout(.init(bytes), &failure)) |layout| {
         inline for (@typeInfo(zrecast.TileLayout).@"struct".field_names) |name| {
             const field = @field(layout, name);
             if (@TypeOf(field) == zrecast.Range) {
@@ -722,19 +824,19 @@ fn anyImage(seed: *ImageSeed, case: *shakedown.Case) !void {
     // A valid image swaps to the other byte order and back byte for byte,
     // and whatever swaps into this one's order is an image it can load.
     if (valid) {
-        const foreign = try zrecast.swapImageEndian(.init(bytes), true);
+        const foreign = try zrecast.swapImageEndian(.init(bytes), true, &failure);
         defer foreign.deinit();
-        const home = try zrecast.swapImageEndian(.init(foreign.bytes), false);
+        const home = try zrecast.swapImageEndian(.init(foreign.bytes), false, &failure);
         defer home.deinit();
         try std.testing.expectEqualSlices(u8, bytes, home.bytes);
     }
-    if (zrecast.swapImageEndian(.init(bytes), false)) |native| {
+    if (zrecast.swapImageEndian(.init(bytes), false, &failure)) |native| {
         defer native.deinit();
-        try zrecast.validate(.init(native.bytes));
+        try zrecast.validate(.init(native.bytes), &failure);
     } else |_| {}
 
     // Nothing the validator refuses loads.
-    const loaded = zrecast.NavMesh.initFromBytes(.init(bytes)) catch return;
+    const loaded = zrecast.NavMesh.initFromBytes(.init(bytes), &failure) catch return;
     defer loaded.deinit();
     if (!valid) return error.LoadedInvalidImage;
     seed.loaded += 1;
@@ -742,21 +844,21 @@ fn anyImage(seed: *ImageSeed, case: *shakedown.Case) !void {
     // A refusal is an accepted answer to every query; reaching it without a
     // fault is the property, and the sanitizer and the leak check are what
     // would object.
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
-    const query = try zrecast.NavMeshQuery.init(loaded, 256);
+    const query = try zrecast.NavMeshQuery.init(loaded, 256, &failure);
     defer query.deinit();
-    const near = query.findNearestPoly(seed.anchor, ImageSeed.extents, filter) catch return;
+    const near = query.findNearestPoly(seed.anchor, ImageSeed.extents, filter, &failure) catch return;
     const ref = near.ref orelse return;
     var corridor: [64]zrecast.PolyRef = undefined;
-    const path = query.findPath(ref, ref, near.point, seed.anchor, filter, &corridor) catch return;
+    const path = query.findPath(ref, ref, near.point, seed.anchor, filter, &corridor, &failure) catch return;
     var corners: [16][3]f32 = undefined;
     // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-    _ = query.findStraightPath(near.point, seed.anchor, corridor[0..path.len], .{}, &corners, null, null) catch {};
+    _ = query.findStraightPath(near.point, seed.anchor, corridor[0..path.len], .{}, &corners, null, null, &failure) catch {};
     // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-    _ = query.raycast(ref, near.point, seed.anchor, filter, .{}, null, null) catch {};
+    _ = query.raycast(ref, near.point, seed.anchor, filter, .{}, null, null, &failure) catch {};
     // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-    _ = query.moveAlongSurface(ref, near.point, seed.anchor, filter, null) catch {};
+    _ = query.moveAlongSurface(ref, near.point, seed.anchor, filter, null, &failure) catch {};
 }
 
 test "any bytes as a navmesh image are refused, or load and answer every query" {
@@ -777,15 +879,16 @@ test "any bytes as a navmesh image are refused, or load and answer every query" 
 }
 
 test "a navmesh image with a doctored header is rejected" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
     const original = image.bytes;
 
@@ -889,17 +992,17 @@ test "a navmesh image with a doctored header is rejected" {
         @memcpy(copy, original);
         std.mem.writeInt(i32, copy[case.offset..][0..4], case.value, .little);
         if (case.lone_tile_only) {
-            zrecast.validate(.init(copy)) catch |e| {
+            zrecast.validate(.init(copy), &failure) catch |e| {
                 std.debug.print("case '{s}' is a well-formed tile and was rejected\n", .{case.name});
                 return e;
             };
         } else {
-            std.testing.expectError(case.expected, zrecast.validate(.init(copy))) catch |e| {
+            expectRefusal(case.expected, &failure, zrecast.validate(.init(copy), &failure)) catch |e| {
                 std.debug.print("case '{s}' was not rejected as expected\n", .{case.name});
                 return e;
             };
         }
-        std.testing.expectError(case.expected, zrecast.NavMesh.initFromBytes(.init(copy))) catch |e| {
+        expectRefusal(case.expected, &failure, zrecast.NavMesh.initFromBytes(.init(copy), &failure)) catch |e| {
             std.debug.print("case '{s}' loaded despite validation\n", .{case.name});
             return e;
         };
@@ -908,13 +1011,14 @@ test "a navmesh image with a doctored header is rejected" {
     for (float_cases) |case| {
         @memcpy(copy, original);
         @memcpy(copy[case.offset..][0..4], std.mem.asBytes(&case.value));
-        std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy))) catch |e| {
+        expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure)) catch |e| {
             std.debug.print("float case '{s}' was not rejected\n", .{case.name});
             return e;
         };
-        std.testing.expectError(
+        expectRefusal(
             zrecast.Error.BadFormat,
-            zrecast.NavMesh.initFromBytes(.init(copy)),
+            &failure,
+            zrecast.NavMesh.initFromBytes(.init(copy), &failure),
         ) catch |e| {
             std.debug.print("float case '{s}' loaded despite validation\n", .{case.name});
             return e;
@@ -924,11 +1028,12 @@ test "a navmesh image with a doctored header is rejected" {
     // The untouched copy must still load, proving the loops above rejected the
     // patches and not the fixture.
     @memcpy(copy, original);
-    const good = try zrecast.NavMesh.initFromBytes(.init(copy));
+    const good = try zrecast.NavMesh.initFromBytes(.init(copy), &failure);
     good.deinit();
 }
 
 test "an image whose polygons lie about their own shape is rejected" {
+    var failure: zrecast.Failure = .{};
     // The header can be entirely self-consistent and the image still unsafe.
     // dtPoly::vertCount is one byte read straight out of the file, and four
     // Detour functions copy that many vertices into a fixed
@@ -942,9 +1047,9 @@ test "an image whose polygons lie about their own shape is rejected" {
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
     const original = image.bytes;
 
@@ -1017,19 +1122,20 @@ test "an image whose polygons lie about their own shape is rejected" {
         @memcpy(copy, original);
         copy[case.offset] = case.value;
         if (case.lone_tile_only) {
-            zrecast.validate(.init(copy)) catch |e| {
+            zrecast.validate(.init(copy), &failure) catch |e| {
                 std.debug.print("interior case '{s}' is a well-formed tile and was rejected\n", .{case.name});
                 return e;
             };
         } else {
-            std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy))) catch |e| {
+            expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure)) catch |e| {
                 std.debug.print("interior case '{s}' was not rejected\n", .{case.name});
                 return e;
             };
         }
-        std.testing.expectError(
+        expectRefusal(
             zrecast.Error.BadFormat,
-            zrecast.NavMesh.initFromBytes(.init(copy)),
+            &failure,
+            zrecast.NavMesh.initFromBytes(.init(copy), &failure),
         ) catch |e| {
             std.debug.print("interior case '{s}' loaded despite validation\n", .{case.name});
             return e;
@@ -1043,10 +1149,11 @@ test "an image whose polygons lie about their own shape is rejected" {
     // one, because the flag and the side share a u16.
     @memcpy(copy, original);
     std.mem.writeInt(u16, copy[polys_at + off_poly_neis ..][0..2], 0x8000 | 3, .little);
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
-    try std.testing.expectError(
+    try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure));
+    try expectRefusal(
         zrecast.Error.BadFormat,
-        zrecast.NavMesh.initFromBytes(.init(copy)),
+        &failure,
+        zrecast.NavMesh.initFromBytes(.init(copy), &failure),
     );
 
     // Detail edge flags with no boundary bit anywhere.
@@ -1058,10 +1165,11 @@ test "an image whose polygons lie about their own shape is rejected" {
     for (0..@as(usize, @intCast(detail_tri_count))) |i| {
         copy[detail_tris_at + i * 4 + 3] = 0;
     }
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
-    try std.testing.expectError(
+    try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure));
+    try expectRefusal(
         zrecast.Error.BadFormat,
-        zrecast.NavMesh.initFromBytes(.init(copy)),
+        &failure,
+        zrecast.NavMesh.initFromBytes(.init(copy), &failure),
     );
 
     // A NaN vertex coordinate. Every distance comparison against it is false,
@@ -1070,14 +1178,14 @@ test "an image whose polygons lie about their own shape is rejected" {
     for ([_]f32{ std.math.nan(f32), std.math.inf(f32), 1e30 }) |poison| {
         @memcpy(copy, original);
         @memcpy(copy[header_size..][0..4], std.mem.asBytes(&poison));
-        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
+        try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure));
     }
     // And one in the detail vertex array, which is a separate loop.
     if (detail_vert_count > 0) {
         @memcpy(copy, original);
         const poison = std.math.nan(f32);
         @memcpy(copy[detail_verts_at..][0..4], std.mem.asBytes(&poison));
-        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
+        try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure));
     }
 
     // A second corner index, on the last polygon rather than the first, so the
@@ -1085,18 +1193,18 @@ test "an image whose polygons lie about their own shape is rejected" {
     @memcpy(copy, original);
     const last_poly = polys_at + sizeof_poly * @as(usize, @intCast(poly_count - 1));
     copy[last_poly + off_poly_verts] = 0xff;
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
+    try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure));
 
     // Positive control: the untouched image must still load and still answer a
     // query, or every rejection above proves nothing.
     @memcpy(copy, original);
-    const good = try zrecast.NavMesh.initFromBytes(.init(copy));
+    const good = try zrecast.NavMesh.initFromBytes(.init(copy), &failure);
     defer good.deinit();
-    const query = try zrecast.NavMeshQuery.init(good, 2048);
+    const query = try zrecast.NavMeshQuery.init(good, 2048, &failure);
     defer query.deinit();
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
-    const near = try query.findNearestPoly(fixture.start, search_extents, filter);
+    const near = try query.findNearestPoly(fixture.start, search_extents, filter, &failure);
     try std.testing.expect(near.ref != null);
 }
 
@@ -1112,13 +1220,14 @@ const World = struct {
     filter: zrecast.QueryFilter,
 
     fn init() !World {
+        var failure: zrecast.Failure = .{};
         const poly = try bakeFixture(null);
         errdefer poly.deinit();
-        const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+        const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
         errdefer mesh.deinit();
-        const query = try zrecast.NavMeshQuery.init(mesh, 2048);
+        const query = try zrecast.NavMeshQuery.init(mesh, 2048, &failure);
         errdefer query.deinit();
-        const filter = try zrecast.QueryFilter.initDefault();
+        const filter = try zrecast.QueryFilter.initDefault(&failure);
         return .{ .poly = poly, .mesh = mesh, .query = query, .filter = filter };
     }
 
@@ -1155,14 +1264,16 @@ const TiledWorld = struct {
     empty: u32,
 
     fn init() !TiledWorld {
+        var failure: zrecast.Failure = .{};
         const config = tiledConfig();
         const geometry = fixtureMesh();
-        const grid = try zrecast.tileGrid(config, geometry);
+        const grid = try zrecast.tileGrid(config, geometry, &failure);
 
         const mesh = try zrecast.NavMesh.initTiled(
             grid,
             @intCast(grid.tile_count_x * grid.tile_count_z),
             1 << 14,
+            &failure,
         );
         errdefer mesh.deinit();
 
@@ -1172,22 +1283,22 @@ const TiledWorld = struct {
         while (z < grid.tile_count_z) : (z += 1) {
             var x: i32 = 0;
             while (x < grid.tile_count_x) : (x += 1) {
-                const tile = try zrecast.PolyMesh.bakeTile(config, geometry, grid, x, z, null, null);
+                const tile = try zrecast.PolyMesh.bakeTile(config, geometry, grid, x, z, null, null, &failure);
                 if (tile == null) {
                     empty += 1;
                     continue;
                 }
                 defer tile.?.deinit();
-                const bytes = try zrecast.buildTileData(tile.?, x, z, 0, null);
+                const bytes = try zrecast.buildTileData(tile.?, x, z, 0, null, &failure);
                 defer bytes.deinit();
-                _ = try mesh.addTile(.init(bytes.bytes));
+                _ = try mesh.addTile(.init(bytes.bytes), &failure);
                 baked += 1;
             }
         }
 
-        const query = try zrecast.NavMeshQuery.init(mesh, 4096);
+        const query = try zrecast.NavMeshQuery.init(mesh, 4096, &failure);
         errdefer query.deinit();
-        const filter = try zrecast.QueryFilter.initDefault();
+        const filter = try zrecast.QueryFilter.initDefault(&failure);
         return .{
             .mesh = mesh,
             .query = query,
@@ -1206,12 +1317,13 @@ const TiledWorld = struct {
 };
 
 test "the tile grid covers the geometry and divides it" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = tiledConfig();
-    const grid = try zrecast.tileGrid(config, fixtureMesh());
+    const grid = try zrecast.tileGrid(config, fixtureMesh(), &failure);
 
     try std.testing.expect(grid.tile_count_x > 1);
     try std.testing.expect(grid.tile_count_z > 1);
@@ -1234,13 +1346,15 @@ test "the tile grid covers the geometry and divides it" {
     // a one-by-one one nobody asked for.
     var solo = zrecast.defaultConfig();
     solo.tile_size = 0;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.tileGrid(solo, fixtureMesh()),
+        &failure,
+        zrecast.tileGrid(solo, fixtureMesh(), &failure),
     );
 }
 
 test "a tiled bake fills some tiles and leaves the rest empty, without failing" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1266,9 +1380,9 @@ test "a tiled bake fills some tiles and leaves the rest empty, without failing" 
     // bake of the same geometry is what notices.
     const solo = try bakeFixture(null);
     defer solo.deinit();
-    const solo_info = try solo.info();
+    const solo_info = try solo.info(&failure);
     const solo_bounds = [2][3]f32{ solo_info.bmin, solo_info.bmax };
-    const tiled_bounds = try world.mesh.bounds();
+    const tiled_bounds = try world.mesh.bounds(&failure);
     // x and z only: the tile grid is an xz grid, and a tile's y extent comes
     // from whichever polygons landed in it.
     //
@@ -1287,25 +1401,27 @@ test "a tiled bake fills some tiles and leaves the rest empty, without failing" 
     // every reference it hands back resolves.
     var found: u32 = 0;
     for (0..world.mesh.maxTiles()) |slot| {
-        const ref = try world.mesh.tileRefAtIndex(@intCast(slot));
+        const ref = try world.mesh.tileRefAtIndex(@intCast(slot), &failure);
         if (ref == 0) continue;
         found += 1;
-        const tile_bounds = try world.mesh.tileBounds(ref);
+        const tile_bounds = try world.mesh.tileBounds(ref, &failure);
         for (0..3) |i| try std.testing.expect(tile_bounds[0][i] <= tile_bounds[1][i]);
     }
     try std.testing.expectEqual(world.baked, found);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tileRefAtIndex(world.mesh.maxTiles()),
+        &failure,
+        world.mesh.tileRefAtIndex(world.mesh.maxTiles(), &failure),
     );
 
     // A tiled navmesh is not one image. Detour has no container format for a
     // set of tiles and neither does this package, so the answer is an error
     // rather than the bytes of whichever tile happened to be first.
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.serialize());
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.serialize(&failure));
 }
 
 test "a path crosses a tile boundary, and stops crossing when the tile is removed" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1318,8 +1434,8 @@ test "a path crosses a tile boundary, and stops crossing when the tile is remove
     // leave one tile and enter another, which it can only do through the portal
     // edges a tiled bake emits — so this fails if the border, the tile bounds or
     // the portal validation are wrong, not merely if tiling is missing.
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
-    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
     try std.testing.expect(from.ref != null);
     try std.testing.expect(to.ref != null);
 
@@ -1335,6 +1451,7 @@ test "a path crosses a tile boundary, and stops crossing when the tile is remove
         to.point,
         world.filter,
         &corridor,
+        &failure,
     );
     try std.testing.expect(path.len > 0);
     try std.testing.expect(!path.partial);
@@ -1343,27 +1460,29 @@ test "a path crosses a tile boundary, and stops crossing when the tile is remove
     // Removing the goal's tile has to break the path. If it does not, the
     // corridor never crossed the boundary and the assertion above was passing
     // for the wrong reason.
-    try world.mesh.removeTile(goal_tile);
+    try world.mesh.removeTile(goal_tile, &failure);
     try std.testing.expectEqual(world.baked - 1, world.mesh.tileCount());
 
-    const after = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    const after = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
     try std.testing.expect(after.ref == null);
 }
 
 /// The reference of the tile holding a world-space point.
 fn tileOf(world: TiledWorld, point: [3]f32) !zrecast.TileRef {
+    var failure: zrecast.Failure = .{};
     const x: i32 = @intFromFloat(
         @floor((point[0] - world.grid.origin[0]) / world.grid.tile_world_size),
     );
     const z: i32 = @intFromFloat(
         @floor((point[2] - world.grid.origin[2]) / world.grid.tile_world_size),
     );
-    const ref = try world.mesh.tileRefAt(x, z, 0);
+    const ref = try world.mesh.tileRefAt(x, z, 0, &failure);
     try std.testing.expect(ref != 0);
     return ref;
 }
 
 test "a tile can be found, measured, removed, and its reference then refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1372,32 +1491,33 @@ test "a tile can be found, measured, removed, and its reference then refused" {
     defer world.deinit();
 
     const ref = try tileOf(world, fixture.start);
-    const bounds = try world.mesh.tileBounds(ref);
+    const bounds = try world.mesh.tileBounds(ref, &failure);
     for (0..3) |i| try std.testing.expect(bounds[0][i] <= bounds[1][i]);
     // The tile has to contain the point it was looked up by.
     try std.testing.expect(bounds[0][0] <= fixture.start[0] and fixture.start[0] <= bounds[1][0]);
     try std.testing.expect(bounds[0][2] <= fixture.start[2] and fixture.start[2] <= bounds[1][2]);
 
     const before = world.mesh.tileCount();
-    try world.mesh.removeTile(ref);
+    try world.mesh.removeTile(ref, &failure);
     try std.testing.expectEqual(before - 1, world.mesh.tileCount());
 
     // The slot is empty, and the reference that named it is stale. A stale
     // reference must be refused rather than resolved against whatever now
     // occupies the slot — dtNavMesh::removeTile would otherwise dereference a
     // null header for a slot that was never occupied at all.
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.removeTile(ref));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.tileBounds(ref));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.removeTile(ref, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.tileBounds(ref, &failure));
 }
 
 test "the tile entry points refuse what they cannot place" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = tiledConfig();
     const geometry = fixtureMesh();
-    const grid = try zrecast.tileGrid(config, geometry);
+    const grid = try zrecast.tileGrid(config, geometry, &failure);
 
     // A tile that exists, so the failures below are about placement rather than
     // about the bytes.
@@ -1407,73 +1527,75 @@ test "the tile entry points refuse what they cannot place" {
     outer: while (tile_z < grid.tile_count_z) : (tile_z += 1) {
         tile_x = 0;
         while (tile_x < grid.tile_count_x) : (tile_x += 1) {
-            tile = try zrecast.PolyMesh.bakeTile(config, geometry, grid, tile_x, tile_z, null, null);
+            tile = try zrecast.PolyMesh.bakeTile(config, geometry, grid, tile_x, tile_z, null, null, &failure);
             if (tile != null) break :outer;
         }
     }
     try std.testing.expect(tile != null);
     defer tile.?.deinit();
 
-    const bytes = try zrecast.buildTileData(tile.?, tile_x, tile_z, 0, null);
+    const bytes = try zrecast.buildTileData(tile.?, tile_x, tile_z, 0, null, &failure);
     defer bytes.deinit();
 
     {
-        const mesh = try zrecast.NavMesh.initTiled(grid, 1, 1 << 14);
+        const mesh = try zrecast.NavMesh.initTiled(grid, 1, 1 << 14, &failure);
         defer mesh.deinit();
-        _ = try mesh.addTile(.init(bytes.bytes));
+        _ = try mesh.addTile(.init(bytes.bytes), &failure);
         // The same grid position twice.
-        try std.testing.expectError(zrecast.Error.TileOccupied, mesh.addTile(.init(bytes.bytes)));
+        try expectRefusal(zrecast.Error.TileOccupied, &failure, mesh.addTile(.init(bytes.bytes), &failure));
         // A second, different position with no slot left for it.
-        const elsewhere = try zrecast.buildTileData(tile.?, tile_x, tile_z + 1, 0, null);
+        const elsewhere = try zrecast.buildTileData(tile.?, tile_x, tile_z + 1, 0, null, &failure);
         defer elsewhere.deinit();
-        try std.testing.expectError(zrecast.Error.NavMeshFull, mesh.addTile(.init(elsewhere.bytes)));
+        try expectRefusal(zrecast.Error.NavMeshFull, &failure, mesh.addTile(.init(elsewhere.bytes), &failure));
     }
 
     // A tile whose grid position lies outside the navmesh's grid is refused by
     // the format check, with the navmesh's own bounds as the admission.
     {
-        const outside = try zrecast.buildTileData(tile.?, grid.tile_count_x, 0, 0, null);
+        const outside = try zrecast.buildTileData(tile.?, grid.tile_count_x, 0, 0, null, &failure);
         defer outside.deinit();
-        const mesh = try zrecast.NavMesh.initTiled(grid, 4, 1 << 14);
+        const mesh = try zrecast.NavMesh.initTiled(grid, 4, 1 << 14, &failure);
         defer mesh.deinit();
-        try std.testing.expectError(zrecast.Error.BadFormat, mesh.addTile(.init(outside.bytes)));
+        try expectRefusal(zrecast.Error.BadFormat, &failure, mesh.addTile(.init(outside.bytes), &failure));
         // Well formed all the same: the position is only wrong for this grid.
-        try zrecast.validate(.init(outside.bytes));
+        try zrecast.validate(.init(outside.bytes), &failure);
     }
 
     // A tile of a grid is not a lone navmesh, and a lone navmesh has no tiles
     // to serialise as a set.
     {
-        const portal_tile = try zrecast.buildTileData(tile.?, tile_x, tile_z, 0, null);
+        const portal_tile = try zrecast.buildTileData(tile.?, tile_x, tile_z, 0, null, &failure);
         defer portal_tile.deinit();
-        _ = zrecast.NavMesh.initFromBytes(.init(portal_tile.bytes)) catch |e| {
-            try std.testing.expectEqual(zrecast.Error.BadFormat, e);
-        };
+        try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.NavMesh.initFromBytes(.init(portal_tile.bytes), &failure));
     }
 
     // Out-of-range coordinates never reach Detour.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.buildTileData(tile.?, -1, 0, 0, null),
+        &failure,
+        zrecast.buildTileData(tile.?, -1, 0, 0, null, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.buildTileData(tile.?, 0, 0, 256, null),
+        &failure,
+        zrecast.buildTileData(tile.?, 0, 0, 256, null, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bakeTile(config, geometry, grid, grid.tile_count_x, 0, null, null),
+        &failure,
+        zrecast.PolyMesh.bakeTile(config, geometry, grid, grid.tile_count_x, 0, null, null, &failure),
     );
 }
 
 test "a grid that zrcTileGridCompute could not have produced is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = tiledConfig();
     const geometry = fixtureMesh();
-    const good = try zrecast.tileGrid(config, geometry);
+    const good = try zrecast.tileGrid(config, geometry, &failure);
 
     // A grid is a value, so a host can store one in an asset and read back
     // something that is no longer one. Both halves of a tiled build check it,
@@ -1509,13 +1631,15 @@ test "a grid that zrcTileGridCompute could not have produced is refused" {
     };
 
     for (doctored) |grid| {
-        try std.testing.expectError(
+        try expectRefusal(
             zrecast.Error.InvalidArgument,
-            zrecast.PolyMesh.bakeTile(config, geometry, grid, 0, 0, null, null),
+            &failure,
+            zrecast.PolyMesh.bakeTile(config, geometry, grid, 0, 0, null, null, &failure),
         );
-        try std.testing.expectError(
+        try expectRefusal(
             zrecast.Error.InvalidArgument,
-            zrecast.NavMesh.initTiled(grid, 4, 1 << 14),
+            &failure,
+            zrecast.NavMesh.initTiled(grid, 4, 1 << 14, &failure),
         );
     }
 }
@@ -1526,9 +1650,10 @@ test "a grid that zrcTileGridCompute could not have produced is refused" {
 /// the ones `PolyMesh.bake` uses internally, so this is the same cook rather
 /// than a similar one. The caller owns the result.
 fn stagedCook(gpa: std.mem.Allocator, config: zrecast.Config, geometry: zrecast.TriMesh) !zrecast.PolyMesh {
-    const cells = try zrecast.buildCells(config);
-    const bounds = try zrecast.calcBounds(geometry);
-    const grid = try zrecast.calcGridSize(bounds[0], bounds[1], config.cell_size);
+    var failure: zrecast.Failure = .{};
+    const cells = try zrecast.buildCells(config, &failure);
+    const bounds = try zrecast.calcBounds(geometry, &failure);
+    const grid = try zrecast.calcGridSize(bounds[0], bounds[1], config.cell_size, &failure);
 
     const field = try zrecast.Heightfield.init(
         null,
@@ -1538,23 +1663,24 @@ fn stagedCook(gpa: std.mem.Allocator, config: zrecast.Config, geometry: zrecast.
         bounds[1],
         config.cell_size,
         config.cell_height,
+        &failure,
     );
     defer field.deinit();
 
     const tri_areas = try gpa.alloc(u8, geometry.tris.len / 3);
     defer gpa.free(tri_areas);
     @memset(tri_areas, zrecast.area_null);
-    try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas);
-    try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb);
+    try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas, &failure);
+    try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb, &failure);
 
     if (config.filter_low_hanging_obstacles != c.c_false) {
-        try field.filterLowHangingObstacles(null, cells.walkable_climb);
+        try field.filterLowHangingObstacles(null, cells.walkable_climb, &failure);
     }
     if (config.filter_ledge_spans != c.c_false) {
-        try field.filterLedgeSpans(null, cells.walkable_height, cells.walkable_climb);
+        try field.filterLedgeSpans(null, cells.walkable_height, cells.walkable_climb, &failure);
     }
     if (config.filter_walkable_low_height_spans != c.c_false) {
-        try field.filterWalkableLowHeightSpans(null, cells.walkable_height);
+        try field.filterWalkableLowHeightSpans(null, cells.walkable_height, &failure);
     }
 
     const compact = try zrecast.CompactHeightfield.init(
@@ -1562,19 +1688,21 @@ fn stagedCook(gpa: std.mem.Allocator, config: zrecast.Config, geometry: zrecast.
         cells.walkable_height,
         cells.walkable_climb,
         field,
+        &failure,
     );
     defer compact.deinit();
-    if (cells.walkable_radius > 0) try compact.erode(null, cells.walkable_radius);
+    if (cells.walkable_radius > 0) try compact.erode(null, cells.walkable_radius, &failure);
 
     switch (config.partition) {
         .watershed => {
-            try compact.buildDistanceField(null);
+            try compact.buildDistanceField(null, &failure);
             try compact.buildRegions(
                 null,
                 .watershed,
                 cells.border_size,
                 cells.min_region_area,
                 cells.merge_region_area,
+                &failure,
             );
         },
         .monotone, .layers => try compact.buildRegions(
@@ -1583,6 +1711,7 @@ fn stagedCook(gpa: std.mem.Allocator, config: zrecast.Config, geometry: zrecast.
             cells.border_size,
             cells.min_region_area,
             cells.merge_region_area,
+            &failure,
         ),
     }
 
@@ -1592,34 +1721,36 @@ fn stagedCook(gpa: std.mem.Allocator, config: zrecast.Config, geometry: zrecast.
         cells.max_simplification_error,
         cells.max_edge_len,
         .{},
+        &failure,
     );
     defer contours.deinit();
 
-    const mesh = try zrecast.PolyMesh.initEmpty();
+    const mesh = try zrecast.PolyMesh.initEmpty(&failure);
     errdefer mesh.deinit();
-    try zrecast.polyMeshBuild(null, contours, cells.verts_per_poly, mesh);
+    try zrecast.polyMeshBuild(null, contours, cells.verts_per_poly, mesh, &failure);
     try zrecast.polyMeshBuildDetail(
         null,
         mesh,
         compact,
         cells.detail_sample_dist,
         cells.detail_sample_max_error,
+        &failure,
     );
 
     // Recast leaves every flag zero, which no nonzero filter admits. A bake
     // assigns them from the area id; a hand-driven cook has to do the same or
     // the mesh is silently unreachable.
-    const built = try mesh.info();
+    const built = try mesh.info(&failure);
     const poly_count: usize = @intCast(built.poly_count);
     const areas = try gpa.alloc(u8, poly_count);
     defer gpa.free(areas);
-    try mesh.polyAreas(0, areas);
+    try mesh.polyAreas(0, areas, &failure);
     const flags = try gpa.alloc(u16, poly_count);
     defer gpa.free(flags);
     for (areas, flags) |area, *flag| {
         flag.* = if (area == zrecast.area_null) 0 else zrecast.poly_flag_walkable;
     }
-    try mesh.setPolyFlags(0, flags);
+    try mesh.setPolyFlags(0, flags, &failure);
 
     // Recast carries no agent dimensions and Detour demands three. A bake
     // quantises them to the voxel grid the mesh was actually built on rather
@@ -1628,11 +1759,13 @@ fn stagedCook(gpa: std.mem.Allocator, config: zrecast.Config, geometry: zrecast.
         @as(f32, @floatFromInt(cells.walkable_height)) * config.cell_height,
         @as(f32, @floatFromInt(cells.walkable_radius)) * config.cell_size,
         @as(f32, @floatFromInt(cells.walkable_climb)) * config.cell_height,
+        &failure,
     );
     return mesh;
 }
 
 test "the staged pipeline cooks the same bytes a bake does" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1647,18 +1780,18 @@ test "the staged pipeline cooks the same bytes a bake does" {
         var config = zrecast.defaultConfig();
         config.partition = mode;
 
-        const baked = try zrecast.PolyMesh.bake(config, geometry, null, null);
+        const baked = try zrecast.PolyMesh.bake(config, geometry, null, null, &failure);
         defer baked.deinit();
-        const baked_mesh = try zrecast.NavMesh.initFromPolyMesh(baked, null);
+        const baked_mesh = try zrecast.NavMesh.initFromPolyMesh(baked, null, &failure);
         defer baked_mesh.deinit();
-        const baked_image = try baked_mesh.serialize();
+        const baked_image = try baked_mesh.serialize(&failure);
         defer baked_image.deinit();
 
         const staged = try stagedCook(gpa, config, geometry);
         defer staged.deinit();
-        const staged_mesh = try zrecast.NavMesh.initFromPolyMesh(staged, null);
+        const staged_mesh = try zrecast.NavMesh.initFromPolyMesh(staged, null, &failure);
         defer staged_mesh.deinit();
-        const staged_image = try staged_mesh.serialize();
+        const staged_image = try staged_mesh.serialize(&failure);
         defer staged_image.deinit();
 
         try std.testing.expectEqualSlices(u8, baked_image.bytes, staged_image.bytes);
@@ -1666,6 +1799,7 @@ test "the staged pipeline cooks the same bytes a bake does" {
 }
 
 test "a hand-built mesh with no flags is a navmesh no query can cross" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1681,34 +1815,35 @@ test "a hand-built mesh with no flags is a navmesh no query can cross" {
     // avoids it.
     const mesh = try stagedCook(gpa, config, geometry);
     defer mesh.deinit();
-    const info = try mesh.info();
+    const info = try mesh.info(&failure);
     const zeros = try gpa.alloc(u16, @intCast(info.poly_count));
     defer gpa.free(zeros);
     @memset(zeros, 0);
 
-    const flagged = try zrecast.NavMesh.initFromPolyMesh(mesh, null);
+    const flagged = try zrecast.NavMesh.initFromPolyMesh(mesh, null, &failure);
     defer flagged.deinit();
-    var flagged_query = try zrecast.NavMeshQuery.init(flagged, 2048);
+    var flagged_query = try zrecast.NavMeshQuery.init(flagged, 2048, &failure);
     defer flagged_query.deinit();
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
     const half = [3]f32{ 2, 4, 2 };
-    const found = try flagged_query.findNearestPoly(fixture.start, half, filter);
+    const found = try flagged_query.findNearestPoly(fixture.start, half, filter, &failure);
     try std.testing.expect(found.ref != 0);
 
     // The same geometry, with the flags Recast left alone.
     const bare = try stagedCook(gpa, config, geometry);
     defer bare.deinit();
-    try bare.setPolyFlags(0, zeros);
-    const unreachable_mesh = try zrecast.NavMesh.initFromPolyMesh(bare, null);
+    try bare.setPolyFlags(0, zeros, &failure);
+    const unreachable_mesh = try zrecast.NavMesh.initFromPolyMesh(bare, null, &failure);
     defer unreachable_mesh.deinit();
-    var bare_query = try zrecast.NavMeshQuery.init(unreachable_mesh, 2048);
+    var bare_query = try zrecast.NavMeshQuery.init(unreachable_mesh, 2048, &failure);
     defer bare_query.deinit();
-    const missing = try bare_query.findNearestPoly(fixture.start, half, filter);
+    const missing = try bare_query.findNearestPoly(fixture.start, half, filter, &failure);
     try std.testing.expectEqual(@as(?zrecast.PolyRef, null), missing.ref);
 }
 
 test "a hand-built mesh carries the agent it was built for, or is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1722,19 +1857,21 @@ test "a hand-built mesh carries the agent it was built for, or is refused" {
     // would describe an agent of size zero — a tile every agent fits through.
     const mesh = try stagedCook(gpa, config, geometry);
     defer mesh.deinit();
-    const dims = try mesh.info();
+    const dims = try mesh.info(&failure);
     try std.testing.expect(dims.walkable_height > 0);
     try std.testing.expect(dims.walkable_climb > 0);
 
-    const fresh = try zrecast.PolyMesh.initEmpty();
+    const fresh = try zrecast.PolyMesh.initEmpty(&failure);
     defer fresh.deinit();
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.NavMesh.initFromPolyMesh(fresh, null),
+        &failure,
+        zrecast.NavMesh.initFromPolyMesh(fresh, null, &failure),
     );
 }
 
 test "a mesh with no detail half is a navmesh Detour derives the height for" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1746,9 +1883,9 @@ test "a mesh with no detail half is a navmesh Detour derives the height for" {
     // tile with no detail arrays and derives each polygon's surface from its
     // own corners; passing the empty arrays instead would describe a detail
     // mesh covering no polygon while the tile claims many.
-    const cells = try zrecast.buildCells(config);
-    const bounds = try zrecast.calcBounds(geometry);
-    const grid = try zrecast.calcGridSize(bounds[0], bounds[1], config.cell_size);
+    const cells = try zrecast.buildCells(config, &failure);
+    const bounds = try zrecast.calcBounds(geometry, &failure);
+    const grid = try zrecast.calcGridSize(bounds[0], bounds[1], config.cell_size, &failure);
 
     const field = try zrecast.Heightfield.init(
         null,
@@ -1758,33 +1895,36 @@ test "a mesh with no detail half is a navmesh Detour derives the height for" {
         bounds[1],
         config.cell_size,
         config.cell_height,
+        &failure,
     );
     defer field.deinit();
 
     const tri_areas = try gpa.alloc(u8, geometry.tris.len / 3);
     defer gpa.free(tri_areas);
     @memset(tri_areas, zrecast.area_null);
-    try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas);
-    try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb);
-    try field.filterLowHangingObstacles(null, cells.walkable_climb);
-    try field.filterLedgeSpans(null, cells.walkable_height, cells.walkable_climb);
-    try field.filterWalkableLowHeightSpans(null, cells.walkable_height);
+    try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas, &failure);
+    try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb, &failure);
+    try field.filterLowHangingObstacles(null, cells.walkable_climb, &failure);
+    try field.filterLedgeSpans(null, cells.walkable_height, cells.walkable_climb, &failure);
+    try field.filterWalkableLowHeightSpans(null, cells.walkable_height, &failure);
 
     const compact = try zrecast.CompactHeightfield.init(
         null,
         cells.walkable_height,
         cells.walkable_climb,
         field,
+        &failure,
     );
     defer compact.deinit();
-    try compact.erode(null, cells.walkable_radius);
-    try compact.buildDistanceField(null);
+    try compact.erode(null, cells.walkable_radius, &failure);
+    try compact.buildDistanceField(null, &failure);
     try compact.buildRegions(
         null,
         .watershed,
         cells.border_size,
         cells.min_region_area,
         cells.merge_region_area,
+        &failure,
     );
 
     const contours = try zrecast.ContourSet.init(
@@ -1793,64 +1933,68 @@ test "a mesh with no detail half is a navmesh Detour derives the height for" {
         cells.max_simplification_error,
         cells.max_edge_len,
         .{},
+        &failure,
     );
     defer contours.deinit();
 
-    const mesh = try zrecast.PolyMesh.initEmpty();
+    const mesh = try zrecast.PolyMesh.initEmpty(&failure);
     defer mesh.deinit();
-    try zrecast.polyMeshBuild(null, contours, cells.verts_per_poly, mesh);
+    try zrecast.polyMeshBuild(null, contours, cells.verts_per_poly, mesh, &failure);
 
-    const built = try mesh.info();
+    const built = try mesh.info(&failure);
     try std.testing.expect(built.poly_count > 0);
     try std.testing.expectEqual(@as(i32, 0), built.detail_mesh_count);
 
     const flags = try gpa.alloc(u16, @intCast(built.poly_count));
     defer gpa.free(flags);
     @memset(flags, zrecast.poly_flag_walkable);
-    try mesh.setPolyFlags(0, flags);
-    try mesh.setAgentDims(2, 0.6, 0.9);
+    try mesh.setPolyFlags(0, flags, &failure);
+    try mesh.setAgentDims(2, 0.6, 0.9, &failure);
 
-    const navmesh = try zrecast.NavMesh.initFromPolyMesh(mesh, null);
+    const navmesh = try zrecast.NavMesh.initFromPolyMesh(mesh, null, &failure);
     defer navmesh.deinit();
-    var query = try zrecast.NavMeshQuery.init(navmesh, 2048);
+    var query = try zrecast.NavMeshQuery.init(navmesh, 2048, &failure);
     defer query.deinit();
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
-    const found = try query.findNearestPoly(fixture.start, .{ 2, 4, 2 }, filter);
+    const found = try query.findNearestPoly(fixture.start, .{ 2, 4, 2 }, filter, &failure);
     try std.testing.expect(found.ref != null);
 }
 
 /// A small heightfield with two spans in one column, for the argument
 /// contracts that need a real container and nothing else.
 fn scratchField() !zrecast.Heightfield {
+    var failure: zrecast.Failure = .{};
     const bmin = [3]f32{ 0, 0, 0 };
     const bmax = [3]f32{ 4 * 0.3, 10 * 0.2, 4 * 0.3 };
-    const field = try zrecast.Heightfield.init(null, 4, 4, bmin, bmax, 0.3, 0.2);
+    const field = try zrecast.Heightfield.init(null, 4, 4, bmin, bmax, 0.3, 0.2, &failure);
     errdefer field.deinit();
-    try field.addSpan(null, 0, 0, 0, 2, zrecast.area_walkable, 1);
-    try field.addSpan(null, 0, 0, 5, 8, zrecast.area_walkable, 1);
+    try field.addSpan(null, 0, 0, 0, 2, zrecast.area_walkable, 1, &failure);
+    try field.addSpan(null, 0, 0, 5, 8, zrecast.area_walkable, 1, &failure);
     return field;
 }
 
 test "an erosion radius Recast's threshold cannot express is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const field = try scratchField();
     defer field.deinit();
-    const compact = try zrecast.CompactHeightfield.init(null, 4, 2, field);
+    const compact = try zrecast.CompactHeightfield.init(null, 4, 2, field, &failure);
     defer compact.deinit();
 
     // rcErodeWalkableArea reduces the radius to a byte before comparing it
     // against a distance field stored in bytes, so 128 wraps to eroding
     // nothing and 129 erodes as 1 would. Refused rather than quietly wrong.
-    try compact.erode(null, 127);
-    try std.testing.expectError(zrecast.Error.InvalidArgument, compact.erode(null, 128));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, compact.erode(null, -1));
+    try compact.erode(null, 127, &failure);
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, compact.erode(null, 128, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, compact.erode(null, -1, &failure));
 }
 
 test "a heightfield whose cell count overflows an int is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1862,26 +2006,30 @@ test "a heightfield whose cell count overflows an int is refused" {
     // in plain int, so two sizes that individually look modest overflow before
     // the allocation is attempted, and every later index into that array is
     // the same arithmetic.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.Heightfield.init(null, 32767, 32767, bmin, bmax, 0.3, 0.2),
+        &failure,
+        zrecast.Heightfield.init(null, 32767, 32767, bmin, bmax, 0.3, 0.2, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.Heightfield.init(null, 32768, 4, bmin, bmax, 0.3, 0.2),
+        &failure,
+        zrecast.Heightfield.init(null, 32768, 4, bmin, bmax, 0.3, 0.2, &failure),
     );
 
     // The vertical extent is bounded separately, since Recast never turns it
     // into a grid dimension and a rasteriser converts a height to a cell index
     // before it clamps.
     const tall = [3]f32{ 100, 1.0e6, 100 };
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.Heightfield.init(null, 16, 16, bmin, tall, 0.3, 0.2),
+        &failure,
+        zrecast.Heightfield.init(null, 16, 16, bmin, tall, 0.3, 0.2, &failure),
     );
 }
 
 test "a vertex no cell index could name is refused before Recast sees it" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1895,9 +2043,10 @@ test "a vertex no cell index could name is refused before Recast sees it" {
     const inside = [3]f32{ 0.1, 0.1, 0.1 };
     const also_inside = [3]f32{ 0.2, 0.1, 0.1 };
     const far = [3]f32{ 1.0e17, 0.1, 1.0e17 };
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        field.rasterizeTriangle(null, inside, also_inside, far, zrecast.area_walkable, 1),
+        &failure,
+        field.rasterizeTriangle(null, inside, also_inside, far, zrecast.area_walkable, 1, &failure),
     );
 
     // The same bound on the soup form, which carries no ZrcTriMesh to route
@@ -1908,41 +2057,43 @@ test "a vertex no cell index could name is refused before Recast sees it" {
         1.0e17, 0.1, 1.0e17,
     };
     const soup_areas = [_]u8{zrecast.area_walkable};
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        field.rasterizeTriangleSoup(null, &soup, &soup_areas, 1),
+        &failure,
+        field.rasterizeTriangleSoup(null, &soup, &soup_areas, 1, &failure),
     );
 }
 
 test "a span field that does not fit its packed width is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const field = try scratchField();
     defer field.deinit();
-    const compact = try zrecast.CompactHeightfield.init(null, 4, 2, field);
+    const compact = try zrecast.CompactHeightfield.init(null, 4, 2, field, &failure);
     defer compact.deinit();
 
-    const info = try compact.info();
+    const info = try compact.info(&failure);
     try std.testing.expect(info.span_count > 0);
 
     var read: [1]zrecast.CompactSpan = undefined;
-    try compact.spans(0, &read);
+    try compact.spans(0, &read, &failure);
 
     // con is 24 bits upstream and h is 8. A value that does not fit is
     // truncated silently on the way into the bitfield and reads back as a
     // different span, so the whole batch is refused before any of it lands.
     var wide = read;
     wide[0].con = 1 << 24;
-    try std.testing.expectError(zrecast.Error.InvalidArgument, compact.setSpans(0, &wide));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, compact.setSpans(0, &wide, &failure));
     var tall = read;
     tall[0].h = 256;
-    try std.testing.expectError(zrecast.Error.InvalidArgument, compact.setSpans(0, &tall));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, compact.setSpans(0, &tall, &failure));
 
     // Nothing was written by either refusal.
     var again: [1]zrecast.CompactSpan = undefined;
-    try compact.spans(0, &again);
+    try compact.spans(0, &again, &failure);
     try std.testing.expectEqual(read[0].con, again[0].con);
     try std.testing.expectEqual(read[0].h, again[0].h);
 
@@ -1950,22 +2101,23 @@ test "a span field that does not fit its packed width is refused" {
     var ok = read;
     ok[0].con = (1 << 24) - 1;
     ok[0].h = 255;
-    try compact.setSpans(0, &ok);
-    try compact.spans(0, &again);
+    try compact.setSpans(0, &ok, &failure);
+    try compact.spans(0, &again, &failure);
     try std.testing.expectEqual(@as(u32, (1 << 24) - 1), again[0].con);
     try std.testing.expectEqual(@as(u32, 255), again[0].h);
 }
 
 test "merging two meshes that pack their polygons differently is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = zrecast.defaultConfig();
     const geometry = fixtureMesh();
-    const cells = try zrecast.buildCells(config);
-    const bounds = try zrecast.calcBounds(geometry);
-    const grid = try zrecast.calcGridSize(bounds[0], bounds[1], config.cell_size);
+    const cells = try zrecast.buildCells(config, &failure);
+    const bounds = try zrecast.calcBounds(geometry, &failure);
+    const grid = try zrecast.calcGridSize(bounds[0], bounds[1], config.cell_size, &failure);
 
     const field = try zrecast.Heightfield.init(
         null,
@@ -1975,65 +2127,69 @@ test "merging two meshes that pack their polygons differently is refused" {
         bounds[1],
         config.cell_size,
         config.cell_height,
+        &failure,
     );
     defer field.deinit();
     const tri_areas = try gpa.alloc(u8, geometry.tris.len / 3);
     defer gpa.free(tri_areas);
     @memset(tri_areas, zrecast.area_null);
-    try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas);
-    try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb);
+    try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas, &failure);
+    try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb, &failure);
     const compact = try zrecast.CompactHeightfield.init(
         null,
         cells.walkable_height,
         cells.walkable_climb,
         field,
+        &failure,
     );
     defer compact.deinit();
-    try compact.buildDistanceField(null);
-    try compact.buildRegions(null, .watershed, 0, cells.min_region_area, cells.merge_region_area);
+    try compact.buildDistanceField(null, &failure);
+    try compact.buildRegions(null, .watershed, 0, cells.min_region_area, cells.merge_region_area, &failure);
     const contours = try zrecast.ContourSet.init(
         null,
         compact,
         cells.max_simplification_error,
         cells.max_edge_len,
         .{},
+        &failure,
     );
     defer contours.deinit();
 
     // Same contours, two polygon packings.
-    const wide = try zrecast.PolyMesh.initEmpty();
+    const wide = try zrecast.PolyMesh.initEmpty(&failure);
     defer wide.deinit();
-    try zrecast.polyMeshBuild(null, contours, 6, wide);
-    try wide.setAgentDims(2, 0.6, 0.9);
+    try zrecast.polyMeshBuild(null, contours, 6, wide, &failure);
+    try wide.setAgentDims(2, 0.6, 0.9, &failure);
 
-    const narrow = try zrecast.PolyMesh.initEmpty();
+    const narrow = try zrecast.PolyMesh.initEmpty(&failure);
     defer narrow.deinit();
-    try zrecast.polyMeshBuild(null, contours, 3, narrow);
-    try narrow.setAgentDims(2, 0.6, 0.9);
+    try zrecast.polyMeshBuild(null, contours, 3, narrow, &failure);
+    try narrow.setAgentDims(2, 0.6, 0.9, &failure);
 
-    try std.testing.expectEqual(@as(i32, 6), (try wide.info()).verts_per_poly);
-    try std.testing.expectEqual(@as(i32, 3), (try narrow.info()).verts_per_poly);
+    try std.testing.expectEqual(@as(i32, 6), (try wide.info(&failure)).verts_per_poly);
+    try std.testing.expectEqual(@as(i32, 3), (try narrow.info(&failure)).verts_per_poly);
 
     // Upstream takes the first mesh's stride as the stride into every input,
     // which reads past the end of any input that packs its polygons at a
     // smaller one.
-    const merged = try zrecast.PolyMesh.initEmpty();
+    const merged = try zrecast.PolyMesh.initEmpty(&failure);
     defer merged.deinit();
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.polyMeshMerge(null, &.{ wide, narrow }, merged),
+        &failure,
+        zrecast.polyMeshMerge(null, &.{ wide, narrow }, merged, &failure),
     );
 
     // Two that agree merge, and the result holds both.
-    const twin = try zrecast.PolyMesh.initEmpty();
+    const twin = try zrecast.PolyMesh.initEmpty(&failure);
     defer twin.deinit();
-    try zrecast.polyMeshCopy(null, wide, twin);
-    const both = try zrecast.PolyMesh.initEmpty();
+    try zrecast.polyMeshCopy(null, wide, twin, &failure);
+    const both = try zrecast.PolyMesh.initEmpty(&failure);
     defer both.deinit();
-    try zrecast.polyMeshMerge(null, &.{ wide, twin }, both);
+    try zrecast.polyMeshMerge(null, &.{ wide, twin }, both, &failure);
     try std.testing.expectEqual(
-        (try wide.info()).poly_count * 2,
-        (try both.info()).poly_count,
+        (try wide.info(&failure)).poly_count * 2,
+        (try both.info(&failure)).poly_count,
     );
 }
 
@@ -2090,6 +2246,7 @@ const LogSpy = struct {
 };
 
 test "a build context's hooks reach the host, and the flags gate them" {
+    var failure: zrecast.Failure = .{};
     LogSpy.reset();
     var marker: u32 = 7;
     const context = zrecast.BuildContext{
@@ -2101,7 +2258,7 @@ test "a build context's hooks reach the host, and the flags gate them" {
         .accumulated_time = LogSpy.onAccumulated,
     };
 
-    try zrecast.log(&context, .warning, "a short message");
+    try zrecast.log(&context, .warning, "a short message", &failure);
     try std.testing.expectEqual(@as(u32, 1), LogSpy.calls);
     try std.testing.expectEqual(zrecast.LogCategory.warning, LogSpy.last_category);
     try std.testing.expectEqual(@as(i32, "a short message".len), LogSpy.last_length);
@@ -2112,18 +2269,18 @@ test "a build context's hooks reach the host, and the flags gate them" {
     // varargs and formats what it is given; "%%" would arrive as a single
     // per-cent sign if the message were passed as the format itself.
     LogSpy.reset();
-    try zrecast.log(&context, .progress, "%%");
+    try zrecast.log(&context, .progress, "%%", &failure);
     try std.testing.expectEqual(@as(i32, 2), LogSpy.last_length);
     try std.testing.expectEqual(@as(u8, '%'), LogSpy.last_first_byte);
 
     LogSpy.reset();
-    try zrecast.resetLog(&context);
+    try zrecast.resetLog(&context, &failure);
     try std.testing.expectEqual(@as(u32, 1), LogSpy.resets);
-    try zrecast.startTimer(&context, .total);
-    try zrecast.stopTimer(&context, .total);
+    try zrecast.startTimer(&context, .total, &failure);
+    try zrecast.stopTimer(&context, .total, &failure);
     try std.testing.expectEqual(@as(u32, 1), LogSpy.starts);
     try std.testing.expectEqual(@as(u32, 1), LogSpy.stops);
-    try std.testing.expectEqual(@as(i32, 42), try zrecast.accumulatedTime(&context, .total));
+    try std.testing.expectEqual(@as(i32, 42), try zrecast.accumulatedTime(&context, .total, &failure));
 
     // A message of 512 bytes or more arrives as two calls: an error reading
     // "Log message was truncated", at a category the caller did not choose,
@@ -2133,7 +2290,7 @@ test "a build context's hooks reach the host, and the flags gate them" {
     var long: [600:0]u8 = undefined;
     @memset(long[0..600], 'x');
     long[600] = 0;
-    try zrecast.log(&context, .progress, &long);
+    try zrecast.log(&context, .progress, &long, &failure);
     try std.testing.expectEqual(@as(u32, 2), LogSpy.calls);
     try std.testing.expectEqual(zrecast.LogCategory.progress, LogSpy.last_category);
     try std.testing.expectEqual(@as(i32, 511), LogSpy.last_length);
@@ -2144,25 +2301,26 @@ test "a build context's hooks reach the host, and the flags gate them" {
     var silent = context;
     silent.log_enabled = false;
     silent.timers_enabled = false;
-    try zrecast.log(&silent, .@"error", "unheard");
-    try zrecast.resetLog(&silent);
-    try zrecast.startTimer(&silent, .total);
+    try zrecast.log(&silent, .@"error", "unheard", &failure);
+    try zrecast.resetLog(&silent, &failure);
+    try zrecast.startTimer(&silent, .total, &failure);
     try std.testing.expectEqual(@as(u32, 0), LogSpy.calls);
     try std.testing.expectEqual(@as(u32, 0), LogSpy.resets);
     try std.testing.expectEqual(@as(u32, 0), LogSpy.starts);
     // accumulatedTime answers -1 without asking the hook at all.
-    try std.testing.expectEqual(@as(i32, -1), try zrecast.accumulatedTime(&silent, .total));
+    try std.testing.expectEqual(@as(i32, -1), try zrecast.accumulatedTime(&silent, .total, &failure));
 
     // A null context is one with both flags clear, and every entry point
     // takes it.
-    try zrecast.log(null, .warning, "nowhere");
-    try zrecast.resetTimers(null);
-    try std.testing.expectEqual(@as(i32, -1), try zrecast.accumulatedTime(null, .total));
+    try zrecast.log(null, .warning, "nowhere", &failure);
+    try zrecast.resetTimers(null, &failure);
+    try std.testing.expectEqual(@as(i32, -1), try zrecast.accumulatedTime(null, .total, &failure));
 
     // The count of labels is not a label.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.startTimer(&context, .max_timers),
+        &failure,
+        zrecast.startTimer(&context, .max_timers, &failure),
     );
 }
 
@@ -2175,20 +2333,21 @@ const TileSeeds = struct {
     count: usize = 0,
 
     fn init() !TileSeeds {
+        var failure: zrecast.Failure = .{};
         zrecast.setAllocator(std.testing.allocator);
         defer zrecast.resetAllocator();
         const config = tiledConfig();
         const geometry = fixtureMesh();
-        const grid = try zrecast.tileGrid(config, geometry);
+        const grid = try zrecast.tileGrid(config, geometry, &failure);
         var seeds: TileSeeds = .{ .grid = grid, .max_tiles = @intCast(grid.tile_count_x * grid.tile_count_z) };
         errdefer seeds.deinit();
         var z: i32 = 0;
         while (z < grid.tile_count_z) : (z += 1) {
             var x: i32 = 0;
             while (x < grid.tile_count_x and seeds.count < seeds.tiles.len) : (x += 1) {
-                const tile = try zrecast.PolyMesh.bakeTile(config, geometry, grid, x, z, null, null) orelse continue;
+                const tile = try zrecast.PolyMesh.bakeTile(config, geometry, grid, x, z, null, null, &failure) orelse continue;
                 defer tile.deinit();
-                const bytes = try zrecast.buildTileData(tile, x, z, 0, null);
+                const bytes = try zrecast.buildTileData(tile, x, z, 0, null, &failure);
                 defer bytes.deinit();
                 seeds.tiles[seeds.count] = try keep(bytes.bytes);
                 seeds.count += 1;
@@ -2206,32 +2365,33 @@ const TileSeeds = struct {
 /// Any bytes as a tile added to a tiled navmesh: refused, or resident,
 /// answering queries, and removed again.
 fn anyTile(seeds: *const TileSeeds, case: *shakedown.Case) !void {
+    var failure: zrecast.Failure = .{};
     zrecast.setAllocator(std.testing.allocator);
     defer zrecast.resetAllocator();
     const bytes = try caseBytes(case, seeds.tiles[0..seeds.count]);
-    const mesh = try zrecast.NavMesh.initTiled(seeds.grid, seeds.max_tiles, 1 << 14);
+    const mesh = try zrecast.NavMesh.initTiled(seeds.grid, seeds.max_tiles, 1 << 14, &failure);
     defer mesh.deinit();
 
-    const ref = mesh.addTile(.init(bytes)) catch return;
+    const ref = mesh.addTile(.init(bytes), &failure) catch return;
     try std.testing.expectEqual(@as(u32, 1), mesh.tileCount());
-    const bounds = try mesh.tileBounds(ref);
+    const bounds = try mesh.tileBounds(ref, &failure);
     var centre: [3]f32 = undefined;
     for (&centre, bounds[0], bounds[1]) |*m, lo, hi| m.* = lo + (hi - lo) / 2;
 
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
-    const query = try zrecast.NavMeshQuery.init(mesh, 256);
+    const query = try zrecast.NavMeshQuery.init(mesh, 256, &failure);
     defer query.deinit();
-    if (query.findNearestPoly(centre, .{ 10, 10, 10 }, filter)) |near| {
+    if (query.findNearestPoly(centre, .{ 10, 10, 10 }, filter, &failure)) |near| {
         if (near.ref) |poly| {
             var corridor: [64]zrecast.PolyRef = undefined;
             // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-            _ = query.findPath(poly, poly, near.point, centre, filter, &corridor) catch {};
+            _ = query.findPath(poly, poly, near.point, centre, filter, &corridor, &failure) catch {};
             // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
-            _ = query.raycast(poly, near.point, centre, filter, .{}, null, null) catch {};
+            _ = query.raycast(poly, near.point, centre, filter, .{}, null, null, &failure) catch {};
         }
     } else |_| {}
-    try mesh.removeTile(ref);
+    try mesh.removeTile(ref, &failure);
     try std.testing.expectEqual(@as(u32, 0), mesh.tileCount());
 }
 
@@ -2349,6 +2509,7 @@ const CachedWorld = struct {
         tile_x: i32,
         tile_y: i32,
     ) !u32 {
+        var failure: zrecast.Failure = .{};
         const edge = grid.tile_world_size;
         const border_world = @as(f32, @floatFromInt(cells.border_size)) * config.cell_size;
         const bmin = [3]f32{
@@ -2371,40 +2532,43 @@ const CachedWorld = struct {
             bmax,
             config.cell_size,
             config.cell_height,
+            &failure,
         );
         defer field.deinit();
 
         const tri_areas = try gpa.alloc(u8, geometry.tris.len / 3);
         defer gpa.free(tri_areas);
         @memset(tri_areas, zrecast.area_null);
-        try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas);
-        try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb);
-        try field.filterLowHangingObstacles(null, cells.walkable_climb);
-        try field.filterLedgeSpans(null, cells.walkable_height, cells.walkable_climb);
-        try field.filterWalkableLowHeightSpans(null, cells.walkable_height);
+        try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas, &failure);
+        try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb, &failure);
+        try field.filterLowHangingObstacles(null, cells.walkable_climb, &failure);
+        try field.filterLedgeSpans(null, cells.walkable_height, cells.walkable_climb, &failure);
+        try field.filterWalkableLowHeightSpans(null, cells.walkable_height, &failure);
 
         const compact = try zrecast.CompactHeightfield.init(
             null,
             cells.walkable_height,
             cells.walkable_climb,
             field,
+            &failure,
         );
         defer compact.deinit();
-        if (cells.walkable_radius > 0) try compact.erode(null, cells.walkable_radius);
+        if (cells.walkable_radius > 0) try compact.erode(null, cells.walkable_radius, &failure);
 
         const layers = try zrecast.HeightfieldLayerSet.init(
             null,
             compact,
             cells.border_size,
             cells.walkable_height,
+            &failure,
         );
         defer layers.deinit();
 
-        const layer_count = try layers.count();
+        const layer_count = try layers.count(&failure);
         var added: u32 = 0;
         var i: u32 = 0;
         while (i < layer_count) : (i += 1) {
-            const layer = try layers.at(i);
+            const layer = try layers.at(i, &failure);
             const n: usize = @intCast(layer.width * layer.height);
             const heights = try gpa.alloc(u8, n);
             defer gpa.free(heights);
@@ -2412,9 +2576,9 @@ const CachedWorld = struct {
             defer gpa.free(areas);
             const cons = try gpa.alloc(u8, n);
             defer gpa.free(cons);
-            try layers.heights(i, 0, heights);
-            try layers.areas(i, 0, areas);
-            try layers.cons(i, 0, cons);
+            try layers.heights(i, 0, heights, &failure);
+            try layers.areas(i, 0, areas, &failure);
+            try layers.cons(i, 0, cons, &failure);
 
             const header = zrecast.TileCacheLayerHeader{
                 .tile_x = tile_x,
@@ -2432,19 +2596,20 @@ const CachedWorld = struct {
                 .max_z = layer.max_z,
             };
             var codec = StoreCodec.compressor();
-            const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons);
+            const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons, &failure);
             defer bytes.deinit();
-            _ = try cache.addTile(.init(bytes.bytes));
+            _ = try cache.addTile(.init(bytes.bytes), &failure);
             added += 1;
         }
         return added;
     }
 
     fn init(gpa: std.mem.Allocator) !CachedWorld {
+        var failure: zrecast.Failure = .{};
         const config = tiledConfig();
         const geometry = fixtureMesh();
-        const grid = try zrecast.tileGrid(config, geometry);
-        const cells = try zrecast.buildCells(config);
+        const grid = try zrecast.tileGrid(config, geometry, &failure);
+        const cells = try zrecast.buildCells(config, &failure);
 
         const tiles_per_axis: u32 = @intCast(grid.tile_count_x * grid.tile_count_z);
         const cache_params = zrecast.TileCacheParams{
@@ -2467,6 +2632,7 @@ const CachedWorld = struct {
             &codec,
             null,
             .{ .process = WalkableFlags.process },
+            &failure,
         );
         errdefer cache.deinit();
 
@@ -2479,19 +2645,19 @@ const CachedWorld = struct {
             }
         }
 
-        const mesh = try zrecast.NavMesh.initTiled(grid, tiles_per_axis * 4, 1 << 14);
+        const mesh = try zrecast.NavMesh.initTiled(grid, tiles_per_axis * 4, 1 << 14, &failure);
         errdefer mesh.deinit();
         z = 0;
         while (z < grid.tile_count_z) : (z += 1) {
             var x: i32 = 0;
             while (x < grid.tile_count_x) : (x += 1) {
-                try cache.buildNavMeshTilesAt(x, z, mesh);
+                try cache.buildNavMeshTilesAt(x, z, mesh, &failure);
             }
         }
 
-        const query = try zrecast.NavMeshQuery.init(mesh, 4096);
+        const query = try zrecast.NavMeshQuery.init(mesh, 4096, &failure);
         errdefer query.deinit();
-        const filter = try zrecast.QueryFilter.initDefault();
+        const filter = try zrecast.QueryFilter.initDefault(&failure);
         return .{
             .cache = cache,
             .mesh = mesh,
@@ -2512,9 +2678,10 @@ const CachedWorld = struct {
     /// budget on it. Bounded so a cache that never settles fails the test
     /// rather than hanging it.
     fn settle(self: *CachedWorld) !void {
+        var failure: zrecast.Failure = .{};
         var spins: u32 = 0;
         while (spins < 512) : (spins += 1) {
-            if (try self.cache.update(self.mesh)) return;
+            if (try self.cache.update(self.mesh, &failure)) return;
         }
         return error.TileCacheNeverSettled;
     }
@@ -2522,9 +2689,10 @@ const CachedWorld = struct {
     /// Whether a complete corridor exists from the fixture's start to its
     /// goal, which is only true while the wall's gap is open.
     fn goalReachable(self: *CachedWorld) !bool {
+        var failure: zrecast.Failure = .{};
         const half = [3]f32{ 2, 4, 2 };
-        const from = try self.query.findNearestPoly(fixture.start, half, self.filter);
-        const to = try self.query.findNearestPoly(fixture.goal, half, self.filter);
+        const from = try self.query.findNearestPoly(fixture.start, half, self.filter, &failure);
+        const to = try self.query.findNearestPoly(fixture.goal, half, self.filter, &failure);
         if (from.ref == null or to.ref == null) return false;
         var corridor: [256]zrecast.PolyRef = undefined;
         const path = try self.query.findPath(
@@ -2534,12 +2702,14 @@ const CachedWorld = struct {
             to.point,
             self.filter,
             &corridor,
+            &failure,
         );
         return !path.partial;
     }
 };
 
 test "an obstacle in the wall's gap closes the way, and removing it opens it" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -2564,31 +2734,32 @@ test "an obstacle in the wall's gap closes the way, and removing it opens it" {
 
     const gap_min = [3]f32{ fixture.wall_end_x - 1.0, -1.0, -1.5 };
     const gap_max = [3]f32{ fixture.ground_extent + 1.0, 3.0, 1.5 };
-    const plug = try world.cache.addBoxObstacle(gap_min, gap_max);
+    const plug = try world.cache.addBoxObstacle(gap_min, gap_max, &failure);
 
     // Queued, not applied. The tiles it overlaps are not even known yet:
     // upstream fills `touched` on the first update that processes the
     // request, so a host reading the obstacle back before then sees the
     // shape it asked for and nothing about where it lands.
-    const queued = try world.cache.obstacleInfo(plug);
+    const queued = try world.cache.obstacleInfo(plug, &failure);
     try std.testing.expectEqual(zrecast.ObstacleShape.box, queued.shape);
     try std.testing.expectEqual(zrecast.ObstacleState.processing, queued.state);
     try std.testing.expectEqual(@as(i32, 0), queued.touched_count);
     try std.testing.expect(try world.goalReachable());
 
     try world.settle();
-    const carved = try world.cache.obstacleInfo(plug);
+    const carved = try world.cache.obstacleInfo(plug, &failure);
     try std.testing.expectEqual(zrecast.ObstacleState.processed, carved.state);
     try std.testing.expect(carved.touched_count > 0);
     try std.testing.expect(!try world.goalReachable());
 
     // Removing it restores the mesh the cook produced.
-    try world.cache.removeObstacle(plug);
+    try world.cache.removeObstacle(plug, &failure);
     try world.settle();
     try std.testing.expect(try world.goalReachable());
 }
 
 test "a layer built from a header reads that header back, field for field" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -2627,22 +2798,22 @@ test "a layer built from a header reads that header back, field for field" {
     }
 
     var codec = StoreCodec.compressor();
-    const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons);
+    const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons, &failure);
     defer bytes.deinit();
 
-    const layer = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes.bytes));
+    const layer = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes.bytes), &failure);
     defer layer.deinit();
-    try std.testing.expectEqual(header, try layer.header());
+    try std.testing.expectEqual(header, try layer.header(&failure));
 
     // The three grids come back as they went in, which is what makes the
     // header's width and height mean anything at all.
     const back = try gpa.alloc(u8, n);
     defer gpa.free(back);
-    try layer.heights(0, back);
+    try layer.heights(0, back, &failure);
     try std.testing.expectEqualSlices(u8, heights, back);
-    try layer.areas(0, back);
+    try layer.areas(0, back, &failure);
     try std.testing.expectEqualSlices(u8, areas, back);
-    try layer.cons(0, back);
+    try layer.cons(0, back, &failure);
     try std.testing.expectEqualSlices(u8, cons, back);
 
     // At any alignment: upstream reads the bytes through a header struct, and
@@ -2650,12 +2821,12 @@ test "a layer built from a header reads that header back, field for field" {
     const odd = try gpa.alignedAlloc(u8, .@"2", bytes.bytes.len + 1);
     defer gpa.free(odd);
     @memcpy(odd[1..], bytes.bytes);
-    const moved = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(odd[1..]));
+    const moved = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(odd[1..]), &failure);
     defer moved.deinit();
-    try std.testing.expectEqual(header, try moved.header());
-    try zrecast.swapTileCacheHeaderEndian(odd[1..]);
+    try std.testing.expectEqual(header, try moved.header(&failure));
+    try zrecast.swapTileCacheHeaderEndian(odd[1..], &failure);
     try std.testing.expect(!std.mem.eql(u8, bytes.bytes, odd[1..]));
-    try zrecast.swapTileCacheHeaderEndian(odd[1..]);
+    try zrecast.swapTileCacheHeaderEndian(odd[1..], &failure);
     try std.testing.expectEqualSlices(u8, bytes.bytes, odd[1..]);
 }
 
@@ -2671,6 +2842,7 @@ fn onGrid(con: u8, x: usize, z: usize, width: usize, height: usize) u8 {
 }
 
 test "a layer whose connections leave its grid is refused however it arrives" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -2700,7 +2872,7 @@ test "a layer whose connections leave its grid is refused however it arrives" {
     var cons: [n]u8 = undefined;
     for (&cons, 0..) |*con, i| con.* = onGrid(0xf, i % 4, i / 4, 4, 3);
     var codec = StoreCodec.compressor();
-    const bytes = try zrecast.buildTileCacheLayer(&codec, header, &heights, &areas, &cons);
+    const bytes = try zrecast.buildTileCacheLayer(&codec, header, &heights, &areas, &cons, &failure);
     defer bytes.deinit();
     // The store codec copies, so the grids follow the header as they went
     // in, and the connections are the last of them.
@@ -2709,7 +2881,7 @@ test "a layer whose connections leave its grid is refused however it arrives" {
 
     var world = try CachedWorld.init(gpa);
     defer world.deinit();
-    const cache = try zrecast.TileCache.init(try world.cache.params(), &codec, null, .{ .process = WalkableFlags.process });
+    const cache = try zrecast.TileCache.init(try world.cache.params(&failure), &codec, null, .{ .process = WalkableFlags.process }, &failure);
     defer cache.deinit();
 
     const off_grid = [_]struct { cell: usize, bit: u8 }{
@@ -2721,25 +2893,26 @@ test "a layer whose connections leave its grid is refused however it arrives" {
     for (off_grid) |o| {
         var claimed = cons;
         claimed[o.cell] |= o.bit;
-        try std.testing.expectError(zrecast.Error.InvalidArgument, zrecast.buildTileCacheLayer(&codec, header, &heights, &areas, &claimed));
+        try expectRefusal(zrecast.Error.InvalidArgument, &failure, zrecast.buildTileCacheLayer(&codec, header, &heights, &areas, &claimed, &failure));
 
         const crafted = try gpa.dupe(u8, bytes.bytes);
         defer gpa.free(crafted);
         crafted[cons_at + o.cell] |= o.bit;
-        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(crafted)));
-        try std.testing.expectError(zrecast.Error.BadFormat, cache.addTile(.init(crafted)));
+        try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(crafted), &failure));
+        try expectRefusal(zrecast.Error.BadFormat, &failure, cache.addTile(.init(crafted), &failure));
     }
 
     // The layer they were made from goes in, and builds.
-    const layer = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes.bytes));
+    const layer = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes.bytes), &failure);
     layer.deinit();
-    const mesh = try zrecast.NavMesh.initTiled(try zrecast.tileGrid(tiledConfig(), fixtureMesh()), @intCast((try cache.params()).max_tiles), 1 << 14);
+    const mesh = try zrecast.NavMesh.initTiled(try zrecast.tileGrid(tiledConfig(), fixtureMesh(), &failure), @intCast((try cache.params(&failure)).max_tiles), 1 << 14, &failure);
     defer mesh.deinit();
-    const ref = try cache.addTile(.init(bytes.bytes));
-    try cache.buildNavMeshTile(ref, mesh);
+    const ref = try cache.addTile(.init(bytes.bytes), &failure);
+    try cache.buildNavMeshTile(ref, mesh, &failure);
 }
 
 test "bytes that are not a compressed layer never reach the tile cache" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -2752,11 +2925,11 @@ test "bytes that are not a compressed layer never reach the tile cache" {
     // computed by subtraction — negative for a short buffer, and handed to
     // the host's codec as a plain int. Checked here before upstream sees it.
     var stub = @as([8]u8, @splat(0));
-    try std.testing.expectError(zrecast.Error.BadFormat, world.cache.addTile(.init(&stub)));
+    try expectRefusal(zrecast.Error.BadFormat, &failure, world.cache.addTile(.init(&stub), &failure));
 
     // Long enough to be a header, but not one.
     var wrong = @as([128]u8, @splat(0));
-    try std.testing.expectError(zrecast.Error.BadFormat, world.cache.addTile(.init(&wrong)));
+    try expectRefusal(zrecast.Error.BadFormat, &failure, world.cache.addTile(.init(&wrong), &failure));
 
     // The sharp case: a buffer carrying the right magic and version but too
     // short to be a header. Upstream tests the magic before it looks at the
@@ -2765,30 +2938,33 @@ test "bytes that are not a compressed layer never reach the tile cache" {
     var short_but_labelled = @as([8]u8, @splat(0));
     std.mem.writeInt(i32, short_but_labelled[0..4], c.tilecache_magic, .little);
     std.mem.writeInt(i32, short_but_labelled[4..8], c.tilecache_version, .little);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.BadFormat,
-        world.cache.addTile(.init(&short_but_labelled)),
+        &failure,
+        world.cache.addTile(.init(&short_but_labelled), &failure),
     );
 
     // The length dtTileCacheHeaderSwapEndian takes and discards before
     // dereferencing the header.
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.swapTileCacheHeaderEndian(&stub));
+    try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.swapTileCacheHeaderEndian(&stub, &failure));
 
     // Upstream's own index accessors bound nothing at all.
-    const params = try world.cache.params();
-    try std.testing.expectError(
+    const params = try world.cache.params(&failure);
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.cache.tileRefAt(@intCast(params.max_tiles)),
+        &failure,
+        world.cache.tileRefAt(@intCast(params.max_tiles), &failure),
     );
-    _ = try world.cache.tileRefAt(@intCast(params.max_tiles - 1));
-    try std.testing.expectError(
+    _ = try world.cache.tileRefAt(@intCast(params.max_tiles - 1), &failure);
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.cache.obstacleRefAt(@intCast(params.max_obstacles)),
+        &failure,
+        world.cache.obstacleRefAt(@intCast(params.max_obstacles), &failure),
     );
 
     // A reference naming a slot no obstacle occupies is not there, rather
     // than a struct read out of a free slot.
-    const free_slot = try world.cache.obstacleRefAt(@intCast(params.max_obstacles - 1));
+    const free_slot = try world.cache.obstacleRefAt(@intCast(params.max_obstacles - 1), &failure);
     try std.testing.expectEqual(@as(zrecast.ObstacleRef, 0), free_slot);
 
     // An emptied slot is never reported as empty through a reference:
@@ -2798,11 +2974,12 @@ test "bytes that are not a compressed layer never reach the tile cache" {
     const doomed = try world.cache.addBoxObstacle(
         .{ fixture.wall_end_x, -1, -1 },
         .{ fixture.wall_end_x + 1, 2, 1 },
+        &failure,
     );
     try world.settle();
-    try world.cache.removeObstacle(doomed);
+    try world.cache.removeObstacle(doomed, &failure);
     try world.settle();
-    try std.testing.expectError(zrecast.Error.NotFound, world.cache.obstacleInfo(doomed));
+    try expectRefusal(zrecast.Error.NotFound, &failure, world.cache.obstacleInfo(doomed, &failure));
 }
 
 /// Compressed layers the fixture cooks, and the cache and grid they were
@@ -2814,22 +2991,23 @@ const LayerSeeds = struct {
     count: usize = 0,
 
     fn init() !LayerSeeds {
+        var failure: zrecast.Failure = .{};
         const gpa = std.testing.allocator;
         zrecast.setAllocator(gpa);
         defer zrecast.resetAllocator();
         var world = try CachedWorld.init(gpa);
         defer world.deinit();
         var seeds: LayerSeeds = .{
-            .params = try world.cache.params(),
-            .grid = try zrecast.tileGrid(tiledConfig(), fixtureMesh()),
+            .params = try world.cache.params(&failure),
+            .grid = try zrecast.tileGrid(tiledConfig(), fixtureMesh(), &failure),
         };
         errdefer seeds.deinit();
         const slots: u32 = @intCast(seeds.params.max_tiles);
         var slot: u32 = 0;
         while (slot < slots and seeds.count < seeds.layers.len) : (slot += 1) {
-            const ref = try world.cache.tileRefAt(slot);
+            const ref = try world.cache.tileRefAt(slot, &failure);
             if (ref == 0) continue;
-            const bytes = try world.cache.removeTileTakingData(ref);
+            const bytes = try world.cache.removeTileTakingData(ref, &failure);
             defer bytes.deinit();
             seeds.layers[seeds.count] = try keep(bytes.bytes);
             seeds.count += 1;
@@ -2846,6 +3024,7 @@ const LayerSeeds = struct {
 /// Any bytes as a compressed layer: decompressed, swapped, added to a tile
 /// cache and built into a navmesh tile, each refused or done whole.
 fn anyLayer(seeds: *const LayerSeeds, case: *shakedown.Case) !void {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -2854,31 +3033,31 @@ fn anyLayer(seeds: *const LayerSeeds, case: *shakedown.Case) !void {
 
     // A layer that decompresses reads back grids of the size its header
     // names.
-    if (zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes))) |layer| {
+    if (zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes), &failure)) |layer| {
         defer layer.deinit();
-        const header = try layer.header();
+        const header = try layer.header(&failure);
         const cells = try case.gpa.alloc(u8, std.math.cast(usize, @as(i64, header.width) * header.height) orelse
             return error.NegativeLayer);
-        try layer.heights(0, cells);
-        try layer.areas(0, cells);
-        try layer.cons(0, cells);
+        try layer.heights(0, cells, &failure);
+        try layer.areas(0, cells, &failure);
+        try layer.cons(0, cells, &failure);
     } else |_| {}
 
     // A header that swaps swaps back to the bytes it was.
     const swapped = try case.gpa.dupe(u8, bytes);
-    if (zrecast.swapTileCacheHeaderEndian(swapped)) |_| {
-        try zrecast.swapTileCacheHeaderEndian(swapped);
+    if (zrecast.swapTileCacheHeaderEndian(swapped, &failure)) |_| {
+        try zrecast.swapTileCacheHeaderEndian(swapped, &failure);
         try std.testing.expectEqualSlices(u8, bytes, swapped);
     } else |_| {}
 
-    const cache = try zrecast.TileCache.init(seeds.params, &codec, null, .{ .process = WalkableFlags.process });
+    const cache = try zrecast.TileCache.init(seeds.params, &codec, null, .{ .process = WalkableFlags.process }, &failure);
     defer cache.deinit();
-    const mesh = try zrecast.NavMesh.initTiled(seeds.grid, @intCast(seeds.params.max_tiles), 1 << 14);
+    const mesh = try zrecast.NavMesh.initTiled(seeds.grid, @intCast(seeds.params.max_tiles), 1 << 14, &failure);
     defer mesh.deinit();
-    const ref = cache.addTile(.init(bytes)) catch return;
+    const ref = cache.addTile(.init(bytes), &failure) catch return;
     // glint-ignore: Z026 -- the property is that a stored layer never crashes a rebuild; a refusal is an accepted outcome
-    cache.buildNavMeshTile(ref, mesh) catch {};
-    try cache.removeTile(ref);
+    cache.buildNavMeshTile(ref, mesh, &failure) catch {};
+    try cache.removeTile(ref, &failure);
 }
 
 test "any bytes as a compressed layer are refused, or decompress and build whole" {
@@ -2888,6 +3067,7 @@ test "any bytes as a compressed layer are refused, or decompress and build whole
 }
 
 test "an obstacle touching more tiles than the cache can track is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -2902,7 +3082,7 @@ test "an obstacle touching more tiles than the cache can track is refused" {
     const whole_world = [3]f32{ 1000, 1000, 1000 };
     const everything_min = [3]f32{ -1000, -1000, -1000 };
     var refs: [64]zrecast.CompressedTileRef = undefined;
-    const overlapped = try world.cache.queryTiles(everything_min, whole_world, &refs);
+    const overlapped = try world.cache.queryTiles(everything_min, whole_world, &refs, &failure);
     try std.testing.expect(overlapped > 8);
 
     // A short buffer still reports how many there were. Upstream writes only
@@ -2910,7 +3090,7 @@ test "an obstacle touching more tiles than the cache can track is refused" {
     // count it got back would size its next allocation from a number that had
     // already been clipped to the buffer it was complaining about.
     var one: [1]zrecast.CompressedTileRef = undefined;
-    const still_all = try world.cache.queryTiles(everything_min, whole_world, &one);
+    const still_all = try world.cache.queryTiles(everything_min, whole_world, &one, &failure);
     try std.testing.expectEqual(overlapped, still_all);
     try std.testing.expectEqual(refs[0], one[0]);
 
@@ -2919,33 +3099,35 @@ test "an obstacle touching more tiles than the cache can track is refused" {
     // at a grid position, and this is how a host enumerates them without
     // knowing how many there are.
     var navmesh_layers: [16]zrecast.TileRef = undefined;
-    const resident = try world.mesh.tileRefsAt(0, 0, &navmesh_layers);
+    const resident = try world.mesh.tileRefsAt(0, 0, &navmesh_layers, &failure);
     try std.testing.expect(resident > 0);
     var no_room: [0]zrecast.TileRef = undefined;
-    try std.testing.expectEqual(resident, try world.mesh.tileRefsAt(0, 0, &no_room));
+    try std.testing.expectEqual(resident, try world.mesh.tileRefsAt(0, 0, &no_room, &failure));
 
     // The same for the stacked-layer lookup, which truncates the same way.
     // An empty buffer is the sharpest form of the question: it asks only for
     // the count, and a count clipped to the buffer would be zero.
     var layers_here: [16]zrecast.CompressedTileRef = undefined;
-    const stacked = try world.cache.tilesAt(0, 0, &layers_here);
+    const stacked = try world.cache.tilesAt(0, 0, &layers_here, &failure);
     try std.testing.expect(stacked > 0);
     var none: [0]zrecast.CompressedTileRef = undefined;
-    try std.testing.expectEqual(stacked, try world.cache.tilesAt(0, 0, &none));
-    try std.testing.expectEqual(overlapped, try world.cache.queryTiles(everything_min, whole_world, &none));
-    try std.testing.expectError(
+    try std.testing.expectEqual(stacked, try world.cache.tilesAt(0, 0, &none, &failure));
+    try std.testing.expectEqual(overlapped, try world.cache.queryTiles(everything_min, whole_world, &none, &failure));
+    try expectRefusal(
         zrecast.Error.BufferTooSmall,
-        world.cache.addBoxObstacle(everything_min, whole_world),
+        &failure,
+        world.cache.addBoxObstacle(everything_min, whole_world, &failure),
     );
 
     // One that fits is accepted, so the refusal is about the count rather
     // than about box obstacles.
     const small_min = [3]f32{ fixture.wall_end_x, -1, -1 };
     const small_max = [3]f32{ fixture.wall_end_x + 1, 2, 1 };
-    _ = try world.cache.addBoxObstacle(small_min, small_max);
+    _ = try world.cache.addBoxObstacle(small_min, small_max, &failure);
 }
 
 test "a tile baked from one config into another config's grid is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -2961,20 +3143,22 @@ test "a tile baked from one config into another config's grid is refused" {
     var fine = coarse;
     fine.cell_size = coarse.cell_size / 2;
 
-    const coarse_grid = try zrecast.tileGrid(coarse, geometry);
-    const fine_grid = try zrecast.tileGrid(fine, geometry);
+    const coarse_grid = try zrecast.tileGrid(coarse, geometry, &failure);
+    const fine_grid = try zrecast.tileGrid(fine, geometry, &failure);
 
     // The misplacement is measured rather than assumed: these two configs
     // really do lay tiles out at different spacings.
     try std.testing.expect(coarse_grid.tile_world_size != fine_grid.tile_world_size);
 
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bakeTile(fine, geometry, coarse_grid, 0, 0, null, null),
+        &failure,
+        zrecast.PolyMesh.bakeTile(fine, geometry, coarse_grid, 0, 0, null, null, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bakeTile(coarse, geometry, fine_grid, 0, 0, null, null),
+        &failure,
+        zrecast.PolyMesh.bakeTile(coarse, geometry, fine_grid, 0, 0, null, null, &failure),
     );
 
     // What is checked is the spacing, not the two fields separately: halving
@@ -2982,14 +3166,15 @@ test "a tile baked from one config into another config's grid is refused" {
     // that agrees on the edge bakes into the grid whatever its fields say.
     var same_edge = fine;
     same_edge.tile_size = coarse.tile_size * 2;
-    const same_edge_grid = try zrecast.tileGrid(same_edge, geometry);
+    const same_edge_grid = try zrecast.tileGrid(same_edge, geometry, &failure);
     try std.testing.expectEqual(coarse_grid.tile_world_size, same_edge_grid.tile_world_size);
 
-    const tile = try zrecast.PolyMesh.bakeTile(same_edge, geometry, coarse_grid, 0, 0, null, null);
+    const tile = try zrecast.PolyMesh.bakeTile(same_edge, geometry, coarse_grid, 0, 0, null, null, &failure);
     if (tile) |mesh| mesh.deinit();
 }
 
 test "a reference naming a free slot is refused rather than dereferenced" {
+    var failure: zrecast.Failure = .{};
     // The upstream hazard docs/design.md records. dtNavMesh::getTileByRef checks
     // the slot index and the salt and stops there, so it returns free slots as
     // well as occupied ones — and a free slot's header is null, which
@@ -3014,7 +3199,7 @@ test "a reference naming a free slot is refused rather than dereferenced" {
     var free_slot: ?u32 = null;
     for (0..world.mesh.maxTiles()) |i| {
         const slot: u32 = @intCast(i);
-        const ref = try world.mesh.tileRefAtIndex(slot);
+        const ref = try world.mesh.tileRefAtIndex(slot, &failure);
         if (ref == 0) {
             if (free_slot == null) free_slot = slot;
             continue;
@@ -3041,27 +3226,29 @@ test "a reference naming a free slot is refused rather than dereferenced" {
     try std.testing.expect(forged != refs[0] and forged != refs[1]);
 
     const before = world.mesh.tileCount();
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.removeTile(forged));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.tileBounds(forged));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.removeTile(forged, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.tileBounds(forged, &failure));
     // If the forged reference had happened to name an occupied slot, the
     // removal above would have succeeded and this is what would say so.
     try std.testing.expectEqual(before, world.mesh.tileCount());
 }
 
 test "a tile count and polygon count that leave Detour no salt are refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
-    const grid = try zrecast.tileGrid(tiledConfig(), fixtureMesh());
+    const grid = try zrecast.tileGrid(tiledConfig(), fixtureMesh(), &failure);
 
     // Detour splits 32 reference bits between a tile index, a polygon index and
     // a salt, and refuses fewer than 10 bits of salt (DetourNavMesh.cpp:255-261).
     // Rounded up to powers of two the first two may claim 22 bits together;
     // 2^12 tiles of 2^12 polygons claims 24.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.NavMesh.initTiled(grid, 1 << 12, 1 << 12),
+        &failure,
+        zrecast.NavMesh.initTiled(grid, 1 << 12, 1 << 12, &failure),
     );
 
     // Refused at the door, not by Detour. dtNavMesh::init reaches the same
@@ -3073,15 +3260,16 @@ test "a tile count and polygon count that leave Detour no salt are refused" {
         var counting: shakedown.alloc.Counting = .init(gpa);
         zrecast.setAllocator(counting.allocator());
         defer zrecast.setAllocator(gpa);
-        try std.testing.expectError(
+        try expectRefusal(
             zrecast.Error.InvalidArgument,
-            zrecast.NavMesh.initTiled(grid, 1 << 12, 1 << 12),
+            &failure,
+            zrecast.NavMesh.initTiled(grid, 1 << 12, 1 << 12, &failure),
         );
         try std.testing.expectEqual(@as(u64, 0), counting.allocations);
     }
     // One bit less on each side fits exactly.
     {
-        const mesh = try zrecast.NavMesh.initTiled(grid, 1 << 11, 1 << 11);
+        const mesh = try zrecast.NavMesh.initTiled(grid, 1 << 11, 1 << 11, &failure);
         defer mesh.deinit();
         try std.testing.expectEqual(@as(u32, 0), mesh.tileCount());
         try std.testing.expectEqual(@as(u32, 1 << 11), mesh.maxTiles());
@@ -3090,13 +3278,15 @@ test "a tile count and polygon count that leave Detour no salt are refused" {
         // gives that -1 and tests/c_smoke.c reads it back.
         try std.testing.expectEqual(@as(u32, 0), mesh.polyCount());
     }
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.NavMesh.initTiled(grid, 0, 1 << 11),
+        &failure,
+        zrecast.NavMesh.initTiled(grid, 0, 1 << 11, &failure),
     );
 }
 
 test "findNearestPoly locates the ground and reports nothing off the mesh" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3104,7 +3294,7 @@ test "findNearestPoly locates the ground and reports nothing off the mesh" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(near.ref != null);
     // The projected point must be on the floor, near the requested point.
     try std.testing.expectApproxEqAbs(fixture.start[0], near.point[0], 1.0);
@@ -3116,6 +3306,7 @@ test "findNearestPoly locates the ground and reports nothing off the mesh" {
         .{ 500, 500, 500 },
         search_extents,
         world.filter,
+        &failure,
     );
     try std.testing.expect(nowhere.ref == null);
     // Not finding anything is not an error, and the point is left as asked.
@@ -3123,6 +3314,7 @@ test "findNearestPoly locates the ground and reports nothing off the mesh" {
 }
 
 test "a filter that admits nothing finds nothing" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3132,22 +3324,23 @@ test "a filter that admits nothing finds nothing" {
 
     var blind_desc = zrecast.defaultFilterDesc();
     blind_desc.include_flags = 0;
-    const blind = try zrecast.QueryFilter.init(blind_desc);
+    const blind = try zrecast.QueryFilter.init(blind_desc, &failure);
     defer blind.deinit();
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, blind);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, blind, &failure);
     try std.testing.expect(near.ref == null);
 
     // And excluding exactly the flag the bake assigns has the same effect,
     // which is the check that the bake really did assign it.
     var excluded_desc = zrecast.defaultFilterDesc();
     excluded_desc.exclude_flags = zrecast.poly_flag_walkable;
-    const excluded = try zrecast.QueryFilter.init(excluded_desc);
+    const excluded = try zrecast.QueryFilter.init(excluded_desc, &failure);
     defer excluded.deinit();
-    const also_none = try world.query.findNearestPoly(fixture.start, search_extents, excluded);
+    const also_none = try world.query.findNearestPoly(fixture.start, search_extents, excluded, &failure);
     try std.testing.expect(also_none.ref == null);
 }
 
 test "a path across the wall has to round its end" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3155,8 +3348,8 @@ test "a path across the wall has to round its end" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
-    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
     try std.testing.expect(from.ref != null);
     try std.testing.expect(to.ref != null);
 
@@ -3168,6 +3361,7 @@ test "a path across the wall has to round its end" {
         to.point,
         world.filter,
         &corridor,
+        &failure,
     );
     try std.testing.expect(path.len > 0);
     try std.testing.expect(!path.partial);
@@ -3187,6 +3381,7 @@ test "a path across the wall has to round its end" {
         &corners,
         &flags,
         &refs,
+        &failure,
     );
 
     try std.testing.expect(straight.len >= 2);
@@ -3213,6 +3408,7 @@ test "a path across the wall has to round its end" {
 }
 
 test "an unreachable goal yields a partial path rather than a lie" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3220,8 +3416,8 @@ test "an unreachable goal yields a partial path rather than a lie" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
-    const island = try world.query.findNearestPoly(fixture.island, search_extents, world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
+    const island = try world.query.findNearestPoly(fixture.island, search_extents, world.filter, &failure);
     try std.testing.expect(from.ref != null);
     // The island must have baked, or this test proves nothing.
     try std.testing.expect(island.ref != null);
@@ -3235,6 +3431,7 @@ test "an unreachable goal yields a partial path rather than a lie" {
         island.point,
         world.filter,
         &corridor,
+        &failure,
     );
     try std.testing.expect(path.partial);
     try std.testing.expect(path.len > 0);
@@ -3244,6 +3441,7 @@ test "an unreachable goal yields a partial path rather than a lie" {
 }
 
 test "a corridor buffer that is too small reports partial, not overflow" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3251,8 +3449,8 @@ test "a corridor buffer that is too small reports partial, not overflow" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
-    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
 
     var single: [1]zrecast.PolyRef = .{0};
     const path = try world.query.findPath(
@@ -3262,6 +3460,7 @@ test "a corridor buffer that is too small reports partial, not overflow" {
         to.point,
         world.filter,
         &single,
+        &failure,
     );
     try std.testing.expectEqual(@as(usize, 1), path.len);
     try std.testing.expect(path.partial);
@@ -3269,6 +3468,7 @@ test "a corridor buffer that is too small reports partial, not overflow" {
 }
 
 test "moveAlongSurface slides along the wall instead of through it" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3276,7 +3476,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(from.ref != null);
 
     var visited: [32]zrecast.PolyRef = undefined;
@@ -3286,6 +3486,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
         fixture.goal,
         world.filter,
         &visited,
+        &failure,
     );
 
     for (moved.position) |v| try std.testing.expect(std.math.isFinite(v));
@@ -3305,6 +3506,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
         fixture.goal,
         world.filter,
         &single,
+        &failure,
     );
     try std.testing.expect(clipped.truncated);
     try std.testing.expectEqual(@as(usize, 1), clipped.visited_len);
@@ -3321,6 +3523,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
         fixture.goal,
         world.filter,
         null,
+        &failure,
     );
     try std.testing.expectEqual(@as(usize, 0), again.visited_len);
     // No buffer means no list to report as cut short, even though the move
@@ -3332,6 +3535,7 @@ test "moveAlongSurface slides along the wall instead of through it" {
 }
 
 test "a raycast stops at the wall and passes through open ground" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3339,7 +3543,7 @@ test "a raycast stops at the wall and passes through open ground" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(from.ref != null);
 
     var crossed: [32]zrecast.PolyRef = undefined;
@@ -3351,6 +3555,7 @@ test "a raycast stops at the wall and passes through open ground" {
         .{},
         null,
         &crossed,
+        &failure,
     );
     const blocked = blocked_result.hit;
     // The ray crossed at least the polygon it started in, and every reported
@@ -3370,6 +3575,7 @@ test "a raycast stops at the wall and passes through open ground" {
         .{},
         null,
         &one,
+        &failure,
     );
     try std.testing.expect(clipped.truncated);
     try std.testing.expectEqual(@as(usize, 1), clipped.path_len);
@@ -3400,6 +3606,7 @@ test "a raycast stops at the wall and passes through open ground" {
         .{},
         null,
         null,
+        &failure,
     );
     const clear = clear_result.hit;
     try std.testing.expectEqual(@as(usize, 0), clear_result.path_len);
@@ -3412,6 +3619,7 @@ test "a raycast stops at the wall and passes through open ground" {
 }
 
 test "a filter checks its costs where it is made and where one is set" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3422,24 +3630,24 @@ test "a filter checks its costs where it is made and where one is set" {
     for (bad) |cost| {
         var desc = zrecast.defaultFilterDesc();
         desc.area_cost[zrecast.area_walkable] = cost;
-        try std.testing.expectError(zrecast.Error.InvalidArgument, zrecast.QueryFilter.init(desc));
+        try expectRefusal(zrecast.Error.InvalidArgument, &failure, zrecast.QueryFilter.init(desc, &failure));
     }
 
     var desc = zrecast.defaultFilterDesc();
     desc.area_cost[7] = 3.5;
     desc.include_flags = 0x00ff;
     desc.exclude_flags = 0x0010;
-    const filter = try zrecast.QueryFilter.init(desc);
+    const filter = try zrecast.QueryFilter.init(desc, &failure);
     defer filter.deinit();
     try std.testing.expectEqual(desc, filter.describe());
 
     for (bad) |cost| {
-        try std.testing.expectError(zrecast.Error.InvalidArgument, filter.setAreaCost(7, cost));
+        try expectRefusal(zrecast.Error.InvalidArgument, &failure, filter.setAreaCost(7, cost, &failure));
     }
-    try std.testing.expectError(zrecast.Error.InvalidArgument, filter.setAreaCost(zrecast.max_areas, 1));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, filter.setAreaCost(zrecast.max_areas, 1, &failure));
     try std.testing.expectEqual(desc, filter.describe());
 
-    try filter.setAreaCost(7, 0);
+    try filter.setAreaCost(7, 0, &failure);
     filter.setIncludeFlags(0xffff);
     filter.setExcludeFlags(0);
     desc.area_cost[7] = 0;
@@ -3449,15 +3657,16 @@ test "a filter checks its costs where it is made and where one is set" {
 }
 
 test "a query a crowd or a path queue lends checks a box as an owned one does" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
     defer world.deinit();
-    const crowd = try zrecast.Crowd.init(world.mesh, 8, 0.6);
+    const crowd = try zrecast.Crowd.init(world.mesh, 8, 0.6, &failure);
     defer crowd.deinit();
-    const queue = try zrecast.PathQueue.init(world.mesh, 256, 2048);
+    const queue = try zrecast.PathQueue.init(world.mesh, 256, 2048, &failure);
     defer queue.deinit();
 
     // Each of the three is a handle the package builds around a query
@@ -3465,78 +3674,81 @@ test "a query a crowd or a path queue lends checks a box as an owned one does" {
     // One built without it would check every box against no grid at all. The
     // box is fourteen million cells, over the ceiling on their product.
     const lent = [_]zrecast.BorrowedNavMeshQuery{
-        try crowd.navMeshQuery(),
-        try (try crowd.pathQueue()).navMeshQuery(),
-        try queue.navMeshQuery(),
+        try crowd.navMeshQuery(&failure),
+        try (try crowd.pathQueue(&failure)).navMeshQuery(&failure),
+        try queue.navMeshQuery(&failure),
     };
     for (lent) |query| {
-        try std.testing.expectError(error.InvalidArgument, query.findNearestPoly(
+        try expectRefusal(error.InvalidArgument, &failure, query.findNearestPoly(
             .{ 0, 0, 0 },
             .{ 1e5, 1, 1e5 },
             world.filter,
+            &failure,
         ));
-        const near = try query.findNearestPoly(fixture.start, search_extents, world.filter);
+        const near = try query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
         try std.testing.expect(near.ref != null);
     }
 }
 
 test "a slice, a path request and a crowd keep their own copy of a filter" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
     defer world.deinit();
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
-    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
     var whole: [256]zrecast.PolyRef = undefined;
-    const one_shot = try world.query.findPath(from.ref.?, to.ref.?, from.point, to.point, world.filter, &whole);
+    const one_shot = try world.query.findPath(from.ref.?, to.ref.?, from.point, to.point, world.filter, &whole, &failure);
     try std.testing.expect(!one_shot.partial);
 
     // Destroyed the moment the slice begins: Detour reads the filter on every
     // update, so the slice must be reading a copy.
-    const lent = try zrecast.QueryFilter.initDefault();
-    try world.query.slicedFindPathInit(from.ref.?, to.ref.?, from.point, to.point, lent, .{});
+    const lent = try zrecast.QueryFilter.initDefault(&failure);
+    try world.query.slicedFindPathInit(from.ref.?, to.ref.?, from.point, to.point, lent, .{}, &failure);
     lent.deinit();
     var rounds: u32 = 0;
     while (rounds < 1000) : (rounds += 1) {
-        if (!(try world.query.slicedFindPathUpdate(2)).in_progress) break;
+        if (!(try world.query.slicedFindPathUpdate(2, &failure)).in_progress) break;
     }
     var sliced: [256]zrecast.PolyRef = undefined;
-    const finished = try world.query.slicedFindPathFinalize(&sliced);
+    const finished = try world.query.slicedFindPathFinalize(&sliced, &failure);
     try std.testing.expectEqualSlices(zrecast.PolyRef, whole[0..one_shot.len], sliced[0..finished.len]);
 
     // The same for a path queue's request.
-    const queue = try zrecast.PathQueue.init(world.mesh, 256, 2048);
+    const queue = try zrecast.PathQueue.init(world.mesh, 256, 2048, &failure);
     defer queue.deinit();
-    const queued = try zrecast.QueryFilter.initDefault();
-    const ref = try queue.request(from.ref.?, to.ref.?, from.point, to.point, queued);
+    const queued = try zrecast.QueryFilter.initDefault(&failure);
+    const ref = try queue.request(from.ref.?, to.ref.?, from.point, to.point, queued, &failure);
     queued.deinit();
     try std.testing.expect(ref != zrecast.path_request_none);
     rounds = 0;
     while (rounds < 1000) : (rounds += 1) {
-        try queue.update(64);
-        if (try queue.requestStatus(ref) != .running) break;
+        try queue.update(64, &failure);
+        if (try queue.requestStatus(ref, &failure) != .running) break;
     }
-    try std.testing.expectEqual(zrecast.PathRequestState.ready, try queue.requestStatus(ref));
+    try std.testing.expectEqual(zrecast.PathRequestState.ready, try queue.requestStatus(ref, &failure));
     var queued_path: [256]zrecast.PolyRef = undefined;
-    const queued_len = try queue.result(ref, &queued_path);
+    const queued_len = try queue.result(ref, &queued_path, &failure);
     try std.testing.expectEqualSlices(zrecast.PolyRef, whole[0..one_shot.len], queued_path[0..queued_len]);
 
     // And a crowd's table: what it reads back is what it was given, after
     // the filter it was given is gone.
-    const crowd = try zrecast.Crowd.init(world.mesh, 8, 0.6);
+    const crowd = try zrecast.Crowd.init(world.mesh, 8, 0.6, &failure);
     defer crowd.deinit();
     var desc = zrecast.defaultFilterDesc();
     desc.area_cost[zrecast.area_walkable] = 2;
     desc.exclude_flags = 0x8000;
-    const shared = try zrecast.QueryFilter.init(desc);
-    try crowd.setFilter(2, shared);
+    const shared = try zrecast.QueryFilter.init(desc, &failure);
+    try crowd.setFilter(2, shared, &failure);
     shared.deinit();
-    try std.testing.expectEqual(desc, try crowd.filter(2));
+    try std.testing.expectEqual(desc, try crowd.filter(2, &failure));
 }
 
 test "queries reject the arguments that would fault inside Detour" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3544,48 +3756,51 @@ test "queries reject the arguments that would fault inside Detour" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
-    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
+    const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
 
     const nan = std.math.nan(f32);
     var corridor: [16]zrecast.PolyRef = undefined;
 
     // A NaN position would poison every distance comparison in the search.
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.query.findPath(
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.query.findPath(
         from.ref.?,
         to.ref.?,
         .{ nan, 0, 0 },
         to.point,
         world.filter,
         &corridor,
+        &failure,
     ));
 
     // A zero reference is "no polygon" and cannot start a search.
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.query.findPath(
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.query.findPath(
         0,
         to.ref.?,
         from.point,
         to.point,
         world.filter,
         &corridor,
+        &failure,
     ));
 
     // An empty output buffer.
     var none: [0]zrecast.PolyRef = .{};
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.query.findPath(
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.query.findPath(
         from.ref.?,
         to.ref.?,
         from.point,
         to.point,
         world.filter,
         &none,
+        &failure,
     ));
 
     // A companion array shorter than the point array: Detour writes all three
     // in lockstep and bounds-checks only the first.
     var corners: [8][3]f32 = undefined;
     var short_flags: [2]u8 = undefined;
-    try std.testing.expectError(zrecast.Error.BufferTooSmall, world.query.findStraightPath(
+    try expectRefusal(zrecast.Error.BufferTooSmall, &failure, world.query.findStraightPath(
         from.point,
         to.point,
         &.{from.ref.?},
@@ -3593,10 +3808,11 @@ test "queries reject the arguments that would fault inside Detour" {
         &corners,
         &short_flags,
         null,
+        &failure,
     ));
 
     // A corridor containing a zero reference.
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.query.findStraightPath(
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.query.findStraightPath(
         from.point,
         to.point,
         &.{ from.ref.?, 0 },
@@ -3604,16 +3820,19 @@ test "queries reject the arguments that would fault inside Detour" {
         &corners,
         null,
         null,
+        &failure,
     ));
 
     // A node pool of zero, and one past what Detour can index.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.NavMeshQuery.init(world.mesh, 0),
+        &failure,
+        zrecast.NavMeshQuery.init(world.mesh, 0, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.NavMeshQuery.init(world.mesh, 65536),
+        &failure,
+        zrecast.NavMeshQuery.init(world.mesh, 65536, &failure),
     );
 
     // And 1 through 3, which Detour accepts and then corrupts the heap over:
@@ -3621,18 +3840,20 @@ test "queries reject the arguments that would fault inside Detour" {
     // zero below four, after which every bucket index is out of bounds. The
     // smallest accepted value must still produce a query that works.
     for ([_]u32{ 1, 2, 3 }) |too_few| {
-        try std.testing.expectError(
+        try expectRefusal(
             zrecast.Error.InvalidArgument,
-            zrecast.NavMeshQuery.init(world.mesh, too_few),
+            &failure,
+            zrecast.NavMeshQuery.init(world.mesh, too_few, &failure),
         );
     }
-    const smallest = try zrecast.NavMeshQuery.init(world.mesh, 4);
+    const smallest = try zrecast.NavMeshQuery.init(world.mesh, 4, &failure);
     defer smallest.deinit();
-    const found = try smallest.findNearestPoly(fixture.start, search_extents, world.filter);
+    const found = try smallest.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(found.ref != null);
 }
 
 test "a stale polygon reference from another navmesh is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3640,19 +3861,20 @@ test "a stale polygon reference from another navmesh is refused" {
     const world = try World.init();
     defer world.deinit();
 
-    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(from.ref != null);
 
     // A reference with a plausible index but a salt that belongs to nothing.
     const bogus: zrecast.PolyRef = from.ref.? ^ 0x8000_0000;
     var corridor: [16]zrecast.PolyRef = undefined;
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.query.findPath(
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.query.findPath(
         bogus,
         from.ref.?,
         from.point,
         from.point,
         world.filter,
         &corridor,
+        &failure,
     ));
 }
 
@@ -3691,16 +3913,18 @@ const AuthoredWorld = struct {
     query: zrecast.NavMeshQuery,
 
     fn init(authoring: zrecast.AreaAuthoring) !AuthoredWorld {
+        var failure: zrecast.Failure = .{};
         const poly = try zrecast.PolyMesh.bake(
             zrecast.defaultConfig(),
             fixtureMesh(),
             authoring,
             null,
+            &failure,
         );
         errdefer poly.deinit();
-        const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+        const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
         errdefer mesh.deinit();
-        const query = try zrecast.NavMeshQuery.init(mesh, 2048);
+        const query = try zrecast.NavMeshQuery.init(mesh, 2048, &failure);
         return .{ .poly = poly, .mesh = mesh, .query = query };
     }
 
@@ -3721,9 +3945,10 @@ fn corridorAreaCount(
     corridor: []const zrecast.PolyRef,
     area: i32,
 ) !usize {
+    var failure: zrecast.Failure = .{};
     var found: usize = 0;
     for (corridor) |ref| {
-        if (try mesh.polyArea(ref) == area) found += 1;
+        if (try mesh.polyArea(ref, &failure) == area) found += 1;
     }
     return found;
 }
@@ -3737,8 +3962,9 @@ fn corridorBetween(
     to: [3]f32,
     out: []zrecast.PolyRef,
 ) !zrecast.PathResult {
-    const start = try world.query.findNearestPoly(from, search_extents, filter);
-    const end = try world.query.findNearestPoly(to, search_extents, filter);
+    var failure: zrecast.Failure = .{};
+    const start = try world.query.findNearestPoly(from, search_extents, filter, &failure);
+    const end = try world.query.findNearestPoly(to, search_extents, filter, &failure);
     try std.testing.expect(start.ref != null);
     try std.testing.expect(end.ref != null);
     return world.query.findPath(
@@ -3748,10 +3974,12 @@ fn corridorBetween(
         end.point,
         filter,
         out,
+        &failure,
     );
 }
 
 test "a costly area sends the path around it" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3764,7 +3992,7 @@ test "a costly area sends the path around it" {
 
     // Cheap: the corridor is free to cross the band, and the shortest route
     // does. Without this the expensive case below proves nothing.
-    const cheap = try zrecast.QueryFilter.initDefault();
+    const cheap = try zrecast.QueryFilter.initDefault(&failure);
     defer cheap.deinit();
     const through = try corridorBetween(world, cheap, south_west, south_east, &corridor);
     try std.testing.expect(!through.partial);
@@ -3775,7 +4003,7 @@ test "a costly area sends the path around it" {
     // for the band than the detour costs.
     var costly_desc = zrecast.defaultFilterDesc();
     costly_desc.area_cost[@intCast(marked_area)] = 50;
-    const costly = try zrecast.QueryFilter.init(costly_desc);
+    const costly = try zrecast.QueryFilter.init(costly_desc, &failure);
     defer costly.deinit();
     const around = try corridorBetween(world, costly, south_west, south_east, &corridor);
     try std.testing.expect(!around.partial);
@@ -3784,11 +4012,12 @@ test "a costly area sends the path around it" {
 }
 
 test "a volume marked unwalkable carves a hole a path cannot cross" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
     var corridor: [128]zrecast.PolyRef = undefined;
 
@@ -3811,6 +4040,7 @@ test "a volume marked unwalkable carves a hole a path cannot cross" {
 }
 
 test "the area-to-flag table decides which polygons a filter admits" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3830,27 +4060,28 @@ test "the area-to-flag table decides which polygons a filter admits" {
     const inside = [3]f32{ 0, 0, -8 };
     var admits_all_desc = zrecast.defaultFilterDesc();
     admits_all_desc.include_flags = zrecast.poly_flag_walkable | marked_flag;
-    const admits_all = try zrecast.QueryFilter.init(admits_all_desc);
+    const admits_all = try zrecast.QueryFilter.init(admits_all_desc, &failure);
     defer admits_all.deinit();
-    const found = try world.query.findNearestPoly(inside, search_extents, admits_all);
+    const found = try world.query.findNearestPoly(inside, search_extents, admits_all, &failure);
     try std.testing.expect(found.ref != null);
-    try std.testing.expectEqual(marked_area, try world.mesh.polyArea(found.ref.?));
-    try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(found.ref.?));
+    try std.testing.expectEqual(marked_area, try world.mesh.polyArea(found.ref.?, &failure));
+    try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(found.ref.?, &failure));
 
     // A filter that excludes that flag cannot see the polygon at all, which is
     // the difference between an area and a flag: one costs, the other refuses.
     var excludes_band_desc = zrecast.defaultFilterDesc();
     excludes_band_desc.include_flags = zrecast.poly_flag_walkable | marked_flag;
     excludes_band_desc.exclude_flags = marked_flag;
-    const excludes_band = try zrecast.QueryFilter.init(excludes_band_desc);
+    const excludes_band = try zrecast.QueryFilter.init(excludes_band_desc, &failure);
     defer excludes_band.deinit();
-    const hidden = try world.query.findNearestPoly(inside, search_extents, excludes_band);
+    const hidden = try world.query.findNearestPoly(inside, search_extents, excludes_band, &failure);
     if (hidden.ref) |ref| {
-        try std.testing.expect(try world.mesh.polyArea(ref) != marked_area);
+        try std.testing.expect(try world.mesh.polyArea(ref, &failure) != marked_area);
     }
 }
 
 test "a polygon's area and flags can be rewritten after the bake" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3858,26 +4089,27 @@ test "a polygon's area and flags can be rewritten after the bake" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(near.ref != null);
     const ref = near.ref.?;
 
     // What the bake decided.
-    try std.testing.expectEqual(@as(i32, zrecast.area_walkable), try world.mesh.polyArea(ref));
-    try std.testing.expectEqual(zrecast.poly_flag_walkable, try world.mesh.polyFlags(ref));
+    try std.testing.expectEqual(@as(i32, zrecast.area_walkable), try world.mesh.polyArea(ref, &failure));
+    try std.testing.expectEqual(zrecast.poly_flag_walkable, try world.mesh.polyFlags(ref, &failure));
 
-    try world.mesh.setPolyArea(ref, marked_area);
-    try std.testing.expectEqual(marked_area, try world.mesh.polyArea(ref));
+    try world.mesh.setPolyArea(ref, marked_area, &failure);
+    try std.testing.expectEqual(marked_area, try world.mesh.polyArea(ref, &failure));
 
     // Clearing the flags takes the polygon out of every query that filters on
     // them, which is what makes this a runtime mechanism rather than a label.
-    try world.mesh.setPolyFlags(ref, 0);
-    try std.testing.expectEqual(@as(u16, 0), try world.mesh.polyFlags(ref));
-    const after = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    try world.mesh.setPolyFlags(ref, 0, &failure);
+    try std.testing.expectEqual(@as(u16, 0), try world.mesh.polyFlags(ref, &failure));
+    const after = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     if (after.ref) |other| try std.testing.expect(other != ref);
 }
 
 test "the polygon accessors refuse a reference they cannot resolve" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3885,34 +4117,37 @@ test "the polygon accessors refuse a reference they cannot resolve" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(near.ref != null);
     const ref = near.ref.?;
 
     // Zero is "no polygon" everywhere else in the API, and is not a query that
     // failed.
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.polyArea(0));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.polyFlags(0));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.setPolyArea(0, 1));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.setPolyFlags(0, 1));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyArea(0, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyFlags(0, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.setPolyArea(0, 1, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.setPolyFlags(0, 1, &failure));
 
     // An area id Detour would silently truncate into its six-bit field.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.setPolyArea(ref, c.max_areas),
+        &failure,
+        world.mesh.setPolyArea(ref, c.max_areas, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.setPolyArea(ref, -1),
+        &failure,
+        world.mesh.setPolyArea(ref, -1, &failure),
     );
 
     // A plausible index carrying a salt that belongs to nothing.
     const bogus: zrecast.PolyRef = ref ^ 0x8000_0000;
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.polyArea(bogus));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.setPolyFlags(bogus, 1));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyArea(bogus, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.setPolyFlags(bogus, 1, &failure));
 }
 
 test "area authoring Recast could not read is refused before anything is baked" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -3921,7 +4156,7 @@ test "area authoring Recast could not read is refused before anything is baked" 
     const config = zrecast.defaultConfig();
 
     const square = [_]f32{ -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1 };
-    const good_convex = try zrecast.convexVolume(marked_area, -1, 2, &square);
+    const good_convex = try zrecast.convexVolume(marked_area, -1, 2, &square, &failure);
 
     // Each of these is a way for a volume to describe geometry Recast would
     // read past the end of, rasterise as a NaN comparison, or index an
@@ -3940,7 +4175,7 @@ test "area authoring Recast could not read is refused before anything is baked" 
     nan_extent.y_max = std.math.nan(f32);
 
     const nan_square = [_]f32{ -1, 0, -1, 1, 0, -1, 1, std.math.nan(f32), 1, -1, 0, 1 };
-    const nan_vertex = try zrecast.convexVolume(marked_area, -1, 2, &nan_square);
+    const nan_vertex = try zrecast.convexVolume(marked_area, -1, 2, &nan_square, &failure);
 
     var no_verts = good_convex;
     no_verts.verts = null;
@@ -3959,50 +4194,55 @@ test "area authoring Recast could not read is refused before anything is baked" 
     };
     for (bad) |volume| {
         const volumes = [_]zrecast.AreaVolume{volume};
-        try std.testing.expectError(
+        try expectRefusal(
             zrecast.Error.InvalidArgument,
-            zrecast.PolyMesh.bake(config, mesh, .{ .volumes = &volumes }, null),
+            &failure,
+            zrecast.PolyMesh.bake(config, mesh, .{ .volumes = &volumes }, null, &failure),
         );
     }
 
     // A flag on area_null admits a polygon nothing may stand on.
     var walkable_null = @as([c.max_areas]u16, @splat(0));
     walkable_null[zrecast.area_null] = zrecast.poly_flag_walkable;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.PolyMesh.bake(config, mesh, .{ .area_flags = &walkable_null }, null),
+        &failure,
+        zrecast.PolyMesh.bake(config, mesh, .{ .area_flags = &walkable_null }, null, &failure),
     );
 
     // A vertex array that is not whole vertices cannot become a footprint.
     const ragged = [_]f32{ 0, 0, 0, 1, 0 };
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.convexVolume(marked_area, -1, 2, &ragged),
+        &failure,
+        zrecast.convexVolume(marked_area, -1, 2, &ragged, &failure),
     );
     const two_verts = [_]f32{ 0, 0, 0, 1, 0, 1 };
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.convexVolume(marked_area, -1, 2, &two_verts),
+        &failure,
+        zrecast.convexVolume(marked_area, -1, 2, &two_verts, &failure),
     );
 
     // The positive control: the same volume, unbroken, bakes.
     const ok_volumes = [_]zrecast.AreaVolume{good_convex};
-    const baked = try zrecast.PolyMesh.bake(config, mesh, .{ .volumes = &ok_volumes }, null);
+    const baked = try zrecast.PolyMesh.bake(config, mesh, .{ .volumes = &ok_volumes }, null, &failure);
     baked.deinit();
 }
 
 test "a tile bake applies the same authoring the whole-world bake does" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const config = tiledConfig();
-    const grid = try zrecast.tileGrid(config, fixtureMesh());
+    const grid = try zrecast.tileGrid(config, fixtureMesh(), &failure);
 
     const volumes = [_]zrecast.AreaVolume{bandVolume(marked_area)};
     const authoring = zrecast.AreaAuthoring{ .volumes = &volumes };
 
-    const mesh = try zrecast.NavMesh.initTiled(grid, 64, 1 << 14);
+    const mesh = try zrecast.NavMesh.initTiled(grid, 64, 1 << 14, &failure);
     defer mesh.deinit();
 
     var z: i32 = 0;
@@ -4017,24 +4257,25 @@ test "a tile bake applies the same authoring the whole-world bake does" {
                 z,
                 authoring,
                 null,
+                &failure,
             ) orelse continue;
             defer tile.deinit();
 
-            const bytes = try zrecast.buildTileData(tile, x, z, 0, null);
+            const bytes = try zrecast.buildTileData(tile, x, z, 0, null, &failure);
             defer bytes.deinit();
-            _ = try mesh.addTile(.init(bytes.bytes));
+            _ = try mesh.addTile(.init(bytes.bytes), &failure);
         }
     }
 
     // The band lies inside the tiled world, so the polygon under a point in it
     // carries the authored area rather than the default one.
-    const query = try zrecast.NavMeshQuery.init(mesh, 2048);
+    const query = try zrecast.NavMeshQuery.init(mesh, 2048, &failure);
     defer query.deinit();
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
-    const found = try query.findNearestPoly(.{ 0, 0, -8 }, search_extents, filter);
+    const found = try query.findNearestPoly(.{ 0, 0, -8 }, search_extents, filter, &failure);
     try std.testing.expect(found.ref != null);
-    try std.testing.expectEqual(marked_area, try mesh.polyArea(found.ref.?));
+    try std.testing.expectEqual(marked_area, try mesh.polyArea(found.ref.?, &failure));
 }
 
 //=============================================================================
@@ -4066,13 +4307,14 @@ const LinkedWorld = struct {
     filter: zrecast.QueryFilter,
 
     fn init(authoring: ?zrecast.TileAuthoring) !LinkedWorld {
+        var failure: zrecast.Failure = .{};
         const poly = try bakeFixture(null);
         errdefer poly.deinit();
-        const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, authoring);
+        const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, authoring, &failure);
         errdefer mesh.deinit();
-        const query = try zrecast.NavMeshQuery.init(mesh, 2048);
+        const query = try zrecast.NavMeshQuery.init(mesh, 2048, &failure);
         errdefer query.deinit();
-        const filter = try zrecast.QueryFilter.initDefault();
+        const filter = try zrecast.QueryFilter.initDefault(&failure);
         return .{
             .poly = poly,
             .mesh = mesh,
@@ -4092,8 +4334,9 @@ const LinkedWorld = struct {
     /// connection, judged two ways at once: a corner the string-pull flags,
     /// and a polygon in the corridor whose type says so. Both have to agree.
     fn crossesLink(self: LinkedWorld, from: [3]f32, to: [3]f32) !bool {
-        const start = try self.query.findNearestPoly(from, search_extents, self.filter);
-        const end = try self.query.findNearestPoly(to, search_extents, self.filter);
+        var failure: zrecast.Failure = .{};
+        const start = try self.query.findNearestPoly(from, search_extents, self.filter, &failure);
+        const end = try self.query.findNearestPoly(to, search_extents, self.filter, &failure);
         try std.testing.expect(start.ref != null);
         try std.testing.expect(end.ref != null);
 
@@ -4105,12 +4348,13 @@ const LinkedWorld = struct {
             end.point,
             self.filter,
             &corridor,
+            &failure,
         );
         try std.testing.expect(!path.partial);
 
         var by_type = false;
         for (corridor[0..path.len]) |ref| {
-            if (try self.mesh.polyType(ref) == .offmesh_connection) by_type = true;
+            if (try self.mesh.polyType(ref, &failure) == .offmesh_connection) by_type = true;
         }
 
         var points: [32][3]f32 = undefined;
@@ -4123,6 +4367,7 @@ const LinkedWorld = struct {
             &points,
             &flags,
             null,
+            &failure,
         );
         var by_flag = false;
         for (flags[0..pulled.len]) |flag| {
@@ -4172,6 +4417,7 @@ test "a one-way connection cannot be discovered from the far end" {
 }
 
 test "a connection reads back as it was authored" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4183,8 +4429,8 @@ test "a connection reads back as it was authored" {
 
     // The connection owns the tile's last polygon, so walking a corridor that
     // uses it is how to find its reference without assuming an encoding.
-    const start = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
-    const end = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    const start = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
+    const end = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
     try std.testing.expect(start.ref != null and end.ref != null);
     var corridor: [128]zrecast.PolyRef = undefined;
     const path = try world.query.findPath(
@@ -4194,13 +4440,14 @@ test "a connection reads back as it was authored" {
         end.point,
         world.filter,
         &corridor,
+        &failure,
     );
     var link_ref: ?zrecast.PolyRef = null;
     var ground_ref: ?zrecast.PolyRef = null;
     var before_link: zrecast.PolyRef = 0;
     var previous: zrecast.PolyRef = 0;
     for (corridor[0..path.len]) |ref| {
-        switch (try world.mesh.polyType(ref)) {
+        switch (try world.mesh.polyType(ref, &failure)) {
             .offmesh_connection => {
                 link_ref = ref;
                 before_link = previous;
@@ -4216,16 +4463,16 @@ test "a connection reads back as it was authored" {
     // An off-mesh polygon is two vertices and no detail sub-mesh. The detail
     // array is sized for ground polygons only, so reading one for this polygon
     // would run past its end.
-    const link_poly = try world.mesh.polyInfo(link_ref.?);
+    const link_poly = try world.mesh.polyInfo(link_ref.?, &failure);
     try std.testing.expectEqual(@as(u8, 2), link_poly.vert_count);
     try std.testing.expectEqual(@as(u8, 0), link_poly.detail_tri_count);
     try std.testing.expectEqual(@as(u8, 0), link_poly.detail_vert_count);
     try std.testing.expectEqual(@as(u32, 0), link_poly.detail_tri_base);
     try std.testing.expectEqual(@as(u32, 0), link_poly.detail_vert_base);
-    const ground_poly = try world.mesh.polyInfo(ground_ref.?);
+    const ground_poly = try world.mesh.polyInfo(ground_ref.?, &failure);
     try std.testing.expect(ground_poly.detail_tri_count > 0);
 
-    const read = try world.mesh.offMeshConnection(link_ref.?);
+    const read = try world.mesh.offMeshConnection(link_ref.?, &failure);
     try std.testing.expectEqual(authored.start, read.start);
     try std.testing.expectEqual(authored.end, read.end);
     try std.testing.expectEqual(authored.radius, read.radius);
@@ -4241,7 +4488,7 @@ test "a connection reads back as it was authored" {
     // onto polygons, so they agree in xz to well inside the search radius.
     // `prev_ref` is the corridor's polygon before the link, which is what makes
     // the pair come back the way round it was authored.
-    const ends = try world.mesh.offMeshConnectionEndPoints(before_link, link_ref.?);
+    const ends = try world.mesh.offMeshConnectionEndPoints(before_link, link_ref.?, &failure);
     for ([_]usize{ 0, 2 }) |axis| {
         try std.testing.expect(@abs(ends[0][axis] - authored.start[axis]) < authored.radius);
         try std.testing.expect(@abs(ends[1][axis] - authored.end[axis]) < authored.radius);
@@ -4250,36 +4497,41 @@ test "a connection reads back as it was authored" {
     // Zero is not a neutral previous polygon: it is "arrived from somewhere
     // that is not endpoint A", so the pair comes back reversed. Asserting that
     // is what keeps the header's rule from being a sentence nothing checks.
-    const reversed = try world.mesh.offMeshConnectionEndPoints(0, link_ref.?);
+    const reversed = try world.mesh.offMeshConnectionEndPoints(0, link_ref.?, &failure);
     try std.testing.expectEqual(ends[0], reversed[1]);
     try std.testing.expectEqual(ends[1], reversed[0]);
 
     // The tile carries the opaque id it was built with.
-    const tile = try world.mesh.tileRefAtIndex(0);
-    try std.testing.expectEqual(@as(u32, 0xC0FFEE), try world.mesh.tileUserId(tile));
+    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    try std.testing.expectEqual(@as(u32, 0xC0FFEE), try world.mesh.tileUserId(tile, &failure));
 
     // Refusals. A ground polygon is not a connection, and zero is not a
     // polygon at all.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.QueryFailed,
-        world.mesh.offMeshConnection(ground_ref.?),
+        &failure,
+        world.mesh.offMeshConnection(ground_ref.?, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.offMeshConnection(0),
+        &failure,
+        world.mesh.offMeshConnection(0, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.offMeshConnectionEndPoints(0, 0),
+        &failure,
+        world.mesh.offMeshConnectionEndPoints(0, 0, &failure),
     );
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.polyType(0));
-    try std.testing.expectError(
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyType(0, &failure));
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tileUserId(0),
+        &failure,
+        world.mesh.tileUserId(0, &failure),
     );
 }
 
 test "a connection Detour could not wire is refused before anything is built" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4316,23 +4568,26 @@ test "a connection Detour could not wire is refused before anything is built" {
     };
     for (bad) |connection| {
         const links = [_]zrecast.OffMeshConnection{connection};
-        try std.testing.expectError(
+        try expectRefusal(
             zrecast.Error.InvalidArgument,
-            zrecast.NavMesh.initFromPolyMesh(poly, .{ .connections = &links }),
+            &failure,
+            zrecast.NavMesh.initFromPolyMesh(poly, .{ .connections = &links }, &failure),
         );
-        try std.testing.expectError(
+        try expectRefusal(
             zrecast.Error.InvalidArgument,
-            zrecast.buildTileData(poly, 0, 0, 0, .{ .connections = &links }),
+            &failure,
+            zrecast.buildTileData(poly, 0, 0, 0, .{ .connections = &links }, &failure),
         );
     }
 
     // The positive control: the same connection, unbroken, builds.
     const ok = [_]zrecast.OffMeshConnection{good};
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, .{ .connections = &ok });
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, .{ .connections = &ok }, &failure);
     mesh.deinit();
 }
 
 test "an image whose off-mesh header fields disagree is rejected" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4340,9 +4595,9 @@ test "an image whose off-mesh header fields disagree is rejected" {
     const poly = try bakeFixture(null);
     defer poly.deinit();
     const links = [_]zrecast.OffMeshConnection{wallJump(true)};
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, .{ .connections = &links });
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, .{ .connections = &links }, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
     const original = image.bytes;
 
@@ -4395,7 +4650,7 @@ test "an image whose off-mesh header fields disagree is rejected" {
     for (cases) |case| {
         @memcpy(copy, original);
         std.mem.writeInt(i32, copy[case.offset..][0..4], case.value, .little);
-        std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy))) catch |e| {
+        expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure)) catch |e| {
             std.debug.print("accepted: {s}\n", .{case.name});
             return e;
         };
@@ -4440,17 +4695,18 @@ test "an image whose off-mesh header fields disagree is rejected" {
         // incidental, and ci/probes carries nothing claiming otherwise.
         @memset(short[cut..][0..12], 0);
         short[cut + 9] = 1;
-        try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(short)));
+        try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(short), &failure));
     }
 
     // The untouched image must still load, or every rejection above proves
     // nothing.
     @memcpy(copy, original);
-    const reloaded = try zrecast.NavMesh.initFromBytes(.init(copy));
+    const reloaded = try zrecast.NavMesh.initFromBytes(.init(copy), &failure);
     reloaded.deinit();
 }
 
 test "an image whose off-mesh connection lies about itself is rejected" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4458,9 +4714,9 @@ test "an image whose off-mesh connection lies about itself is rejected" {
     const poly = try bakeFixture(null);
     defer poly.deinit();
     const links = [_]zrecast.OffMeshConnection{wallJump(true)};
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, .{ .connections = &links });
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, .{ .connections = &links }, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
     const original = image.bytes;
 
@@ -4513,7 +4769,7 @@ test "an image whose off-mesh connection lies about itself is rejected" {
     for (patches) |patch| {
         @memcpy(copy, original);
         @memcpy(copy[patch.offset..][0..patch.bytes.len], patch.bytes);
-        std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy))) catch |e| {
+        expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure)) catch |e| {
             std.debug.print("accepted: {s}\n", .{patch.name});
             return e;
         };
@@ -4541,11 +4797,11 @@ test "an image whose off-mesh connection lies about itself is rejected" {
     try std.testing.expect(leaf != null);
     @memcpy(copy, original);
     std.mem.writeInt(i32, copy[leaf.?..][0..4], off_mesh_base, .little);
-    try std.testing.expectError(zrecast.Error.BadFormat, zrecast.validate(.init(copy)));
+    try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(copy), &failure));
 
     // The untouched image must still load.
     @memcpy(copy, original);
-    const reloaded = try zrecast.NavMesh.initFromBytes(.init(copy));
+    const reloaded = try zrecast.NavMesh.initFromBytes(.init(copy), &failure);
     reloaded.deinit();
 }
 
@@ -4554,6 +4810,7 @@ test "an image whose off-mesh connection lies about itself is rejected" {
 //=============================================================================
 
 test "a tile's state saves and restores the flags a query can see" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4561,59 +4818,64 @@ test "a tile's state saves and restores the flags a query can see" {
     const world = try World.init();
     defer world.deinit();
 
-    const tile = try world.mesh.tileRefAtIndex(0);
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(near.ref != null);
     const ref = near.ref.?;
 
-    try world.mesh.setPolyFlags(ref, marked_flag);
-    try world.mesh.setPolyArea(ref, marked_area);
+    try world.mesh.setPolyFlags(ref, marked_flag, &failure);
+    try world.mesh.setPolyArea(ref, marked_area, &failure);
 
-    const size = try world.mesh.tileStateSize(tile);
+    const size = try world.mesh.tileStateSize(tile, &failure);
     try std.testing.expect(size > 0);
     const saved = try gpa.alloc(u8, size);
     defer gpa.free(saved);
-    try world.mesh.storeTileState(tile, saved);
+    try world.mesh.storeTileState(tile, saved, &failure);
 
     // Change both, and observe the change through a query rather than through
     // the accessor that wrote it.
-    try world.mesh.setPolyFlags(ref, 0);
-    try world.mesh.setPolyArea(ref, zrecast.area_walkable);
-    const gone = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    try world.mesh.setPolyFlags(ref, 0, &failure);
+    try world.mesh.setPolyArea(ref, zrecast.area_walkable, &failure);
+    const gone = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     if (gone.ref) |other| try std.testing.expect(other != ref);
 
-    try world.mesh.restoreTileState(tile, .init(saved));
-    try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref));
-    try std.testing.expectEqual(marked_area, try world.mesh.polyArea(ref));
+    try world.mesh.restoreTileState(tile, .init(saved), &failure);
+    try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref, &failure));
+    try std.testing.expectEqual(marked_area, try world.mesh.polyArea(ref, &failure));
 
     // The length has to be exact, because nothing else would catch a blob and
     // a tile that have since disagreed: upstream sizes the polygon array it
     // reads back from the live tile, not from the blob.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.BufferTooSmall,
-        world.mesh.storeTileState(tile, saved[0 .. size - 1]),
+        &failure,
+        world.mesh.storeTileState(tile, saved[0 .. size - 1], &failure),
     );
     const oversized = try gpa.alloc(u8, size + 1);
     defer gpa.free(oversized);
     @memcpy(oversized[0..size], saved);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.storeTileState(tile, oversized),
+        &failure,
+        world.mesh.storeTileState(tile, oversized, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.BufferTooSmall,
-        world.mesh.restoreTileState(tile, .init(saved[0 .. size - 1])),
+        &failure,
+        world.mesh.restoreTileState(tile, .init(saved[0 .. size - 1]), &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.restoreTileState(tile, .init(oversized)),
+        &failure,
+        world.mesh.restoreTileState(tile, .init(oversized), &failure),
     );
 
     // A reference to no tile at all.
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.tileStateSize(0));
-    try std.testing.expectError(
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.tileStateSize(0, &failure));
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.storeTileState(0, saved),
+        &failure,
+        world.mesh.storeTileState(0, saved, &failure),
     );
 
     // The blob carries a magic and a version of its own, distinct from the
@@ -4624,34 +4886,37 @@ test "a tile's state saves and restores the flags a query can see" {
 
     @memcpy(doctored, saved);
     std.mem.writeInt(i32, doctored[0..4], 0, .little);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.BadFormat,
-        world.mesh.restoreTileState(tile, .init(doctored)),
+        &failure,
+        world.mesh.restoreTileState(tile, .init(doctored), &failure),
     );
 
     @memcpy(doctored, saved);
     std.mem.writeInt(i32, doctored[4..8], 99, .little);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.UnsupportedVersion,
-        world.mesh.restoreTileState(tile, .init(doctored)),
+        &failure,
+        world.mesh.restoreTileState(tile, .init(doctored), &failure),
     );
 
     // And the untouched blob still restores, so the two rejections above are
     // about what was changed rather than about the blob at large.
-    try world.mesh.restoreTileState(tile, .init(saved));
-    try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref));
+    try world.mesh.restoreTileState(tile, .init(saved), &failure);
+    try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref, &failure));
 
     // At any alignment: upstream writes and reads the blob as structs, and a
     // caller's bytes may sit at an odd address.
     const odd = try gpa.alignedAlloc(u8, .@"2", size + 1);
     defer gpa.free(odd);
-    try world.mesh.storeTileState(tile, odd[1..]);
+    try world.mesh.storeTileState(tile, odd[1..], &failure);
     try std.testing.expectEqualSlices(u8, saved, odd[1..]);
-    try world.mesh.restoreTileState(tile, .init(odd[1..]));
-    try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref));
+    try world.mesh.restoreTileState(tile, .init(odd[1..]), &failure);
+    try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref, &failure));
 }
 
 test "state from one tile does not restore onto another" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4660,26 +4925,27 @@ test "state from one tile does not restore onto another" {
     defer world.deinit();
     try std.testing.expect(world.mesh.tileCount() >= 2);
 
-    const first = try world.mesh.tileRefAtIndex(0);
-    const second = try world.mesh.tileRefAtIndex(1);
+    const first = try world.mesh.tileRefAtIndex(0, &failure);
+    const second = try world.mesh.tileRefAtIndex(1, &failure);
 
-    const size = try world.mesh.tileStateSize(first);
+    const size = try world.mesh.tileStateSize(first, &failure);
     const saved = try gpa.alloc(u8, size);
     defer gpa.free(saved);
-    try world.mesh.storeTileState(first, saved);
+    try world.mesh.storeTileState(first, saved, &failure);
 
     // The blob carries the reference it came from. Restoring it onto a
     // different tile is refused even when the two happen to be the same size,
     // which is the only thing standing between a save file and a tile it does
     // not describe.
-    const second_size = try world.mesh.tileStateSize(second);
+    const second_size = try world.mesh.tileStateSize(second, &failure);
     if (second_size == size) {
-        try std.testing.expectError(
+        try expectRefusal(
             zrecast.Error.InvalidArgument,
-            world.mesh.restoreTileState(second, .init(saved)),
+            &failure,
+            world.mesh.restoreTileState(second, .init(saved), &failure),
         );
     }
-    try world.mesh.restoreTileState(first, .init(saved));
+    try world.mesh.restoreTileState(first, .init(saved), &failure);
 }
 
 /// The fixture's image and the state its one tile stores, for the
@@ -4689,15 +4955,16 @@ const StateSeed = struct {
     state: []const u8,
 
     fn init() !StateSeed {
+        var failure: zrecast.Failure = .{};
         zrecast.setAllocator(std.testing.allocator);
         defer zrecast.resetAllocator();
         const world = try World.init();
         defer world.deinit();
-        const tile = try world.mesh.tileRefAtIndex(0);
-        const state = try std.testing.allocator.alloc(u8, try world.mesh.tileStateSize(tile));
+        const tile = try world.mesh.tileRefAtIndex(0, &failure);
+        const state = try std.testing.allocator.alloc(u8, try world.mesh.tileStateSize(tile, &failure));
         defer std.testing.allocator.free(state);
-        try world.mesh.storeTileState(tile, state);
-        const image = try world.mesh.serialize();
+        try world.mesh.storeTileState(tile, state, &failure);
+        const image = try world.mesh.serialize(&failure);
         defer image.deinit();
         const image_copy = try keep(image.bytes);
         errdefer release(image_copy);
@@ -4713,21 +4980,22 @@ const StateSeed = struct {
 /// Any bytes restored as a tile's state: refused, or exactly the tile's
 /// size and onto a navmesh that still answers.
 fn anyState(seed: *const StateSeed, case: *shakedown.Case) !void {
+    var failure: zrecast.Failure = .{};
     zrecast.setAllocator(std.testing.allocator);
     defer zrecast.resetAllocator();
     const bytes = try caseBytes(case, &.{seed.state});
-    const mesh = try zrecast.NavMesh.initFromBytes(.init(seed.image));
+    const mesh = try zrecast.NavMesh.initFromBytes(.init(seed.image), &failure);
     defer mesh.deinit();
-    const tile = try mesh.tileRefAtIndex(0);
+    const tile = try mesh.tileRefAtIndex(0, &failure);
 
-    mesh.restoreTileState(tile, .init(bytes)) catch return;
-    try std.testing.expectEqual(try mesh.tileStateSize(tile), bytes.len);
-    const query = try zrecast.NavMeshQuery.init(mesh, 256);
+    mesh.restoreTileState(tile, .init(bytes), &failure) catch return;
+    try std.testing.expectEqual(try mesh.tileStateSize(tile, &failure), bytes.len);
+    const query = try zrecast.NavMeshQuery.init(mesh, 256, &failure);
     defer query.deinit();
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
     // glint-ignore: Z026 -- the property is that restored state never crashes a query; a refusal is an accepted outcome
-    _ = query.findNearestPoly(fixture.start, search_extents, filter) catch {};
+    _ = query.findNearestPoly(fixture.start, search_extents, filter, &failure) catch {};
 }
 
 test "any bytes restored as a tile's state are refused, or fit the tile exactly" {
@@ -4746,6 +5014,7 @@ test "any bytes restored as a tile's state are refused, or fit the tile exactly"
 // reporting the wrong array.
 
 test "a polygon read back is the polygon a query found" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4753,28 +5022,28 @@ test "a polygon read back is the polygon a query found" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(near.ref != null);
     const ref = near.ref.?;
 
-    const info = try world.mesh.polyInfo(ref);
+    const info = try world.mesh.polyInfo(ref, &failure);
     try std.testing.expect(info.vert_count >= 3);
     try std.testing.expect(info.vert_count <= c.verts_per_polygon);
     try std.testing.expectEqual(zrecast.PolyType.ground, @as(zrecast.PolyType, @fromBackingInt(@intCast(info.type))));
 
     // The area and flags reached two ways: through the accessor this tranche
     // adds, and through the one tranche 3a added.
-    try std.testing.expectEqual(try world.mesh.polyArea(ref), @as(i32, info.area));
-    try std.testing.expectEqual(try world.mesh.polyFlags(ref), info.flags);
+    try std.testing.expectEqual(try world.mesh.polyArea(ref, &failure), @as(i32, info.area));
+    try std.testing.expectEqual(try world.mesh.polyFlags(ref, &failure), info.flags);
 
     // The point the query snapped to has to lie inside the corners the
     // accessor reports, or the vertex indices name the wrong polygon.
-    const tile = try world.mesh.tileRefAtIndex(0);
+    const tile = try world.mesh.tileRefAtIndex(0, &failure);
     var corners: [c.verts_per_polygon][3]f32 = undefined;
     var lo = [2]f32{ std.math.floatMax(f32), std.math.floatMax(f32) };
     var hi = [2]f32{ -std.math.floatMax(f32), -std.math.floatMax(f32) };
     for (0..info.vert_count) |k| {
-        try world.mesh.tileVerts(tile, info.verts[k], corners[k .. k + 1]);
+        try world.mesh.tileVerts(tile, info.verts[k], corners[k .. k + 1], &failure);
         for ([_]usize{ 0, 2 }, 0..) |axis, a| {
             lo[a] = @min(lo[a], corners[k][axis]);
             hi[a] = @max(hi[a], corners[k][axis]);
@@ -4786,7 +5055,7 @@ test "a polygon read back is the polygon a query found" {
 
     // Every corner index is inside the tile's vertex array, and every internal
     // neighbour inside its polygon array.
-    const tile_info = try world.mesh.tileInfo(tile);
+    const tile_info = try world.mesh.tileInfo(tile, &failure);
     for (0..info.vert_count) |k| {
         try std.testing.expect(info.verts[k] < tile_info.vert_count);
         const nei = info.neis[k];
@@ -4797,6 +5066,7 @@ test "a polygon read back is the polygon a query found" {
 }
 
 test "the links read back are the links a path walked" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4804,8 +5074,8 @@ test "the links read back are the links a path walked" {
     const world = try World.init();
     defer world.deinit();
 
-    const start = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
-    const end = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    const start = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
+    const end = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
     try std.testing.expect(start.ref != null and end.ref != null);
 
     var corridor: [128]zrecast.PolyRef = undefined;
@@ -4816,6 +5086,7 @@ test "the links read back are the links a path walked" {
         end.point,
         world.filter,
         &corridor,
+        &failure,
     );
     try std.testing.expect(!path.partial);
     try std.testing.expect(path.len >= 2);
@@ -4823,17 +5094,17 @@ test "the links read back are the links a path walked" {
     // Consecutive polygons of a corridor are, by construction, linked. Walking
     // the chain the accessors report has to find each step, or the link array
     // being read is not the one the pathfinder used.
-    const tile = try world.mesh.tileRefAtIndex(0);
-    const link_capacity: u32 = @intCast((try world.mesh.tileInfo(tile)).max_link_count);
+    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const link_capacity: u32 = @intCast((try world.mesh.tileInfo(tile, &failure)).max_link_count);
     for (corridor[0 .. path.len - 1], corridor[1..path.len]) |from, to| {
-        const info = try world.mesh.polyInfo(from);
+        const info = try world.mesh.polyInfo(from, &failure);
         var at = info.first_link;
         var found = false;
         var steps: u32 = 0;
         while (at != zrecast.null_link) : (steps += 1) {
             // A chain longer than the tile's whole link array is a cycle.
             try std.testing.expect(steps <= link_capacity);
-            const link = try world.mesh.tileLink(tile, at);
+            const link = try world.mesh.tileLink(tile, at, &failure);
             if (link.ref == to) found = true;
             at = link.next;
         }
@@ -4842,6 +5113,7 @@ test "the links read back are the links a path walked" {
 }
 
 test "a tile read back is the tile the bake placed" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4852,11 +5124,11 @@ test "a tile read back is the tile the bake placed" {
     var total_polys: i32 = 0;
     var index: u32 = 0;
     while (index < world.mesh.tileCount()) : (index += 1) {
-        const ref = try world.mesh.tileRefAtIndex(index);
-        const info = try world.mesh.tileInfo(ref);
+        const ref = try world.mesh.tileRefAtIndex(index, &failure);
+        const info = try world.mesh.tileInfo(ref, &failure);
 
         // The bounds two ways.
-        const bounds = try world.mesh.tileBounds(ref);
+        const bounds = try world.mesh.tileBounds(ref, &failure);
         try std.testing.expectEqual(bounds[0], info.bmin);
         try std.testing.expectEqual(bounds[1], info.bmax);
 
@@ -4867,7 +5139,7 @@ test "a tile read back is the tile the bake placed" {
             0,
             (info.bmin[2] + info.bmax[2]) * 0.5,
         };
-        const at = try world.mesh.calcTileLoc(centre);
+        const at = try world.mesh.calcTileLoc(centre, &failure);
         try std.testing.expectEqual(info.tile_x, at.x);
         try std.testing.expectEqual(info.tile_z, at.z);
 
@@ -4886,7 +5158,7 @@ test "a tile read back is the tile the bake placed" {
     try std.testing.expectEqual(world.mesh.polyCount(), @as(u32, @intCast(total_polys)));
 
     // Grid parameters, against the grid the tiles were baked from.
-    const params = try world.mesh.params();
+    const params = try world.mesh.params(&failure);
     try std.testing.expectEqual(world.grid.origin[0], params.origin[0]);
     try std.testing.expectEqual(world.grid.origin[2], params.origin[2]);
     try std.testing.expectEqual(world.grid.tile_world_size, params.tile_width);
@@ -4894,17 +5166,18 @@ test "a tile read back is the tile the bake placed" {
 }
 
 test "the detail mesh read back covers every polygon exactly once" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
 
-    const tile = try mesh.tileRefAtIndex(0);
-    const info = try mesh.tileInfo(tile);
+    const tile = try mesh.tileRefAtIndex(0, &failure);
+    const info = try mesh.tileInfo(tile, &failure);
 
     // The sub-meshes tile against the detail triangle array with no gaps and no
     // overlaps, which is what makes a height query well defined. Checked
@@ -4913,92 +5186,102 @@ test "the detail mesh read back covers every polygon exactly once" {
     var covered: u32 = 0;
     var index: i32 = 0;
     while (index < info.ground_poly_count) : (index += 1) {
-        const p = try mesh.polyInfo(try mesh.tilePolyRef(tile, @intCast(index)));
+        const p = try mesh.polyInfo(try mesh.tilePolyRef(tile, @intCast(index), &failure), &failure);
         try std.testing.expect(p.detail_tri_count >= 1);
         try std.testing.expectEqual(covered, p.detail_tri_base);
         covered += p.detail_tri_count;
     }
     try std.testing.expectEqual(@as(u32, @intCast(info.detail_tri_count)), covered);
     try std.testing.expectEqual(
-        @as(u32, @intCast((try poly.info()).detail_tri_count)),
+        @as(u32, @intCast((try poly.info(&failure)).detail_tri_count)),
         covered,
     );
 }
 
 test "a range outside an array is an error rather than a short read" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const world = try World.init();
     defer world.deinit();
-    const tile = try world.mesh.tileRefAtIndex(0);
-    const info = try world.mesh.tileInfo(tile);
+    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const info = try world.mesh.tileInfo(tile, &failure);
 
     var one: [1][3]f32 = undefined;
     // The last entry is readable; one past it is not.
-    try world.mesh.tileVerts(tile, @intCast(info.vert_count - 1), &one);
-    try std.testing.expectError(
+    try world.mesh.tileVerts(tile, @intCast(info.vert_count - 1), &one, &failure);
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tileVerts(tile, @intCast(info.vert_count), &one),
+        &failure,
+        world.mesh.tileVerts(tile, @intCast(info.vert_count), &one, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tileVerts(tile, std.math.maxInt(u32), &one),
+        &failure,
+        world.mesh.tileVerts(tile, std.math.maxInt(u32), &one, &failure),
     );
 
     var many: [4][3]f32 = undefined;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tileVerts(tile, @intCast(info.vert_count - 2), &many),
+        &failure,
+        world.mesh.tileVerts(tile, @intCast(info.vert_count - 2), &many, &failure),
     );
 
     // An empty range is a success that reads nothing.
     var none: [0][3]f32 = undefined;
-    try world.mesh.tileVerts(tile, @intCast(info.vert_count), &none);
+    try world.mesh.tileVerts(tile, @intCast(info.vert_count), &none, &failure);
 
     var tri: [1][4]u8 = undefined;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tileDetailTris(tile, @intCast(info.detail_tri_count), &tri),
+        &failure,
+        world.mesh.tileDetailTris(tile, @intCast(info.detail_tri_count), &tri, &failure),
     );
 
     // Indices into the link and BV arrays are bounded the same way.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tileLink(tile, @intCast(info.max_link_count)),
+        &failure,
+        world.mesh.tileLink(tile, @intCast(info.max_link_count), &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tileBvNode(tile, @intCast(info.bv_node_count)),
+        &failure,
+        world.mesh.tileBvNode(tile, @intCast(info.bv_node_count), &failure),
     );
     // A range whose end does not fit in the int the C side counts with. Added
     // to the count as an int this wraps negative and passes a bound it should
     // fail, so the arithmetic has to be done wider than the fields.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tileVerts(tile, std.math.maxInt(i32), &one),
+        &failure,
+        world.mesh.tileVerts(tile, std.math.maxInt(i32), &one, &failure),
     );
 
     // Every polygon of the tile is nameable, and one past the last is not.
     var index: u32 = 0;
     while (index < @as(u32, @intCast(info.poly_count))) : (index += 1) {
-        const ref = try world.mesh.tilePolyRef(tile, index);
+        const ref = try world.mesh.tilePolyRef(tile, index, &failure);
         try std.testing.expect(ref != 0);
         // The reference really names that polygon, and not merely some
         // polygon: its area is what the accessor keyed by the same index says.
-        _ = try world.mesh.polyInfo(ref);
+        _ = try world.mesh.polyInfo(ref, &failure);
     }
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.tilePolyRef(tile, @intCast(info.poly_count)),
+        &failure,
+        world.mesh.tilePolyRef(tile, @intCast(info.poly_count), &failure),
     );
 
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.tileInfo(0));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, world.mesh.polyInfo(0));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.tileInfo(0, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyInfo(0, &failure));
 }
 
 test "a tile built without a bounding-volume tree answers the same questions" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -5006,40 +5289,41 @@ test "a tile built without a bounding-volume tree answers the same questions" {
     const poly = try bakeFixture(null);
     defer poly.deinit();
 
-    const with = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const with = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer with.deinit();
-    const without = try zrecast.NavMesh.initFromPolyMesh(poly, .{ .skip_bv_tree = true });
+    const without = try zrecast.NavMesh.initFromPolyMesh(poly, .{ .skip_bv_tree = true }, &failure);
     defer without.deinit();
 
-    const with_info = try with.tileInfo(try with.tileRefAtIndex(0));
-    const without_info = try without.tileInfo(try without.tileRefAtIndex(0));
+    const with_info = try with.tileInfo(try with.tileRefAtIndex(0, &failure), &failure);
+    const without_info = try without.tileInfo(try without.tileRefAtIndex(0, &failure), &failure);
     try std.testing.expect(with_info.bv_node_count > 0);
     try std.testing.expectEqual(@as(i32, 0), without_info.bv_node_count);
 
     // Smaller on disk, because the tree is the only thing that changed.
-    const with_bytes = try with.serialize();
+    const with_bytes = try with.serialize(&failure);
     defer with_bytes.deinit();
-    const without_bytes = try without.serialize();
+    const without_bytes = try without.serialize(&failure);
     defer without_bytes.deinit();
     try std.testing.expect(without_bytes.bytes.len < with_bytes.bytes.len);
 
     // And the same answers: without the tree Detour scans every polygon
     // instead, which is slower and not different.
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
-    const a = try zrecast.NavMeshQuery.init(with, 2048);
+    const a = try zrecast.NavMeshQuery.init(with, 2048, &failure);
     defer a.deinit();
-    const b = try zrecast.NavMeshQuery.init(without, 2048);
+    const b = try zrecast.NavMeshQuery.init(without, 2048, &failure);
     defer b.deinit();
     for ([_][3]f32{ fixture.start, fixture.goal, .{ 0, 0, -8 } }) |at| {
-        const found_a = try a.findNearestPoly(at, search_extents, filter);
-        const found_b = try b.findNearestPoly(at, search_extents, filter);
+        const found_a = try a.findNearestPoly(at, search_extents, filter, &failure);
+        const found_b = try b.findNearestPoly(at, search_extents, filter, &failure);
         try std.testing.expect(found_a.ref != null and found_b.ref != null);
         try std.testing.expectEqual(found_a.point, found_b.point);
     }
 }
 
 test "a position no tile coordinate could name is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -5049,41 +5333,46 @@ test "a position no tile coordinate could name is refused" {
 
     // Inside the grid, and outside it, are both answers rather than errors:
     // the coordinate a position would have is well defined either way.
-    _ = try world.mesh.calcTileLoc(fixture.start);
-    _ = try world.mesh.calcTileLoc(.{ 1000, 0, 1000 });
+    _ = try world.mesh.calcTileLoc(fixture.start, &failure);
+    _ = try world.mesh.calcTileLoc(.{ 1000, 0, 1000 }, &failure);
 
     // A position far enough out that the tile index does not fit in an int.
     // Upstream divides and casts without checking, and a float-to-int
     // conversion whose value does not fit is undefined behaviour, so this has
     // to be refused before Detour sees it rather than after.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.calcTileLoc(.{ 1e30, 0, 0 }),
+        &failure,
+        world.mesh.calcTileLoc(.{ 1e30, 0, 0 }, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.calcTileLoc(.{ 0, 0, -1e30 }),
+        &failure,
+        world.mesh.calcTileLoc(.{ 0, 0, -1e30 }, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.calcTileLoc(.{ std.math.nan(f32), 0, 0 }),
+        &failure,
+        world.mesh.calcTileLoc(.{ std.math.nan(f32), 0, 0 }, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        world.mesh.calcTileLoc(.{ std.math.inf(f32), 0, 0 }),
+        &failure,
+        world.mesh.calcTileLoc(.{ std.math.inf(f32), 0, 0 }, &failure),
     );
 }
 
 test "a tile side has an opposite, and it is an involution" {
+    var failure: zrecast.Failure = .{};
     var side: i32 = 0;
     while (side < 8) : (side += 1) {
-        const opposite = try zrecast.oppositeTileSide(side);
+        const opposite = try zrecast.oppositeTileSide(side, &failure);
         try std.testing.expect(opposite >= 0 and opposite < 8);
         try std.testing.expect(opposite != side);
-        try std.testing.expectEqual(side, try zrecast.oppositeTileSide(opposite));
+        try std.testing.expectEqual(side, try zrecast.oppositeTileSide(opposite, &failure));
     }
-    try std.testing.expectError(zrecast.Error.InvalidArgument, zrecast.oppositeTileSide(-1));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, zrecast.oppositeTileSide(8));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, zrecast.oppositeTileSide(-1, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, zrecast.oppositeTileSide(8, &failure));
 }
 
 //=============================================================================
@@ -5463,15 +5752,17 @@ fn polygonCorners(
     ref: zrecast.PolyRef,
     out: *[c.verts_per_polygon][3]f32,
 ) ![]const [3]f32 {
-    const info = try mesh.polyInfo(ref);
-    const tile = try mesh.tileRefAtIndex(0);
+    var failure: zrecast.Failure = .{};
+    const info = try mesh.polyInfo(ref, &failure);
+    const tile = try mesh.tileRefAtIndex(0, &failure);
     for (0..info.vert_count) |k| {
-        try mesh.tileVerts(tile, info.verts[k], out[k .. k + 1]);
+        try mesh.tileVerts(tile, info.verts[k], out[k .. k + 1], &failure);
     }
     return out[0..info.vert_count];
 }
 
 test "the point a query snapped to is inside the polygon it snapped to" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -5479,7 +5770,7 @@ test "the point a query snapped to is inside the polygon it snapped to" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(near.ref != null);
 
     var storage: [c.verts_per_polygon][3]f32 = undefined;
@@ -5489,20 +5780,21 @@ test "the point a query snapped to is inside the polygon it snapped to" {
     // Detour placed the point on this polygon. If dtPointInPolygon disagrees,
     // either the vertex indices name a different polygon or the test is
     // reading the wrong array.
-    try std.testing.expect(try geom.pointInPolygon(near.point, corners));
+    try std.testing.expect(try geom.pointInPolygon(near.point, corners, &failure));
 
     // The centroid of the same corners has to be inside it too, which ties
     // dtCalcPolyCenter to the same polygon.
     var indices: [c.verts_per_polygon]u16 = undefined;
     for (0..corners.len) |k| indices[k] = @intCast(k);
-    const full_centre = try geom.polyCenter(corners, indices[0..corners.len]);
-    try std.testing.expect(try geom.pointInPolygon(full_centre, corners));
+    const full_centre = try geom.polyCenter(corners, indices[0..corners.len], &failure);
+    try std.testing.expect(try geom.pointInPolygon(full_centre, corners, &failure));
 
     // A point far outside is outside.
-    try std.testing.expect(!try geom.pointInPolygon(fixture.island, corners));
+    try std.testing.expect(!try geom.pointInPolygon(fixture.island, corners, &failure));
 }
 
 test "a polygon read back has the winding Detour wraps in" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -5510,7 +5802,7 @@ test "a polygon read back has the winding Detour wraps in" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     var storage: [c.verts_per_polygon][3]f32 = undefined;
     const corners = try polygonCorners(world.mesh, near.ref.?, &storage);
 
@@ -5518,7 +5810,7 @@ test "a polygon read back has the winding Detour wraps in" {
     // Detour's way has positive signed area, and the total is the polygon's.
     var total: f32 = 0;
     for (1..corners.len - 1) |k| {
-        const area = try geom.triArea2D(corners[0], corners[k], corners[k + 1]);
+        const area = try geom.triArea2D(corners[0], corners[k], corners[k + 1], &failure);
         try std.testing.expect(area >= 0);
         total += area;
     }
@@ -5526,12 +5818,13 @@ test "a polygon read back has the winding Detour wraps in" {
 
     // Reversing two corners negates the sign, exactly. That property is what
     // makes the function usable as a left-of-line test.
-    const forward = try geom.triArea2D(corners[0], corners[1], corners[2]);
-    const reversed = try geom.triArea2D(corners[0], corners[2], corners[1]);
+    const forward = try geom.triArea2D(corners[0], corners[1], corners[2], &failure);
+    const reversed = try geom.triArea2D(corners[0], corners[2], corners[1], &failure);
     try std.testing.expectEqual(forward, -reversed);
 }
 
 test "a random point in a polygon is in the polygon" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -5539,14 +5832,14 @@ test "a random point in a polygon is in the polygon" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     var storage: [c.verts_per_polygon][3]f32 = undefined;
     const corners = try polygonCorners(world.mesh, near.ref.?, &storage);
 
     // Scratch through the package's own allocator seam, which is the reason
     // that seam is reachable at all: upstream's dtRandomPointInConvexPoly
     // takes a working buffer it does not allocate.
-    const scratch_bytes = try zrecast.alloc(corners.len * @sizeOf(f32), .perm);
+    const scratch_bytes = try zrecast.alloc(corners.len * @sizeOf(f32), .perm, &failure);
     defer zrecast.free(scratch_bytes);
     const scratch: []f32 = @alignCast(std.mem.bytesAsSlice(f32, scratch_bytes));
 
@@ -5562,13 +5855,14 @@ test "a random point in a polygon is in the polygon" {
     while (s <= 1.0) : (s += 0.25) {
         var t: f32 = 0;
         while (t <= 1.0) : (t += 0.25) {
-            const point = try geom.randomPointInConvexPoly(corners, scratch, s, t);
-            if (try geom.pointInPolygon(point, corners)) continue;
+            const point = try geom.randomPointInConvexPoly(corners, scratch, s, t, &failure);
+            if (try geom.pointInPolygon(point, corners, &failure)) continue;
             _ = try geom.distancePointToPolyEdges(
                 point,
                 corners,
                 edge_dist[0..corners.len],
                 edge_t[0..corners.len],
+                &failure,
             );
             var nearest: f32 = std.math.floatMax(f32);
             for (edge_dist[0..corners.len]) |d| nearest = @min(nearest, d);
@@ -5577,33 +5871,37 @@ test "a random point in a polygon is in the polygon" {
     }
 
     // Strictly inside, away from those ends.
-    const middle = try geom.randomPointInConvexPoly(corners, scratch, 0.5, 0.5);
-    try std.testing.expect(try geom.pointInPolygon(middle, corners));
+    const middle = try geom.randomPointInConvexPoly(corners, scratch, 0.5, 0.5, &failure);
+    try std.testing.expect(try geom.pointInPolygon(middle, corners, &failure));
 
     // The same two numbers give the same point: a placement is reproducible
     // from a seed rather than from hidden state.
-    const first = try geom.randomPointInConvexPoly(corners, scratch, 0.3, 0.7);
-    const again = try geom.randomPointInConvexPoly(corners, scratch, 0.3, 0.7);
+    const first = try geom.randomPointInConvexPoly(corners, scratch, 0.3, 0.7, &failure);
+    const again = try geom.randomPointInConvexPoly(corners, scratch, 0.3, 0.7, &failure);
     try std.testing.expectEqual(first, again);
 
     // Fewer than three vertices is upstream's read from before the array.
-    try std.testing.expectError(
+    try expectRefusal(
         error.InvalidArgument,
-        geom.randomPointInConvexPoly(corners[0..2], scratch, 0.5, 0.5),
+        &failure,
+        geom.randomPointInConvexPoly(corners[0..2], scratch, 0.5, 0.5, &failure),
     );
     // Scratch shorter than the polygon is a write past the end of it.
-    try std.testing.expectError(
+    try expectRefusal(
         error.InvalidArgument,
-        geom.randomPointInConvexPoly(corners, scratch[0 .. corners.len - 1], 0.5, 0.5),
+        &failure,
+        geom.randomPointInConvexPoly(corners, scratch[0 .. corners.len - 1], 0.5, 0.5, &failure),
     );
     // s and t are fractions; upstream takes the square root of t.
-    try std.testing.expectError(
+    try expectRefusal(
         error.InvalidArgument,
-        geom.randomPointInConvexPoly(corners, scratch, 0.5, -0.5),
+        &failure,
+        geom.randomPointInConvexPoly(corners, scratch, 0.5, -0.5, &failure),
     );
 }
 
 test "a segment out of a polygon leaves it at the boundary" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -5611,16 +5909,16 @@ test "a segment out of a polygon leaves it at the boundary" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     var storage: [c.verts_per_polygon][3]f32 = undefined;
     const corners = try polygonCorners(world.mesh, near.ref.?, &storage);
 
     var indices: [c.verts_per_polygon]u16 = undefined;
     for (0..corners.len) |k| indices[k] = @intCast(k);
-    const inside = try geom.polyCenter(corners, indices[0..corners.len]);
+    const inside = try geom.polyCenter(corners, indices[0..corners.len], &failure);
     const outside = zrecast.Vec3{ fixture.island_x, inside[1], fixture.island_z };
 
-    const hit = try geom.intersectSegmentPoly2D(inside, outside, corners);
+    const hit = try geom.intersectSegmentPoly2D(inside, outside, corners, &failure);
     try std.testing.expect(hit.intersects);
     // Starting inside, the segment never enters; it only leaves.
     try std.testing.expectEqual(@as(f32, 0), hit.t_min);
@@ -5638,25 +5936,27 @@ test "a segment out of a polygon leaves it at the boundary" {
         corners,
         edge_dist[0..corners.len],
         edge_t[0..corners.len],
+        &failure,
     );
     var nearest: f32 = std.math.floatMax(f32);
     for (edge_dist[0..corners.len]) |d| nearest = @min(nearest, d);
     try std.testing.expect(nearest < 1e-3);
 
     // A segment wholly inside reports the whole of itself.
-    const whole = try geom.intersectSegmentPoly2D(inside, inside, corners);
+    const whole = try geom.intersectSegmentPoly2D(inside, inside, corners, &failure);
     try std.testing.expect(whole.intersects);
     try std.testing.expectEqual(@as(f32, 0), whole.t_min);
     try std.testing.expectEqual(@as(f32, 1), whole.t_max);
 }
 
 test "two segments meet at the point both parametrisations name" {
+    var failure: zrecast.Failure = .{};
     const a0 = zrecast.Vec3{ -1, 0, 0 };
     const a1 = zrecast.Vec3{ 1, 0, 0 };
     const b0 = zrecast.Vec3{ 0, 5, -1 };
     const b1 = zrecast.Vec3{ 0, -5, 1 };
 
-    const hit = (try geom.intersectSegSeg2D(a0, a1, b0, b1)).?;
+    const hit = (try geom.intersectSegSeg2D(a0, a1, b0, b1, &failure)).?;
     const from_a = vec.lerp(a0, a1, hit.s);
     const from_b = vec.lerp(b0, b1, hit.t);
     // The crossing is on the xz-plane, so only x and z have to agree; y is
@@ -5671,11 +5971,13 @@ test "two segments meet at the point both parametrisations name" {
         a1,
         .{ -1, 0, 1 },
         .{ 1, 0, 1 },
+        &failure,
     );
     try std.testing.expect(parallel == null);
 }
 
 test "a shrunk polygon lies inside the one it came from" {
+    var failure: zrecast.Failure = .{};
     const square = [_]zrecast.Vec3{
         .{ -4, 0, -4 },
         .{ 4, 0, -4 },
@@ -5684,29 +5986,31 @@ test "a shrunk polygon lies inside the one it came from" {
     };
 
     var out: [16]zrecast.Vec3 = undefined;
-    const written = try geom.offsetPoly(&square, -1.0, &out);
+    const written = try geom.offsetPoly(&square, -1.0, &out, &failure);
     try std.testing.expect(written >= square.len);
 
     for (out[0..written]) |v| {
-        try std.testing.expect(try geom.pointInPolygon(v, &square));
+        try std.testing.expect(try geom.pointInPolygon(v, &square, &failure));
     }
 
     // Grown the other way, every original corner is inside the result.
-    const grown = try geom.offsetPoly(&square, 1.0, &out);
+    const grown = try geom.offsetPoly(&square, 1.0, &out, &failure);
     for (square) |v| {
-        try std.testing.expect(try geom.pointInPolygon(v, out[0..grown]));
+        try std.testing.expect(try geom.pointInPolygon(v, out[0..grown], &failure));
     }
 
     // Upstream's own bound refuses to fill the last slot, so a buffer sized
     // exactly to the result is reported as too small rather than filled.
     var exact: [4]zrecast.Vec3 = undefined;
-    try std.testing.expectError(
+    try expectRefusal(
         error.BufferTooSmall,
-        geom.offsetPoly(&square, -1.0, &exact),
+        &failure,
+        geom.offsetPoly(&square, -1.0, &exact, &failure),
     );
 }
 
 test "a bounding-volume node overlaps the leaves beneath it" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -5714,29 +6018,30 @@ test "a bounding-volume node overlaps the leaves beneath it" {
     const world = try World.init();
     defer world.deinit();
 
-    const tile = try world.mesh.tileRefAtIndex(0);
-    const info = try world.mesh.tileInfo(tile);
+    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const info = try world.mesh.tileInfo(tile, &failure);
     try std.testing.expect(info.bv_node_count > 0);
 
-    const root = try world.mesh.tileBvNode(tile, 0);
+    const root = try world.mesh.tileBvNode(tile, 0, &failure);
 
     // A tile reserves two nodes per polygon and the tree fills 2n - 1 of them,
     // so the last is spare. zrecast seals it as an internal node; upstream
     // leaves it zeroed, which reads as a leaf naming polygon 0. See docs/design.md.
     const tree_nodes: u32 = @intCast(info.bv_node_count - 1);
-    const sealed = try world.mesh.tileBvNode(tile, tree_nodes);
+    const sealed = try world.mesh.tileBvNode(tile, tree_nodes, &failure);
     try std.testing.expect(sealed.i < 0);
 
     // Every node of a bounding-volume hierarchy is inside its root, so the
     // test Detour runs during a query has to say so for all of them.
     var index: u32 = 0;
     while (index < tree_nodes) : (index += 1) {
-        const node = try world.mesh.tileBvNode(tile, index);
+        const node = try world.mesh.tileBvNode(tile, index, &failure);
         try std.testing.expect(try geom.overlapQuantBounds(
             root.bmin,
             root.bmax,
             node.bmin,
             node.bmax,
+            &failure,
         ));
     }
 
@@ -5746,10 +6051,12 @@ test "a bounding-volume node overlaps the leaves beneath it" {
         .{ 1, 1, 1 },
         .{ 100, 100, 100 },
         .{ 200, 200, 200 },
+        &failure,
     ));
 }
 
 test "a tile overlaps itself and not a tile across the world" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -5758,8 +6065,8 @@ test "a tile overlaps itself and not a tile across the world" {
     defer world.deinit();
     try std.testing.expect(world.mesh.tileCount() >= 2);
 
-    const first = try world.mesh.tileBounds(try world.mesh.tileRefAtIndex(0));
-    try std.testing.expect(try geom.overlapBounds(first[0], first[1], first[0], first[1]));
+    const first = try world.mesh.tileBounds(try world.mesh.tileRefAtIndex(0, &failure), &failure);
+    try std.testing.expect(try geom.overlapBounds(first[0], first[1], first[0], first[1], &failure));
 
     // The fixture's island sits at (40, 40) with the ground plane around the
     // origin, so some pair of resident tiles is far enough apart to be
@@ -5767,39 +6074,41 @@ test "a tile overlaps itself and not a tile across the world" {
     var disjoint = false;
     var i: u32 = 0;
     while (i < world.mesh.tileCount()) : (i += 1) {
-        const a = try world.mesh.tileBounds(try world.mesh.tileRefAtIndex(i));
+        const a = try world.mesh.tileBounds(try world.mesh.tileRefAtIndex(i, &failure), &failure);
         var j: u32 = 0;
         while (j < world.mesh.tileCount()) : (j += 1) {
-            const b = try world.mesh.tileBounds(try world.mesh.tileRefAtIndex(j));
-            if (!try geom.overlapBounds(a[0], a[1], b[0], b[1])) disjoint = true;
+            const b = try world.mesh.tileBounds(try world.mesh.tileRefAtIndex(j, &failure), &failure);
+            if (!try geom.overlapBounds(a[0], a[1], b[0], b[1], &failure)) disjoint = true;
         }
     }
     try std.testing.expect(disjoint);
 }
 
 test "the closest point on a triangle is the point itself when it is on it" {
+    var failure: zrecast.Failure = .{};
     const a = zrecast.Vec3{ 0, 0, 0 };
     const b = zrecast.Vec3{ 4, 0, 0 };
     const t = zrecast.Vec3{ 0, 0, 4 };
 
     const inside = zrecast.Vec3{ 1, 0, 1 };
-    const on = try geom.closestPointOnTriangle(inside, a, b, t);
+    const on = try geom.closestPointOnTriangle(inside, a, b, t, &failure);
     for (inside, on) |want, got| try std.testing.expectApproxEqAbs(want, got, 1e-5);
 
     // Outside past a corner, the closest point is that corner exactly.
     const past_a = zrecast.Vec3{ -5, 0, -5 };
-    try std.testing.expectEqual(a, try geom.closestPointOnTriangle(past_a, a, b, t));
+    try std.testing.expectEqual(a, try geom.closestPointOnTriangle(past_a, a, b, t, &failure));
 
     // Outside across an edge, the closest point is on that edge, so its
     // distance to the segment is zero.
     const past_edge = zrecast.Vec3{ 2, 0, -5 };
-    const on_edge = try geom.closestPointOnTriangle(past_edge, a, b, t);
-    const to_ab = try geom.distancePointToSegment2D(on_edge, a, b);
+    const on_edge = try geom.closestPointOnTriangle(past_edge, a, b, t, &failure);
+    const to_ab = try geom.distancePointToSegment2D(on_edge, a, b, &failure);
     try std.testing.expect(to_ab.dist_sqr < 1e-6);
     try std.testing.expect(to_ab.t > 0 and to_ab.t < 1);
 }
 
 test "an array length the C cannot check is checked here" {
+    var failure: zrecast.Failure = .{};
     const square = [_]zrecast.Vec3{
         .{ -1, 0, -1 },
         .{ 1, 0, -1 },
@@ -5811,37 +6120,43 @@ test "an array length the C cannot check is checked here" {
 
     // Both output arrays take one entry per edge. The C entry point is handed
     // bare pointers and cannot tell that either is short.
-    _ = try geom.distancePointToPolyEdges(.{ 0, 0, 0 }, &square, &dist, &t);
-    try std.testing.expectError(
+    _ = try geom.distancePointToPolyEdges(.{ 0, 0, 0 }, &square, &dist, &t, &failure);
+    try expectRefusal(
         error.InvalidArgument,
-        geom.distancePointToPolyEdges(.{ 0, 0, 0 }, &square, dist[0..3], &t),
+        &failure,
+        geom.distancePointToPolyEdges(.{ 0, 0, 0 }, &square, dist[0..3], &t, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         error.InvalidArgument,
-        geom.distancePointToPolyEdges(.{ 0, 0, 0 }, &square, &dist, t[0..3]),
+        &failure,
+        geom.distancePointToPolyEdges(.{ 0, 0, 0 }, &square, &dist, t[0..3], &failure),
     );
 
     // An index past the end of the vertex array: upstream's dtCalcPolyCenter
     // takes no vertex count at all and would read through it.
-    try std.testing.expectError(
+    try expectRefusal(
         error.InvalidArgument,
-        geom.polyCenter(&square, &[_]u16{ 0, 1, 4 }),
+        &failure,
+        geom.polyCenter(&square, &[_]u16{ 0, 1, 4 }, &failure),
     );
-    try std.testing.expectError(error.InvalidArgument, geom.polyCenter(&square, &[_]u16{}));
+    try expectRefusal(error.InvalidArgument, &failure, geom.polyCenter(&square, &[_]u16{}, &failure));
 
     // Two vertices is not a polygon, and for the overlap test it is upstream's
     // read of the first vertex of an empty one.
-    try std.testing.expectError(
+    try expectRefusal(
         error.InvalidArgument,
-        geom.pointInPolygon(.{ 0, 0, 0 }, square[0..2]),
+        &failure,
+        geom.pointInPolygon(.{ 0, 0, 0 }, square[0..2], &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         error.InvalidArgument,
-        geom.overlapPolyPoly2D(&square, square[0..1]),
+        &failure,
+        geom.overlapPolyPoly2D(&square, square[0..1], &failure),
     );
 }
 
 test "two polygons overlap when they share ground" {
+    var failure: zrecast.Failure = .{};
     const a = [_]zrecast.Vec3{
         .{ 0, 0, 0 },
         .{ 2, 0, 0 },
@@ -5860,8 +6175,8 @@ test "two polygons overlap when they share ground" {
         .{ 12, 0, 12 },
         .{ 10, 0, 12 },
     };
-    try std.testing.expect(try geom.overlapPolyPoly2D(&a, &shifted));
-    try std.testing.expect(!try geom.overlapPolyPoly2D(&a, &far));
+    try std.testing.expect(try geom.overlapPolyPoly2D(&a, &shifted, &failure));
+    try std.testing.expect(!try geom.overlapPolyPoly2D(&a, &far, &failure));
 }
 
 //=============================================================================
@@ -5869,18 +6184,19 @@ test "two polygons overlap when they share ground" {
 //=============================================================================
 
 test "the tile layout is the one Detour derives from the same bytes" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
 
-    const layout = try zrecast.tileLayout(.init(image.bytes));
+    const layout = try zrecast.tileLayout(.init(image.bytes), &failure);
     try std.testing.expectEqual(image.bytes.len, layout.total_size);
 
     // The oracle walks the same buffer with dtGetThenAdvanceBufferPointer, the
@@ -5917,23 +6233,24 @@ test "the tile layout is the one Detour derives from the same bytes" {
 }
 
 test "the vertices at the layout's offset are the vertices the accessor reports" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
-    const image = try mesh.serialize();
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
 
-    const loaded = try zrecast.NavMesh.initFromBytes(.init(image.bytes));
+    const loaded = try zrecast.NavMesh.initFromBytes(.init(image.bytes), &failure);
     defer loaded.deinit();
-    const tile = try loaded.tileRefAtIndex(0);
-    const info = try loaded.tileInfo(tile);
+    const tile = try loaded.tileRefAtIndex(0, &failure);
+    const info = try loaded.tileInfo(tile, &failure);
 
-    const layout = try zrecast.tileLayout(.init(image.bytes));
+    const layout = try zrecast.tileLayout(.init(image.bytes), &failure);
     try std.testing.expectEqual(
         @as(usize, @intCast(info.vert_count)) * 3 * @sizeOf(f32),
         layout.verts.len,
@@ -5947,7 +6264,7 @@ test "the vertices at the layout's offset are the vertices the accessor reports"
 
     const from_tile = try gpa.alloc([3]f32, @intCast(info.vert_count));
     defer gpa.free(from_tile);
-    try loaded.tileVerts(tile, 0, from_tile);
+    try loaded.tileVerts(tile, 0, from_tile, &failure);
 
     for (from_tile, 0..) |want, k| {
         for (want, 0..) |component, axis| {
@@ -5957,13 +6274,14 @@ test "the vertices at the layout's offset are the vertices the accessor reports"
 }
 
 test "a buffer that is not a tile image has no layout" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     var junk = @as([256]u8, @splat(0));
-    try std.testing.expectError(error.BadFormat, zrecast.tileLayout(.init(&junk)));
-    try std.testing.expectError(error.BadFormat, zrecast.tileLayout(.init(junk[0..4])));
+    try expectRefusal(error.BadFormat, &failure, zrecast.tileLayout(.init(&junk), &failure));
+    try expectRefusal(error.BadFormat, &failure, zrecast.tileLayout(.init(junk[0..4]), &failure));
 }
 
 //=============================================================================
@@ -5971,6 +6289,7 @@ test "a buffer that is not a tile image has no layout" {
 //=============================================================================
 
 test "a block from the allocator seam is the host's own block" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -5981,14 +6300,14 @@ test "a block from the allocator seam is the host's own block" {
     // to unwind the private header the bridge puts ahead of the payload.
     var size: usize = 1;
     while (size <= 4096) : (size *= 4) {
-        const block = try zrecast.alloc(size, .perm);
+        const block = try zrecast.alloc(size, .perm, &failure);
         try std.testing.expectEqual(size, block.len);
         try std.testing.expect(@intFromPtr(block.ptr) % c.alloc_alignment == 0);
         @memset(block, 0x5A);
         zrecast.free(block);
     }
 
-    const temp = try zrecast.alloc(64, .temp);
+    const temp = try zrecast.alloc(64, .temp, &failure);
     zrecast.free(temp);
 }
 
@@ -6015,17 +6334,18 @@ test "the assertion seam reports the build it was compiled into" {
     };
 
     var context: u32 = 7;
-    try zrecast.setAssertHandler(.{ .fail = Sink.fail, .user = &context });
-    const installed = (try zrecast.assertHandler()) orelse
+    zrecast.setAssertHandler(.{ .fail = Sink.fail, .user = &context });
+    const installed = zrecast.assertHandler() orelse
         return error.TestUnexpectedResult;
     try std.testing.expect(installed.fail == &Sink.fail);
     try std.testing.expectEqual(@as(?*anyopaque, &context), installed.user);
 
-    try zrecast.setAssertHandler(null);
-    try std.testing.expect((try zrecast.assertHandler()) == null);
+    zrecast.setAssertHandler(null);
+    try std.testing.expect(zrecast.assertHandler() == null);
 }
 
 test "a query box no tile range could hold is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6040,42 +6360,46 @@ test "a query box no tile range could hold is refused" {
     // representable values of type 'int'". Reachable from findNearestPoly,
     // which shipped before this check existed.
     const half = std.math.floatMax(f32) * 0.5;
-    try std.testing.expectError(error.InvalidArgument, world.query.findNearestPoly(
+    try expectRefusal(error.InvalidArgument, &failure, world.query.findNearestPoly(
         .{ half, 0, 0 },
         .{ half, 1, 1 },
         world.filter,
+        &failure,
     ));
 
     // Finite the whole way, and still not a query: the box spans more grid
     // cells than Detour's scan could walk in any reasonable time, because that
     // scan visits every cell of the range whether a tile is there or not. Far
     // enough out that a single axis is over the limit.
-    try std.testing.expectError(error.InvalidArgument, world.query.findNearestPoly(
+    try expectRefusal(error.InvalidArgument, &failure, world.query.findNearestPoly(
         .{ 0, 0, 0 },
         .{ 1e9, 1, 1e9 },
         world.filter,
+        &failure,
     ));
 
     // And again with each axis comfortably under the limit and only their
     // product over it, which is the case a per-axis bound alone would miss:
     // the fixture's tile is about 53 m, so this is roughly 3,800 cells on a
     // side and 14 million in total.
-    try std.testing.expectError(error.InvalidArgument, world.query.findNearestPoly(
+    try expectRefusal(error.InvalidArgument, &failure, world.query.findNearestPoly(
         .{ 0, 0, 0 },
         .{ 1e5, 1, 1e5 },
         world.filter,
+        &failure,
     ));
 
     // A negative extent is not a box at all.
-    try std.testing.expectError(error.InvalidArgument, world.query.findNearestPoly(
+    try expectRefusal(error.InvalidArgument, &failure, world.query.findNearestPoly(
         fixture.start,
         .{ -1, 1, 1 },
         world.filter,
+        &failure,
     ));
 
     // And an extent large enough to cover the whole navmesh several times over
     // is still an ordinary query.
-    const generous = try world.query.findNearestPoly(fixture.start, .{ 500, 500, 500 }, world.filter);
+    const generous = try world.query.findNearestPoly(fixture.start, .{ 500, 500, 500 }, world.filter, &failure);
     try std.testing.expect(generous.ref != null);
 }
 
@@ -6091,14 +6415,16 @@ const Endpoints = struct {
     goal: zrecast.NearestPoly,
 
     fn find(world: World) !Endpoints {
-        const s = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
-        const g = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+        var failure: zrecast.Failure = .{};
+        const s = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
+        const g = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
         try std.testing.expect(s.ref != null and g.ref != null);
         return .{ .start = s, .goal = g };
     }
 };
 
 test "a sliced path is the path found all at once" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6115,6 +6441,7 @@ test "a sliced path is the path found all at once" {
         ends.goal.point,
         world.filter,
         &whole,
+        &failure,
     );
     try std.testing.expect(!one_shot.partial);
     try std.testing.expect(one_shot.len > 2);
@@ -6127,6 +6454,7 @@ test "a sliced path is the path found all at once" {
         ends.goal.point,
         world.filter,
         .{},
+        &failure,
     );
     try std.testing.expect(world.query.slicedFindPathActive());
 
@@ -6135,7 +6463,7 @@ test "a sliced path is the path found all at once" {
     var rounds: u32 = 0;
     var total_iterations: u32 = 0;
     while (rounds < 1000) : (rounds += 1) {
-        const progress = try world.query.slicedFindPathUpdate(2);
+        const progress = try world.query.slicedFindPathUpdate(2, &failure);
         total_iterations += progress.iterations;
         if (!progress.in_progress) break;
     }
@@ -6143,7 +6471,7 @@ test "a sliced path is the path found all at once" {
     try std.testing.expect(total_iterations > 0);
 
     var sliced: [256]zrecast.PolyRef = undefined;
-    const finished = try world.query.slicedFindPathFinalize(&sliced);
+    const finished = try world.query.slicedFindPathFinalize(&sliced, &failure);
     try std.testing.expect(!finished.partial);
     try std.testing.expectEqualSlices(
         zrecast.PolyRef,
@@ -6154,6 +6482,7 @@ test "a sliced path is the path found all at once" {
 }
 
 test "a search that would clear the pool under a slice is refused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6169,6 +6498,7 @@ test "a search that would clear the pool under a slice is refused" {
         ends.goal.point,
         world.filter,
         .{},
+        &failure,
     );
     // unreachable: cancel refuses only a query without a handle, and `world.query` holds one.
     defer world.query.slicedFindPathCancel();
@@ -6180,15 +6510,16 @@ test "a search that would clear the pool under a slice is refused" {
     var parents: [16]zrecast.PolyRef = undefined;
     var costs: [16]f32 = undefined;
     var path: [16]zrecast.PolyRef = undefined;
-    try std.testing.expectError(error.SearchInProgress, world.query.findPath(
+    try expectRefusal(error.SearchInProgress, &failure, world.query.findPath(
         ends.start.ref.?,
         ends.goal.ref.?,
         ends.start.point,
         ends.goal.point,
         world.filter,
         &path,
+        &failure,
     ));
-    try std.testing.expectError(error.SearchInProgress, world.query.findPolysAroundCircle(
+    try expectRefusal(error.SearchInProgress, &failure, world.query.findPolysAroundCircle(
         ends.start.ref.?,
         ends.start.point,
         5,
@@ -6196,39 +6527,43 @@ test "a search that would clear the pool under a slice is refused" {
         &refs,
         &parents,
         &costs,
+        &failure,
     ));
     const shape = [_]zrecast.Vec3{
         .{ -1, 0, -1 }, .{ 1, 0, -1 }, .{ 1, 0, 1 }, .{ -1, 0, 1 },
     };
-    try std.testing.expectError(error.SearchInProgress, world.query.findPolysAroundShape(
+    try expectRefusal(error.SearchInProgress, &failure, world.query.findPolysAroundShape(
         ends.start.ref.?,
         &shape,
         world.filter,
         &refs,
         &parents,
         &costs,
+        &failure,
     ));
-    try std.testing.expectError(error.SearchInProgress, world.query.findDistanceToWall(
+    try expectRefusal(error.SearchInProgress, &failure, world.query.findDistanceToWall(
         ends.start.ref.?,
         ends.start.point,
         5,
         world.filter,
+        &failure,
     ));
-    try std.testing.expectError(error.SearchInProgress, world.query.findRandomPointAroundCircle(
+    try expectRefusal(error.SearchInProgress, &failure, world.query.findRandomPointAroundCircle(
         ends.start.ref.?,
         ends.start.point,
         5,
         world.filter,
         fixed_random,
+        &failure,
     ));
 
     // And the ones that touch no shared node keep working, because refusing
     // them would be a restriction the defect does not justify: a game loop
     // calls these between slices.
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expectEqual(ends.start.ref, near.ref);
     var boxed: [64]zrecast.PolyRef = undefined;
-    _ = try world.query.queryPolygons(fixture.start, search_extents, world.filter, &boxed);
+    _ = try world.query.queryPolygons(fixture.start, search_extents, world.filter, &boxed, &failure);
     _ = try world.query.raycast(
         ends.start.ref.?,
         ends.start.point,
@@ -6237,6 +6572,7 @@ test "a search that would clear the pool under a slice is refused" {
         .{},
         null,
         null,
+        &failure,
     );
     var visited: [16]zrecast.PolyRef = undefined;
     _ = try world.query.moveAlongSurface(
@@ -6245,6 +6581,7 @@ test "a search that would clear the pool under a slice is refused" {
         fixture.goal,
         world.filter,
         &visited,
+        &failure,
     );
     var local: [16]zrecast.PolyRef = undefined;
     _ = try world.query.findLocalNeighbourhood(
@@ -6254,23 +6591,25 @@ test "a search that would clear the pool under a slice is refused" {
         world.filter,
         &local,
         &.{},
+        &failure,
     );
-    _ = try world.query.findRandomPoint(world.filter, fixed_random);
+    _ = try world.query.findRandomPoint(world.filter, fixed_random, &failure);
 
     // The slice survived all of that.
     try std.testing.expect(world.query.slicedFindPathActive());
     var sliced: [256]zrecast.PolyRef = undefined;
     var rounds: u32 = 0;
     while (rounds < 1000) : (rounds += 1) {
-        if (!(try world.query.slicedFindPathUpdate(64)).in_progress) break;
+        if (!(try world.query.slicedFindPathUpdate(64, &failure)).in_progress) break;
     }
-    const finished = try world.query.slicedFindPathFinalize(&sliced);
+    const finished = try world.query.slicedFindPathFinalize(&sliced, &failure);
     try std.testing.expect(finished.len > 0);
     try std.testing.expectEqual(ends.start.ref.?, sliced[0]);
     try std.testing.expectEqual(ends.goal.ref.?, sliced[finished.len - 1]);
 }
 
 test "a slice finalised twice is refused, and cancelling releases it" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6281,8 +6620,8 @@ test "a slice finalised twice is refused, and cancelling releases it" {
 
     // Nothing in flight: there is nothing to advance or finalise.
     var path: [64]zrecast.PolyRef = undefined;
-    try std.testing.expectError(error.NoSearch, world.query.slicedFindPathUpdate(4));
-    try std.testing.expectError(error.NoSearch, world.query.slicedFindPathFinalize(&path));
+    try expectRefusal(error.NoSearch, &failure, world.query.slicedFindPathUpdate(4, &failure));
+    try expectRefusal(error.NoSearch, &failure, world.query.slicedFindPathFinalize(&path, &failure));
 
     try world.query.slicedFindPathInit(
         ends.start.ref.?,
@@ -6291,17 +6630,18 @@ test "a slice finalised twice is refused, and cancelling releases it" {
         ends.goal.point,
         world.filter,
         .{},
+        &failure,
     );
     var rounds: u32 = 0;
     while (rounds < 1000) : (rounds += 1) {
-        if (!(try world.query.slicedFindPathUpdate(64)).in_progress) break;
+        if (!(try world.query.slicedFindPathUpdate(64, &failure)).in_progress) break;
     }
-    _ = try world.query.slicedFindPathFinalize(&path);
+    _ = try world.query.slicedFindPathFinalize(&path, &failure);
 
     // Upstream would zero its own query state here, misread that as "start and
     // end are the same polygon" — both being 0 — and hand back a one-element
     // path holding the null reference, reported as success.
-    try std.testing.expectError(error.NoSearch, world.query.slicedFindPathFinalize(&path));
+    try expectRefusal(error.NoSearch, &failure, world.query.slicedFindPathFinalize(&path, &failure));
 
     // A bad buffer is an error and nothing more: the slice is not thrown away
     // as a side effect of getting the arguments wrong.
@@ -6312,8 +6652,9 @@ test "a slice finalised twice is refused, and cancelling releases it" {
         ends.goal.point,
         world.filter,
         .{},
+        &failure,
     );
-    try std.testing.expectError(error.InvalidArgument, world.query.slicedFindPathFinalize(&.{}));
+    try expectRefusal(error.InvalidArgument, &failure, world.query.slicedFindPathFinalize(&.{}, &failure));
     try std.testing.expect(world.query.slicedFindPathActive());
 
     world.query.slicedFindPathCancel();
@@ -6327,10 +6668,12 @@ test "a slice finalised twice is refused, and cancelling releases it" {
         ends.goal.point,
         world.filter,
         &path,
+        &failure,
     );
 }
 
 test "a slice finalised early keeps the corridor it was re-planning" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6347,6 +6690,7 @@ test "a slice finalised early keeps the corridor it was re-planning" {
         ends.goal.point,
         world.filter,
         &whole,
+        &failure,
     );
 
     // Re-plan from the goal back to the start while walking the corridor the
@@ -6359,13 +6703,15 @@ test "a slice finalised early keeps the corridor it was re-planning" {
         ends.start.point,
         world.filter,
         .{},
+        &failure,
     );
-    _ = try world.query.slicedFindPathUpdate(1);
+    _ = try world.query.slicedFindPathUpdate(1, &failure);
 
     var joined: [256]zrecast.PolyRef = undefined;
     const partial = try world.query.slicedFindPathFinalizePartial(
         whole[0..one_shot.len],
         &joined,
+        &failure,
     );
     try std.testing.expect(partial.len > 0);
     // Whatever it returns starts at the polygon the search started from.
@@ -6389,6 +6735,7 @@ fn fixedRandomNext(user: ?*anyopaque) callconv(.c) f32 {
 const fixed_random = zrecast.RandomSource{ .next = fixedRandomNext };
 
 test "a random point is on the navmesh, and the same numbers give the same point" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6397,18 +6744,18 @@ test "a random point is on the navmesh, and the same numbers give the same point
     defer world.deinit();
 
     fixed_random_state = 12345;
-    const first = try world.query.findRandomPoint(world.filter, fixed_random);
+    const first = try world.query.findRandomPoint(world.filter, fixed_random, &failure);
     try std.testing.expect(first.ref != 0);
 
     // On the navmesh, checked through a different entry point entirely.
-    const snapped = try world.query.findNearestPoly(first.point, .{ 1, 1, 1 }, world.filter);
+    const snapped = try world.query.findNearestPoly(first.point, .{ 1, 1, 1 }, world.filter, &failure);
     try std.testing.expectEqual(first.ref, snapped.ref.?);
     try std.testing.expect(snapped.over_poly);
 
     // The same sequence of numbers places the same point, so a host can seed
     // a placement and reproduce it.
     fixed_random_state = 12345;
-    const again = try world.query.findRandomPoint(world.filter, fixed_random);
+    const again = try world.query.findRandomPoint(world.filter, fixed_random, &failure);
     try std.testing.expectEqual(first.ref, again.ref);
     try std.testing.expectEqual(first.point, again.point);
 
@@ -6417,7 +6764,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
     var seed: u32 = 1;
     while (seed < 40 and !moved) : (seed += 1) {
         fixed_random_state = seed;
-        const other = try world.query.findRandomPoint(world.filter, fixed_random);
+        const other = try world.query.findRandomPoint(world.filter, fixed_random, &failure);
         if (other.ref != first.ref or !std.meta.eql(other.point, first.point)) moved = true;
     }
     try std.testing.expect(moved);
@@ -6427,7 +6774,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
     // point: upstream places the point anywhere inside a polygon the search
     // reached, and a polygon reached at the edge of the circle extends past
     // it. What is checkable is that the point is on the polygon it names.
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     fixed_random_state = 7;
     const around = try world.query.findRandomPointAroundCircle(
         near.ref.?,
@@ -6435,18 +6782,20 @@ test "a random point is on the navmesh, and the same numbers give the same point
         3.0,
         world.filter,
         fixed_random,
+        &failure,
     );
     try std.testing.expect(around.ref != 0);
-    const on_poly = try world.query.closestPointOnPoly(around.ref, around.point);
+    const on_poly = try world.query.closestPointOnPoly(around.ref, around.point, &failure);
     for (around.point, on_poly.point) |want, got| {
         try std.testing.expectApproxEqAbs(want, got, 1e-3);
     }
     // The polygon is genuinely close, even where the point on it is not.
-    const poly_centre = try world.query.closestPointOnPoly(around.ref, near.point);
+    const poly_centre = try world.query.closestPointOnPoly(around.ref, near.point, &failure);
     try std.testing.expect(zrecast.vec.dist2D(near.point, poly_centre.point) <= 3.0 + 1e-3);
 }
 
 test "every polygon a box returns overlaps the box" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6457,36 +6806,37 @@ test "every polygon a box returns overlaps the box" {
     const center = zrecast.Vec3{ fixture.start[0], 0.2, fixture.start[2] };
     const extents = zrecast.Vec3{ 3, 2, 3 };
     var refs: [128]zrecast.PolyRef = undefined;
-    const found = try world.query.queryPolygons(center, extents, world.filter, &refs);
+    const found = try world.query.queryPolygons(center, extents, world.filter, &refs, &failure);
     try std.testing.expect(found.len > 0);
     try std.testing.expect(!found.truncated);
 
     const box_min = zrecast.vec.sub(center, extents);
     const box_max = zrecast.vec.add(center, extents);
-    const tile = try world.mesh.tileRefAtIndex(0);
+    const tile = try world.mesh.tileRefAtIndex(0, &failure);
     for (refs[0..found.len]) |ref| {
         // Reached by a different route: the polygon's own corners, read out of
         // the tile, must have bounds that meet the box Detour was given.
-        const info = try world.mesh.polyInfo(ref);
+        const info = try world.mesh.polyInfo(ref, &failure);
         var lo = zrecast.Vec3{ std.math.floatMax(f32), std.math.floatMax(f32), std.math.floatMax(f32) };
         var hi = zrecast.Vec3{ -std.math.floatMax(f32), -std.math.floatMax(f32), -std.math.floatMax(f32) };
         var corner: [1][3]f32 = undefined;
         for (0..info.vert_count) |k| {
-            try world.mesh.tileVerts(tile, info.verts[k], &corner);
+            try world.mesh.tileVerts(tile, info.verts[k], &corner, &failure);
             lo = zrecast.vec.min(lo, corner[0]);
             hi = zrecast.vec.max(hi, corner[0]);
         }
-        try std.testing.expect(try zrecast.geom.overlapBounds(box_min, box_max, lo, hi));
+        try std.testing.expect(try zrecast.geom.overlapBounds(box_min, box_max, lo, hi, &failure));
     }
 
     // A buffer too small reports the truncation rather than a short answer.
     var one: [1]zrecast.PolyRef = undefined;
-    const clipped = try world.query.queryPolygons(center, extents, world.filter, &one);
+    const clipped = try world.query.queryPolygons(center, extents, world.filter, &one, &failure);
     try std.testing.expect(clipped.truncated);
     try std.testing.expectEqual(@as(usize, 1), clipped.len);
 }
 
 test "the batched box query finds what the buffered one finds" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6497,7 +6847,7 @@ test "the batched box query finds what the buffered one finds" {
     const center = zrecast.Vec3{ 0, 0.2, 0 };
     const extents = zrecast.Vec3{ 12, 4, 12 };
     var refs: [256]zrecast.PolyRef = undefined;
-    const buffered = try world.query.queryPolygons(center, extents, world.filter, &refs);
+    const buffered = try world.query.queryPolygons(center, extents, world.filter, &refs, &failure);
     try std.testing.expect(buffered.len > 0);
     try std.testing.expect(!buffered.truncated);
 
@@ -6520,7 +6870,7 @@ test "the batched box query finds what the buffered one finds" {
     Collector.batches = 0;
     try world.query.queryPolygonsBatched(center, extents, world.filter, .{
         .process = Collector.process,
-    });
+    }, &failure);
 
     try std.testing.expect(Collector.batches > 0);
     try std.testing.expectEqualSlices(
@@ -6537,7 +6887,8 @@ test "the batched box query finds what the buffered one finds" {
 /// produce — reports as outside. The closed question is the one those answers
 /// actually satisfy.
 fn onClosedPolygon(point: zrecast.Vec3, corners: []const [3]f32) !bool {
-    if (try zrecast.geom.pointInPolygon(point, corners)) return true;
+    var failure: zrecast.Failure = .{};
+    if (try zrecast.geom.pointInPolygon(point, corners, &failure)) return true;
     var edge_dist: [c.verts_per_polygon]f32 = undefined;
     var edge_t: [c.verts_per_polygon]f32 = undefined;
     _ = try zrecast.geom.distancePointToPolyEdges(
@@ -6545,6 +6896,7 @@ fn onClosedPolygon(point: zrecast.Vec3, corners: []const [3]f32) !bool {
         corners,
         edge_dist[0..corners.len],
         edge_t[0..corners.len],
+        &failure,
     );
     var nearest: f32 = std.math.floatMax(f32);
     for (edge_dist[0..corners.len]) |d| nearest = @min(nearest, d);
@@ -6552,6 +6904,7 @@ fn onClosedPolygon(point: zrecast.Vec3, corners: []const [3]f32) !bool {
 }
 
 test "the closest point on a polygon is on that polygon" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6559,14 +6912,14 @@ test "the closest point on a polygon is on that polygon" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     const ref = near.ref.?;
 
     var storage: [c.verts_per_polygon][3]f32 = undefined;
     const corners = try polygonCorners(world.mesh, ref, &storage);
 
     // A point already on it comes back unchanged and reported as over it.
-    const on = try world.query.closestPointOnPoly(ref, near.point);
+    const on = try world.query.closestPointOnPoly(ref, near.point, &failure);
     try std.testing.expect(on.over_poly);
     for (near.point, on.point) |want, got| {
         try std.testing.expectApproxEqAbs(want, got, 1e-3);
@@ -6576,13 +6929,13 @@ test "the closest point on a polygon is on that polygon" {
     // which dtPointInPolygon's strict crossing test reports as outside, so
     // what is checkable is that it lies on the closed polygon.
     const far = zrecast.Vec3{ fixture.island_x, 0, fixture.island_z };
-    const pulled = try world.query.closestPointOnPoly(ref, far);
+    const pulled = try world.query.closestPointOnPoly(ref, far, &failure);
     try std.testing.expect(!pulled.over_poly);
     try std.testing.expect(try onClosedPolygon(pulled.point, corners));
 
     // The boundary variant lands on an edge, so its distance to the nearest
     // edge is zero.
-    const boundary = try world.query.closestPointOnPolyBoundary(ref, far);
+    const boundary = try world.query.closestPointOnPolyBoundary(ref, far, &failure);
     var edge_dist: [c.verts_per_polygon]f32 = undefined;
     var edge_t: [c.verts_per_polygon]f32 = undefined;
     _ = try zrecast.geom.distancePointToPolyEdges(
@@ -6590,6 +6943,7 @@ test "the closest point on a polygon is on that polygon" {
         corners,
         edge_dist[0..corners.len],
         edge_t[0..corners.len],
+        &failure,
     );
     var nearest: f32 = std.math.floatMax(f32);
     for (edge_dist[0..corners.len]) |d| nearest = @min(nearest, d);
@@ -6597,13 +6951,14 @@ test "the closest point on a polygon is on that polygon" {
 
     // The height under a point over the polygon is the height the closest
     // point reports, reached two ways.
-    const height = try world.query.polyHeight(ref, near.point);
+    const height = try world.query.polyHeight(ref, near.point, &failure);
     try std.testing.expectApproxEqAbs(on.point[1], height, 1e-3);
     // And a point nowhere near it has no height on it.
-    try std.testing.expectError(error.InvalidArgument, world.query.polyHeight(ref, far));
+    try expectRefusal(error.InvalidArgument, &failure, world.query.polyHeight(ref, far, &failure));
 }
 
 test "the polygons around a circle form a tree the corridor walks back up" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6611,7 +6966,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     const start = near.ref.?;
 
     var refs: [128]zrecast.PolyRef = undefined;
@@ -6625,6 +6980,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
         &refs,
         &parents,
         &costs,
+        &failure,
     );
     try std.testing.expect(reached.len > 1);
     try std.testing.expect(!reached.truncated);
@@ -6652,21 +7008,21 @@ test "the polygons around a circle form a tree the corridor walks back up" {
     // array rather than against the search that produced it.
     const target = refs[reached.len - 1];
     var corridor: [128]zrecast.PolyRef = undefined;
-    const path = try world.query.pathFromDijkstraSearch(target, &corridor);
+    const path = try world.query.pathFromDijkstraSearch(target, &corridor, &failure);
     try std.testing.expect(path.len >= 1);
     try std.testing.expectEqual(start, corridor[0]);
     try std.testing.expectEqual(target, corridor[path.len - 1]);
 
-    const tile = try world.mesh.tileRefAtIndex(0);
-    const link_capacity: u32 = @intCast((try world.mesh.tileInfo(tile)).max_link_count);
+    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const link_capacity: u32 = @intCast((try world.mesh.tileInfo(tile, &failure)).max_link_count);
     for (corridor[0 .. path.len - 1], corridor[1..path.len]) |from, to| {
-        const info = try world.mesh.polyInfo(from);
+        const info = try world.mesh.polyInfo(from, &failure);
         var at = info.first_link;
         var linked = false;
         var steps: u32 = 0;
         while (at != zrecast.null_link) : (steps += 1) {
             try std.testing.expect(steps <= link_capacity);
-            const link = try world.mesh.tileLink(tile, at);
+            const link = try world.mesh.tileLink(tile, at, &failure);
             if (link.ref == to) linked = true;
             at = link.next;
         }
@@ -6675,7 +7031,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
 
     // Every polygon the search closed is reported closed, and one it never
     // reached is not.
-    try std.testing.expect(try world.query.isInClosedList(start));
+    try std.testing.expect(try world.query.isInClosedList(start, &failure));
 
     // The optional arrays are optional, and mismatched ones are refused.
     const counted = try world.query.findPolysAroundCircle(
@@ -6686,9 +7042,10 @@ test "the polygons around a circle form a tree the corridor walks back up" {
         &refs,
         &.{},
         &.{},
+        &failure,
     );
     try std.testing.expectEqual(reached.len, counted.len);
-    try std.testing.expectError(error.InvalidArgument, world.query.findPolysAroundCircle(
+    try expectRefusal(error.InvalidArgument, &failure, world.query.findPolysAroundCircle(
         start,
         near.point,
         6.0,
@@ -6696,10 +7053,12 @@ test "the polygons around a circle form a tree the corridor walks back up" {
         refs[0..8],
         parents[0..4],
         &.{},
+        &failure,
     ));
 }
 
 test "the distance to a wall is the distance to the segments the wall is made of" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6707,25 +7066,25 @@ test "the distance to a wall is the distance to the segments the wall is made of
     const world = try World.init();
     defer world.deinit();
 
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     const ref = near.ref.?;
 
     var verts: [16][2]zrecast.Vec3 = undefined;
     var neighbours: [16]zrecast.PolyRef = undefined;
-    const walls = try world.query.polyWallSegments(ref, world.filter, &verts, &neighbours);
+    const walls = try world.query.polyWallSegments(ref, world.filter, &verts, &neighbours, &failure);
     try std.testing.expect(walls.len > 0);
     try std.testing.expect(!walls.truncated);
 
     // The nearest wall within reach, and the nearest of those segments, are
     // the same distance away — two routes to one fact.
-    const hit = try world.query.findDistanceToWall(ref, near.point, 20.0, world.filter);
+    const hit = try world.query.findDistanceToWall(ref, near.point, 20.0, world.filter, &failure);
     try std.testing.expect(hit != null);
 
     var nearest_segment: f32 = std.math.floatMax(f32);
     for (verts[0..walls.len], neighbours[0..walls.len]) |segment, neighbour| {
         // A segment with a neighbour is not a wall; only the unlinked ones are.
         if (neighbour != 0) continue;
-        const d = try zrecast.geom.distancePointToSegment2D(near.point, segment[0], segment[1]);
+        const d = try zrecast.geom.distancePointToSegment2D(near.point, segment[0], segment[1], &failure);
         nearest_segment = @min(nearest_segment, @sqrt(d.dist_sqr));
     }
     try std.testing.expect(nearest_segment < std.math.floatMax(f32));
@@ -6738,11 +7097,12 @@ test "the distance to a wall is the distance to the segments the wall is made of
     // Nothing within range is an absent answer, not a hit at distance zero —
     // upstream reports success either way and normalises over an untouched
     // position.
-    const nothing = try world.query.findDistanceToWall(ref, near.point, 0.001, world.filter);
+    const nothing = try world.query.findDistanceToWall(ref, near.point, 0.001, world.filter, &failure);
     try std.testing.expect(nothing == null);
 }
 
 test "an option a query takes changes what it answers" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6761,6 +7121,7 @@ test "an option a query takes changes what it answers" {
         .{},
         null,
         null,
+        &failure,
     );
     try std.testing.expectEqual(@as(f32, 0), plain.hit.path_cost);
     const costed = try world.query.raycast(
@@ -6771,6 +7132,7 @@ test "an option a query takes changes what it answers" {
         .{ .use_costs = true },
         null,
         null,
+        &failure,
     );
     try std.testing.expect(costed.hit.path_cost > 0);
     // The hit itself is the same either way.
@@ -6786,6 +7148,7 @@ test "an option a query takes changes what it answers" {
         ends.goal.point,
         world.filter,
         &corridor,
+        &failure,
     );
     var turns: [64][3]f32 = undefined;
     var crossings: [64][3]f32 = undefined;
@@ -6797,6 +7160,7 @@ test "an option a query takes changes what it answers" {
         &turns,
         null,
         null,
+        &failure,
     );
     const by_crossing = try world.query.findStraightPath(
         ends.start.point,
@@ -6806,12 +7170,14 @@ test "an option a query takes changes what it answers" {
         &crossings,
         null,
         null,
+        &failure,
     );
     try std.testing.expect(by_crossing.len >= by_turn.len);
     try std.testing.expect(by_crossing.len > 2);
 }
 
 test "the node pool remembers the corridor the search walked" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6820,7 +7186,7 @@ test "the node pool remembers the corridor the search walked" {
     defer world.deinit();
     const ends = try Endpoints.find(world);
 
-    const before = try world.query.nodePoolInfo();
+    const before = try world.query.nodePoolInfo(&failure);
     try std.testing.expect(before.max_nodes > 0);
 
     var corridor: [256]zrecast.PolyRef = undefined;
@@ -6831,10 +7197,11 @@ test "the node pool remembers the corridor the search walked" {
         ends.goal.point,
         world.filter,
         &corridor,
+        &failure,
     );
     try std.testing.expect(path.len > 2);
 
-    const after = try world.query.nodePoolInfo();
+    const after = try world.query.nodePoolInfo(&failure);
     try std.testing.expect(after.node_count > 0);
     try std.testing.expect(after.node_count <= after.max_nodes);
     try std.testing.expectEqual(before.max_nodes, after.max_nodes);
@@ -6842,7 +7209,7 @@ test "the node pool remembers the corridor the search walked" {
     // Walking the parent chain from the end node has to reproduce the corridor
     // findPath returned, backwards. That is the search's own bookkeeping
     // checked against the answer it handed out.
-    const end_node = (try world.query.findNode(ends.goal.ref.?, 0)) orelse
+    const end_node = (try world.query.findNode(ends.goal.ref.?, 0, &failure)) orelse
         return error.TestUnexpectedResult;
     try std.testing.expect(end_node.flags.closed);
     try std.testing.expectEqual(ends.goal.ref.?, end_node.ref);
@@ -6854,7 +7221,7 @@ test "the node pool remembers the corridor the search walked" {
         try std.testing.expect(n < walked.len);
         walked[n] = current.ref;
         n += 1;
-        node = if (current.parent_index) |idx| try world.query.nodeAt(idx) else null;
+        node = if (current.parent_index) |idx| try world.query.nodeAt(idx, &failure) else null;
     }
     try std.testing.expectEqual(path.len, n);
     for (corridor[0..path.len], 0..) |ref, i| {
@@ -6862,14 +7229,15 @@ test "the node pool remembers the corridor the search walked" {
     }
 
     // A polygon no search reached has no node; index 0 is not a node either.
-    try std.testing.expect((try world.query.nodeAt(0)) == null);
+    try std.testing.expect((try world.query.nodeAt(0, &failure)) == null);
     var states: [4]zrecast.Node = undefined;
-    const found = try world.query.findNodes(ends.goal.ref.?, &states);
+    const found = try world.query.findNodes(ends.goal.ref.?, &states, &failure);
     try std.testing.expect(found >= 1);
     try std.testing.expectEqual(ends.goal.ref.?, states[0].ref);
 }
 
 test "a polygon reference splits into the fields packed into it" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -6877,39 +7245,40 @@ test "a polygon reference splits into the fields packed into it" {
     const world = try World.init();
     defer world.deinit();
 
-    const tile = try world.mesh.tileRefAtIndex(0);
-    const info = try world.mesh.tileInfo(tile);
+    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const info = try world.mesh.tileInfo(tile, &failure);
 
     // Every polygon of the tile, split and rebuilt.
     var index: u32 = 0;
     while (index < @as(u32, @intCast(info.poly_count))) : (index += 1) {
-        const ref = try world.mesh.tilePolyRef(tile, index);
-        const parts = try zrecast.decodePolyRef(world.mesh, ref);
+        const ref = try world.mesh.tilePolyRef(tile, index, &failure);
+        const parts = try zrecast.decodePolyRef(world.mesh, ref, &failure);
         try std.testing.expectEqual(index, parts.poly);
-        const rebuilt = try zrecast.encodePolyRef(world.mesh, parts.salt, parts.tile, parts.poly);
+        const rebuilt = try zrecast.encodePolyRef(world.mesh, parts.salt, parts.tile, parts.poly, &failure);
         try std.testing.expectEqual(ref, rebuilt);
-        try std.testing.expect(try world.query.isValidPolyRef(ref, null));
+        try std.testing.expect(try world.query.isValidPolyRef(ref, null, &failure));
     }
 
     // A field wider than this navmesh's own layout is refused, where upstream
     // would shift it away and mint a reference to something else.
-    try std.testing.expectError(
+    try expectRefusal(
         error.InvalidArgument,
-        zrecast.encodePolyRef(world.mesh, 0, 0, 0xffff),
+        &failure,
+        zrecast.encodePolyRef(world.mesh, 0, 0, 0xffff, &failure),
     );
 
     // The query and the navmesh answer the same validity question differently:
     // with a filter that admits nothing, a live polygon is not valid.
-    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     var blind_desc = zrecast.defaultFilterDesc();
     blind_desc.include_flags = 0;
-    const blind = try zrecast.QueryFilter.init(blind_desc);
+    const blind = try zrecast.QueryFilter.init(blind_desc, &failure);
     defer blind.deinit();
-    try std.testing.expect(try world.query.isValidPolyRef(near.ref.?, null));
-    try std.testing.expect(!try world.query.isValidPolyRef(near.ref.?, blind));
+    try std.testing.expect(try world.query.isValidPolyRef(near.ref.?, null, &failure));
+    try std.testing.expect(!try world.query.isValidPolyRef(near.ref.?, blind, &failure));
 
     // And the navmesh the query hands back is the one it was made from.
-    const attached = try world.query.attachedNavMesh();
+    const attached = try world.query.attachedNavMesh(&failure);
     try std.testing.expectEqual(world.mesh.polyCount(), attached.polyCount());
 }
 
@@ -6922,11 +7291,12 @@ test "a polygon reference splits into the fields packed into it" {
 /// (`dtAllocNavMesh`, and the two arrays in `dtNavMesh::init`, which report
 /// `DT_OUT_OF_MEMORY`).
 fn runOwnedArc(mesh: zrecast.NavMesh) !void {
-    const image = try mesh.serialize();
+    var failure: zrecast.Failure = .{};
+    const image = try mesh.serialize(&failure);
     defer image.deinit();
-    try zrecast.validate(.init(image.bytes));
+    try zrecast.validate(.init(image.bytes), &failure);
 
-    const loaded = try zrecast.NavMesh.initFromBytes(.init(image.bytes));
+    const loaded = try zrecast.NavMesh.initFromBytes(.init(image.bytes), &failure);
     defer loaded.deinit();
 
     if (loaded.polyCount() == 0) return error.EmptyReload;
@@ -6976,6 +7346,7 @@ pub const OwnedArc = struct {
 };
 
 test "a failure at any allocation zrecast owns is reported and leaks nothing" {
+    var failure: zrecast.Failure = .{};
     // What makes the OutOfMemory paths more than decorative. The sweep runs the
     // arc once per allocation, refusing that one, and requires three things
     // each time: an error rather than a success, the error the API documents,
@@ -7008,7 +7379,7 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     // Both are freed through `gpa`, which every run's tearDown restores.
     defer mesh.deinit();
 
@@ -7018,7 +7389,7 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     var diagnostics: shakedown.EveryFaultReport = .{};
     defer diagnostics.deinit();
     const report = shakedown.everyFault(gpa, std.testing.io, &arc, .{ .diagnostics = &diagnostics }) catch |e| {
-        if (diagnostics.failure) |failure| std.debug.print("{t} with {any} injected; the run:\n{s}", .{ failure.err, failure.injected, failure.trace });
+        if (diagnostics.failure) |fault| std.debug.print("{t} with {any} injected; the run:\n{s}", .{ fault.err, fault.injected, fault.trace });
         return e;
     };
     try std.testing.expect(report.steps > 0);
@@ -7036,6 +7407,7 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
 }
 
 test "a query that reaches no polygon reports none" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7050,9 +7422,9 @@ test "a query that reaches no polygon reports none" {
     // overlaps exactly that. Upstream reserves one such node past the end of
     // the tree and walks into it, which made this call answer polygon 0, whose
     // nearest point is metres outside the half-extents asked for.
-    const bounds = try world.mesh.bounds();
+    const bounds = try world.mesh.bounds(&failure);
     const corner = bounds[0];
-    const at_corner = try world.query.findNearestPoly(corner, .{ 0.05, 0.05, 0.05 }, world.filter);
+    const at_corner = try world.query.findNearestPoly(corner, .{ 0.05, 0.05, 0.05 }, world.filter, &failure);
     try std.testing.expect(at_corner.ref == null);
 
     // Well outside the mesh entirely, which never reached a tile at all and so
@@ -7061,11 +7433,12 @@ test "a query that reaches no polygon reports none" {
         .{ -1000, -1000, -1000 },
         .{ 1, 1, 1 },
         world.filter,
+        &failure,
     );
     try std.testing.expect(far.ref == null);
 
     // And the search still finds what it should.
-    const on_ground = try world.query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const on_ground = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(on_ground.ref != null);
 }
 
@@ -7094,6 +7467,7 @@ fn crowdAgentParams(radius: f32) zrecast.CrowdAgentParams {
 }
 
 test "an agent reference outlives its slot only until the slot is reused" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7101,69 +7475,71 @@ test "an agent reference outlives its slot only until the slot is reused" {
     const world = try World.init();
     defer world.deinit();
 
-    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6);
+    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6, &failure);
     defer crowd.deinit();
 
     const params = crowdAgentParams(0.6);
-    try std.testing.expectEqual(@as(u32, 4), try crowd.agentCapacity());
-    try std.testing.expectEqual(@as(u32, 0), try crowd.activeAgentCount());
+    try std.testing.expectEqual(@as(u32, 4), try crowd.agentCapacity(&failure));
+    try std.testing.expectEqual(@as(u32, 0), try crowd.activeAgentCount(&failure));
 
-    const first = try crowd.addAgent(fixture.start, params);
+    const first = try crowd.addAgent(fixture.start, params, &failure);
     const first_ever = first;
     try std.testing.expect(first != 0);
-    try std.testing.expectEqual(@as(u32, 1), try crowd.activeAgentCount());
+    try std.testing.expectEqual(@as(u32, 1), try crowd.activeAgentCount(&failure));
     try std.testing.expectEqual(
         zrecast.CrowdAgentState.walking,
-        (try crowd.agent(first)).state,
+        (try crowd.agent(first, &failure)).state,
     );
 
     // Upstream's removeAgent only clears a flag, and addAgent hands back the
     // lowest free slot, so the same index answers for whoever took it next.
     // A reference carries a serial the crowd never reissues.
-    try crowd.removeAgent(first);
-    try std.testing.expectError(zrecast.Error.NotFound, crowd.agent(first));
-    try std.testing.expectError(zrecast.Error.NotFound, crowd.removeAgent(first));
+    try crowd.removeAgent(first, &failure);
+    try expectRefusal(zrecast.Error.NotFound, &failure, crowd.agent(first, &failure));
+    try expectRefusal(zrecast.Error.NotFound, &failure, crowd.removeAgent(first, &failure));
 
-    const second = try crowd.addAgent(fixture.start, params);
+    const second = try crowd.addAgent(fixture.start, params, &failure);
     try std.testing.expect(second != first);
-    _ = try crowd.agent(second);
-    try std.testing.expectError(zrecast.Error.NotFound, crowd.agent(first));
-    try std.testing.expectError(zrecast.Error.NotFound, crowd.setAgentParams(first, params));
+    _ = try crowd.agent(second, &failure);
+    try expectRefusal(zrecast.Error.NotFound, &failure, crowd.agent(first, &failure));
+    try expectRefusal(zrecast.Error.NotFound, &failure, crowd.setAgentParams(first, params, &failure));
 
     // The slot is the same one, which is what makes the serial load-bearing.
-    try std.testing.expectEqual(second, try crowd.agentRefAt(0));
-    try std.testing.expectEqual(@as(zrecast.AgentRef, 0), try crowd.agentRefAt(1));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, crowd.agentRefAt(4));
+    try std.testing.expectEqual(second, try crowd.agentRefAt(0, &failure));
+    try std.testing.expectEqual(@as(zrecast.AgentRef, 0), try crowd.agentRefAt(1, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, crowd.agentRefAt(4, &failure));
 
     // Re-initialising purges upstream, so every reference minted before it
     // must stop resolving even once the slot is filled again.
-    try crowd.reinit(world.mesh, 4, 0.6);
-    try std.testing.expectEqual(@as(u32, 0), try crowd.activeAgentCount());
-    try std.testing.expectError(zrecast.Error.NotFound, crowd.agent(second));
-    const third = try crowd.addAgent(fixture.start, params);
+    try crowd.reinit(world.mesh, 4, 0.6, &failure);
+    try std.testing.expectEqual(@as(u32, 0), try crowd.activeAgentCount(&failure));
+    try expectRefusal(zrecast.Error.NotFound, &failure, crowd.agent(second, &failure));
+    const third = try crowd.addAgent(fixture.start, params, &failure);
     try std.testing.expect(third != second);
-    try std.testing.expectError(zrecast.Error.NotFound, crowd.agent(second));
+    try expectRefusal(zrecast.Error.NotFound, &failure, crowd.agent(second, &failure));
     // And the very first reference, whose serial the counter would hand out
     // again if a re-initialisation reset it. This is the reference the reset
     // would collide with, not `second`.
     try std.testing.expect(third != first_ever);
-    try std.testing.expectError(zrecast.Error.NotFound, crowd.agent(first_ever));
+    try expectRefusal(zrecast.Error.NotFound, &failure, crowd.agent(first_ever, &failure));
 
     // A full crowd says so rather than answering with a slot it does not have.
-    for (0..3) |_| _ = try crowd.addAgent(fixture.start, params);
-    try std.testing.expectError(
+    for (0..3) |_| _ = try crowd.addAgent(fixture.start, params, &failure);
+    try expectRefusal(
         zrecast.Error.CrowdFull,
-        crowd.addAgent(fixture.start, params),
+        &failure,
+        crowd.addAgent(fixture.start, params, &failure),
     );
 
     // The total comes back even when the buffer cannot hold it.
     var refs: [4]zrecast.AgentRef = undefined;
-    try std.testing.expectEqual(@as(usize, 4), try crowd.activeAgents(&refs));
-    try std.testing.expectEqual(@as(usize, 4), try crowd.activeAgents(refs[0..2]));
-    try std.testing.expectEqual(@as(usize, 4), try crowd.activeAgents(&.{}));
+    try std.testing.expectEqual(@as(usize, 4), try crowd.activeAgents(&refs, &failure));
+    try std.testing.expectEqual(@as(usize, 4), try crowd.activeAgents(refs[0..2], &failure));
+    try std.testing.expectEqual(@as(usize, 4), try crowd.activeAgents(&.{}, &failure));
 }
 
 test "an agent's parameters are checked where upstream indexes unchecked" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7171,7 +7547,7 @@ test "an agent's parameters are checked where upstream indexes unchecked" {
     const world = try World.init();
     defer world.deinit();
 
-    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6);
+    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6, &failure);
     defer crowd.deinit();
 
     // The two fields upstream reads as array indices at fifteen call sites
@@ -7179,76 +7555,86 @@ test "an agent's parameters are checked where upstream indexes unchecked" {
     // from the table's length to 255 is a read past its end, every frame.
     var params = crowdAgentParams(0.6);
     params.query_filter_type = @intCast(zrecast.crowd_max_filters);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.addAgent(fixture.start, params),
+        &failure,
+        crowd.addAgent(fixture.start, params, &failure),
     );
     params.query_filter_type = 255;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.addAgent(fixture.start, params),
+        &failure,
+        crowd.addAgent(fixture.start, params, &failure),
     );
     params = crowdAgentParams(0.6);
     params.obstacle_avoidance_type = @intCast(zrecast.crowd_max_avoidance_params);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.addAgent(fixture.start, params),
+        &failure,
+        crowd.addAgent(fixture.start, params, &failure),
     );
 
     // A zero maximum speed gives an infinite off-mesh traversal budget, and a
     // zero collision range is a reciprocal upstream takes without a guard.
     params = crowdAgentParams(0.6);
     params.max_speed = 0;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.addAgent(fixture.start, params),
+        &failure,
+        crowd.addAgent(fixture.start, params, &failure),
     );
     params = crowdAgentParams(0.6);
     params.collision_query_range = 0;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.addAgent(fixture.start, params),
+        &failure,
+        crowd.addAgent(fixture.start, params, &failure),
     );
 
     // A radius the crowd was not sized for, and one no cell index could name.
     params = crowdAgentParams(5.0);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.addAgent(fixture.start, params),
+        &failure,
+        crowd.addAgent(fixture.start, params, &failure),
     );
     params = crowdAgentParams(std.math.nan(f32));
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.addAgent(fixture.start, params),
+        &failure,
+        crowd.addAgent(fixture.start, params, &failure),
     );
 
     // A frame is a positive number. Upstream multiplies acceleration by it and
     // asserts nothing, so a NaN frame poisons every position from then on.
-    _ = try crowd.addAgent(fixture.start, crowdAgentParams(0.6));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, crowd.update(0));
-    try std.testing.expectError(zrecast.Error.InvalidArgument, crowd.update(-0.1));
-    try std.testing.expectError(
+    _ = try crowd.addAgent(fixture.start, crowdAgentParams(0.6), &failure);
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, crowd.update(0, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, crowd.update(-0.1, &failure));
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.update(std.math.nan(f32)),
+        &failure,
+        crowd.update(std.math.nan(f32), &failure),
     );
-    try crowd.update(1.0 / 60.0);
+    try crowd.update(1.0 / 60.0, &failure);
 
     // Every shared table is bounded here, where upstream answers with null.
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.setFilter(@intCast(zrecast.crowd_max_filters), filter),
+        &failure,
+        crowd.setFilter(@intCast(zrecast.crowd_max_filters), filter, &failure),
     );
-    try crowd.setFilter(3, filter);
+    try crowd.setFilter(3, filter, &failure);
     var avoidance = zrecast.avoidanceParamsDefault();
     try std.testing.expect(avoidance.grid_size >= 2);
-    try crowd.setAvoidanceParams(5, avoidance);
-    try std.testing.expectEqual(avoidance, try crowd.avoidanceParams(5));
+    try crowd.setAvoidanceParams(5, avoidance, &failure);
+    try std.testing.expectEqual(avoidance, try crowd.avoidanceParams(5, &failure));
     avoidance.horiz_time = 0;
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.setAvoidanceParams(5, avoidance),
+        &failure,
+        crowd.setAvoidanceParams(5, avoidance, &failure),
     );
 }
 
@@ -7268,6 +7654,7 @@ fn expectNoTunnel(prev: [3]f32, now: [3]f32) !void {
 }
 
 test "two agents on the same spot separate, and neither crosses the wall" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7275,33 +7662,34 @@ test "two agents on the same spot separate, and neither crosses the wall" {
     const world = try World.init();
     defer world.deinit();
 
-    const crowd = try zrecast.Crowd.init(world.mesh, 8, 0.6);
+    const crowd = try zrecast.Crowd.init(world.mesh, 8, 0.6, &failure);
     defer crowd.deinit();
 
-    const goal = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
+    const goal = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
     try std.testing.expect(goal.ref != null);
 
     const params = crowdAgentParams(0.6);
-    const a_ref = try crowd.addAgent(fixture.start, params);
-    const b_ref = try crowd.addAgent(fixture.start, params);
-    try crowd.requestMoveTarget(a_ref, goal.ref.?, goal.point);
-    try crowd.requestMoveTarget(b_ref, goal.ref.?, goal.point);
+    const a_ref = try crowd.addAgent(fixture.start, params, &failure);
+    const b_ref = try crowd.addAgent(fixture.start, params, &failure);
+    try crowd.requestMoveTarget(a_ref, goal.ref.?, goal.point, &failure);
+    try crowd.requestMoveTarget(b_ref, goal.ref.?, goal.point, &failure);
 
     // A target of no polygon is refused; clearing one is a separate call.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        crowd.requestMoveTarget(a_ref, 0, goal.point),
+        &failure,
+        crowd.requestMoveTarget(a_ref, 0, goal.point, &failure),
     );
 
-    var a = try crowd.agent(a_ref);
-    var b = try crowd.agent(b_ref);
+    var a = try crowd.agent(a_ref, &failure);
+    var b = try crowd.agent(b_ref, &failure);
     var a_prev = a.position;
     var b_prev = b.position;
     var frame: u32 = 0;
     while (frame < 600) : (frame += 1) {
-        try crowd.update(1.0 / 60.0);
-        a = try crowd.agent(a_ref);
-        b = try crowd.agent(b_ref);
+        try crowd.update(1.0 / 60.0, &failure);
+        a = try crowd.agent(a_ref, &failure);
+        b = try crowd.agent(b_ref, &failure);
         try expectNoTunnel(a_prev, a.position);
         try expectNoTunnel(b_prev, b.position);
         a_prev = a.position;
@@ -7326,35 +7714,36 @@ test "two agents on the same spot separate, and neither crosses the wall" {
     // At least one rounded the wall, so the crowd actually pathed rather than
     // shuffling in place.
     try std.testing.expect(a.position[2] > 0 or b.position[2] > 0);
-    try std.testing.expect(try crowd.velocitySampleCount() > 0);
+    try std.testing.expect(try crowd.velocitySampleCount(&failure) > 0);
 
     // The corners and the corridor are readable, and the corridor's first
     // polygon is the one the agent is standing in.
     var corners: [zrecast.crowd_max_corners]zrecast.CrowdCorner = undefined;
-    try crowd.agentCorners(a_ref, 0, corners[0..@intCast(a.corner_count)]);
+    try crowd.agentCorners(a_ref, 0, corners[0..@intCast(a.corner_count)], &failure);
     var neighbours: [zrecast.crowd_max_neighbours]zrecast.CrowdNeighbour = undefined;
-    try crowd.agentNeighbours(a_ref, 0, neighbours[0..@intCast(a.neighbour_count)]);
+    try crowd.agentNeighbours(a_ref, 0, neighbours[0..@intCast(a.neighbour_count)], &failure);
 
-    const corridor = try crowd.agentCorridor(a_ref);
+    const corridor = try crowd.agentCorridor(a_ref, &failure);
     try std.testing.expect(corridor.path_count > 0);
     try std.testing.expect(corridor.first_poly != 0);
-    const under = try world.query.findNearestPoly(a.position, search_extents, world.filter);
+    const under = try world.query.findNearestPoly(a.position, search_extents, world.filter, &failure);
     try std.testing.expectEqual(under.ref.?, corridor.first_poly);
 
     // The boundary was collected, so its centre is no longer the sentinel an
     // untouched one carries.
-    const centre = try crowd.agentBoundaryCenter(a_ref);
+    const centre = try crowd.agentBoundaryCenter(a_ref, &failure);
     try std.testing.expect(centre[0] != std.math.floatMax(f32));
 
     // Clearing the target stops the agent where it is.
-    try crowd.resetMoveTarget(a_ref);
+    try crowd.resetMoveTarget(a_ref, &failure);
     try std.testing.expectEqual(
         zrecast.CrowdTargetState.none,
-        (try crowd.agent(a_ref)).target_state,
+        (try crowd.agent(a_ref, &failure)).target_state,
     );
 }
 
 test "a debug view that outlived its agent does not stop the crowd" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7362,32 +7751,32 @@ test "a debug view that outlived its agent does not stop the crowd" {
     const world = try World.init();
     defer world.deinit();
 
-    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6);
+    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6, &failure);
     defer crowd.deinit();
 
-    const watched = try crowd.addAgent(fixture.start, crowdAgentParams(0.6));
-    const other = try crowd.addAgent(fixture.start, crowdAgentParams(0.6));
+    const watched = try crowd.addAgent(fixture.start, crowdAgentParams(0.6), &failure);
+    const other = try crowd.addAgent(fixture.start, crowdAgentParams(0.6), &failure);
 
-    const samples = try zrecast.AvoidanceDebug.init(256);
+    const samples = try zrecast.AvoidanceDebug.init(256, &failure);
     defer samples.deinit();
     var debug = zrecast.CrowdAgentDebug{ .agent = watched, .samples = samples };
 
-    const goal = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter);
-    try crowd.requestMoveTarget(other, goal.ref.?, goal.point);
-    try crowd.updateDebug(1.0 / 60.0, &debug);
+    const goal = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
+    try crowd.requestMoveTarget(other, goal.ref.?, goal.point, &failure);
+    try crowd.updateDebug(1.0 / 60.0, &debug, &failure);
 
     // The watched agent goes; the reference in the debug struct does not.
-    try crowd.removeAgent(watched);
+    try crowd.removeAgent(watched, &failure);
 
     // Upstream's own idx is an index into a snapshot that shifts as agents
     // come and go, so a host keeping a reference across frames is the
     // ordinary case rather than a misuse. The frame has to run anyway.
-    const before = try crowd.agent(other);
+    const before = try crowd.agent(other, &failure);
     var frame: u32 = 0;
     while (frame < 120) : (frame += 1) {
-        try crowd.updateDebug(1.0 / 60.0, &debug);
+        try crowd.updateDebug(1.0 / 60.0, &debug, &failure);
     }
-    const after = try crowd.agent(other);
+    const after = try crowd.agent(other, &failure);
 
     // The surviving agent covered ground, which is what says the updates ran
     // rather than returning early on the reference the debug struct still
@@ -7395,10 +7784,11 @@ test "a debug view that outlived its agent does not stop the crowd" {
     const dx = after.position[0] - before.position[0];
     const dz = after.position[2] - before.position[2];
     try std.testing.expect(dx * dx + dz * dz > 0.25);
-    try std.testing.expect(try crowd.velocitySampleCount() > 0);
+    try std.testing.expect(try crowd.velocitySampleCount(&failure) > 0);
 }
 
 test "an agent removed mid-jump does not carry the next agent with it" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7407,23 +7797,23 @@ test "an agent removed mid-jump does not carry the next agent with it" {
     const world = try LinkedWorld.init(.{ .connections = &links });
     defer world.deinit();
 
-    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6);
+    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6, &failure);
     defer crowd.deinit();
 
     // Onto the connection's near side, heading for its far side.
     const near = [3]f32{ -8, 0, -2 };
     const far = [3]f32{ -8, 0, 2 };
-    const jumper = try crowd.addAgent(near, crowdAgentParams(0.6));
-    const target = try world.query.findNearestPoly(far, search_extents, world.filter);
+    const jumper = try crowd.addAgent(near, crowdAgentParams(0.6), &failure);
+    const target = try world.query.findNearestPoly(far, search_extents, world.filter, &failure);
     try std.testing.expect(target.ref != null);
-    try crowd.requestMoveTarget(jumper, target.ref.?, target.point);
+    try crowd.requestMoveTarget(jumper, target.ref.?, target.point, &failure);
 
     // Drive it until it is part way across.
     var crossing = false;
     var frame: u32 = 0;
     while (frame < 600) : (frame += 1) {
-        try crowd.update(1.0 / 60.0);
-        if ((try crowd.agent(jumper)).state == .offmesh) {
+        try crowd.update(1.0 / 60.0, &failure);
+        if ((try crowd.agent(jumper, &failure)).state == .offmesh) {
             crossing = true;
             break;
         }
@@ -7434,15 +7824,15 @@ test "an agent removed mid-jump does not carry the next agent with it" {
     // leaves the traversal live in a parallel array update() walks by slot, so
     // the next agent added would resume it — its position overwritten every
     // frame by a lerp between the two endpoints above.
-    try crowd.removeAgent(jumper);
-    try std.testing.expectError(zrecast.Error.NotFound, crowd.agent(jumper));
+    try crowd.removeAgent(jumper, &failure);
+    try expectRefusal(zrecast.Error.NotFound, &failure, crowd.agent(jumper, &failure));
 
-    const settler = try crowd.addAgent(fixture.start, crowdAgentParams(0.6));
-    const placed = (try crowd.agent(settler)).position;
+    const settler = try crowd.addAgent(fixture.start, crowdAgentParams(0.6), &failure);
+    const placed = (try crowd.agent(settler, &failure)).position;
     frame = 0;
     while (frame < 120) : (frame += 1) {
-        try crowd.update(1.0 / 60.0);
-        const now = (try crowd.agent(settler)).position;
+        try crowd.update(1.0 / 60.0, &failure);
+        const now = (try crowd.agent(settler, &failure)).position;
         // It has no target, so it stays where it was put. The failure this
         // guards against teleports it four metres, onto the connection.
         const dx = now[0] - placed[0];
@@ -7452,14 +7842,15 @@ test "an agent removed mid-jump does not carry the next agent with it" {
 
     // And the slot the jumper held comes back once its crossing finished, so
     // holding it is a delay rather than a leak.
-    try std.testing.expectEqual(@as(u32, 1), try crowd.activeAgentCount());
+    try std.testing.expectEqual(@as(u32, 1), try crowd.activeAgentCount(&failure));
     var refs: [4]zrecast.AgentRef = undefined;
-    try std.testing.expectEqual(@as(usize, 1), try crowd.activeAgents(&refs));
-    for (0..3) |_| _ = try crowd.addAgent(fixture.start, crowdAgentParams(0.6));
-    try std.testing.expectEqual(@as(u32, 4), try crowd.activeAgentCount());
+    try std.testing.expectEqual(@as(usize, 1), try crowd.activeAgents(&refs, &failure));
+    for (0..3) |_| _ = try crowd.addAgent(fixture.start, crowdAgentParams(0.6), &failure);
+    try std.testing.expectEqual(@as(u32, 4), try crowd.activeAgentCount(&failure));
 }
 
 test "a crowd's borrowed pieces are the ones it is driving" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7467,28 +7858,28 @@ test "a crowd's borrowed pieces are the ones it is driving" {
     const world = try World.init();
     defer world.deinit();
 
-    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6);
+    const crowd = try zrecast.Crowd.init(world.mesh, 4, 0.6, &failure);
     defer crowd.deinit();
-    _ = try crowd.addAgent(fixture.start, crowdAgentParams(0.6));
-    try crowd.update(1.0 / 60.0);
+    _ = try crowd.addAgent(fixture.start, crowdAgentParams(0.6), &failure);
+    try crowd.update(1.0 / 60.0, &failure);
 
     // The grid is rebuilt from every agent at the start of each update, so
     // after one it holds the agent that was there.
-    const grid = try crowd.grid();
-    const bounds = try grid.bounds();
+    const grid = try crowd.grid(&failure);
+    const bounds = try grid.bounds(&failure);
     try std.testing.expect(bounds[0] <= bounds[2]);
-    try std.testing.expect(try grid.cellSize() > 0);
+    try std.testing.expect(try grid.cellSize(&failure) > 0);
 
     // The query the crowd plans with is against the crowd's own navmesh.
-    const query = try crowd.navMeshQuery();
-    const near = try query.findNearestPoly(fixture.start, search_extents, world.filter);
+    const query = try crowd.navMeshQuery(&failure);
+    const near = try query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(near.ref != null);
 
     // And the placement box is derived from the radius the crowd was made for.
-    const extents = try crowd.queryHalfExtents();
+    const extents = try crowd.queryHalfExtents(&failure);
     try std.testing.expect(extents[0] > 0 and extents[1] > 0 and extents[2] > 0);
 
-    _ = try crowd.pathQueue();
+    _ = try crowd.pathQueue(&failure);
 }
 
 //=============================================================================
@@ -7612,11 +8003,12 @@ const DrawStages = struct {
     mesh: zrecast.PolyMesh,
 
     fn init(gpa: std.mem.Allocator) !DrawStages {
+        var failure: zrecast.Failure = .{};
         const config = zrecast.defaultConfig();
         const geometry = fixtureMesh();
-        const cells = try zrecast.buildCells(config);
-        const bounds = try zrecast.calcBounds(geometry);
-        const grid = try zrecast.calcGridSize(bounds[0], bounds[1], config.cell_size);
+        const cells = try zrecast.buildCells(config, &failure);
+        const bounds = try zrecast.calcBounds(geometry, &failure);
+        const grid = try zrecast.calcGridSize(bounds[0], bounds[1], config.cell_size, &failure);
 
         const field = try zrecast.Heightfield.init(
             null,
@@ -7626,33 +8018,36 @@ const DrawStages = struct {
             bounds[1],
             config.cell_size,
             config.cell_height,
+            &failure,
         );
         errdefer field.deinit();
 
         const tri_areas = try gpa.alloc(u8, geometry.tris.len / 3);
         defer gpa.free(tri_areas);
         @memset(tri_areas, zrecast.area_null);
-        try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas);
-        try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb);
-        try field.filterLowHangingObstacles(null, cells.walkable_climb);
-        try field.filterLedgeSpans(null, cells.walkable_height, cells.walkable_climb);
-        try field.filterWalkableLowHeightSpans(null, cells.walkable_height);
+        try zrecast.markWalkableTriangles(null, config.agent_max_slope, geometry, tri_areas, &failure);
+        try field.rasterizeTriangles(null, geometry, tri_areas, cells.walkable_climb, &failure);
+        try field.filterLowHangingObstacles(null, cells.walkable_climb, &failure);
+        try field.filterLedgeSpans(null, cells.walkable_height, cells.walkable_climb, &failure);
+        try field.filterWalkableLowHeightSpans(null, cells.walkable_height, &failure);
 
         const compact = try zrecast.CompactHeightfield.init(
             null,
             cells.walkable_height,
             cells.walkable_climb,
             field,
+            &failure,
         );
         errdefer compact.deinit();
-        try compact.erode(null, cells.walkable_radius);
-        try compact.buildDistanceField(null);
+        try compact.erode(null, cells.walkable_radius, &failure);
+        try compact.buildDistanceField(null, &failure);
         try compact.buildRegions(
             null,
             .watershed,
             cells.border_size,
             cells.min_region_area,
             cells.merge_region_area,
+            &failure,
         );
 
         const contours = try zrecast.ContourSet.init(
@@ -7661,18 +8056,20 @@ const DrawStages = struct {
             cells.max_simplification_error,
             cells.max_edge_len,
             .{},
+            &failure,
         );
         errdefer contours.deinit();
 
-        const mesh = try zrecast.PolyMesh.initEmpty();
+        const mesh = try zrecast.PolyMesh.initEmpty(&failure);
         errdefer mesh.deinit();
-        try zrecast.polyMeshBuild(null, contours, cells.verts_per_poly, mesh);
+        try zrecast.polyMeshBuild(null, contours, cells.verts_per_poly, mesh, &failure);
         try zrecast.polyMeshBuildDetail(
             null,
             mesh,
             compact,
             cells.detail_sample_dist,
             cells.detail_sample_max_error,
+            &failure,
         );
 
         return .{ .field = field, .compact = compact, .contours = contours, .mesh = mesh };
@@ -7710,6 +8107,7 @@ fn fixtureNormals(gpa: std.mem.Allocator, mesh: zrecast.TriMesh) ![]f32 {
 }
 
 test "every Recast container draws into a Zig renderer, and the counts hold" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7728,52 +8126,52 @@ test "every Recast container draws into a Zig renderer, and the counts hold" {
     // they are taken over is byte-identical across them.
     // One quad per span, four vertices each, in a single run. The walkable
     // form draws the same geometry and differs only in the colour it picks.
-    try draw.heightfieldSolid(stages.field);
+    try draw.heightfieldSolid(stages.field, &failure);
     try recorder.expectCounts(1, .{ 0, 0, 0, 120120 });
     recorder.reset();
 
-    try draw.heightfieldWalkable(stages.field);
+    try draw.heightfieldWalkable(stages.field, &failure);
     try recorder.expectCounts(1, .{ 0, 0, 0, 120120 });
     recorder.reset();
 
     // The compact heightfield is the open surface rather than every span, so
     // it is an order of magnitude smaller. All three colourings of it walk
     // the same spans.
-    try draw.compactHeightfieldSolid(stages.compact);
+    try draw.compactHeightfieldSolid(stages.compact, &failure);
     try recorder.expectCounts(1, .{ 0, 0, 0, 18168 });
     recorder.reset();
 
-    try draw.compactHeightfieldRegions(stages.compact);
+    try draw.compactHeightfieldRegions(stages.compact, &failure);
     try recorder.expectCounts(1, .{ 0, 0, 0, 18168 });
     recorder.reset();
 
-    try draw.compactHeightfieldDistance(stages.compact);
+    try draw.compactHeightfieldDistance(stages.compact, &failure);
     try recorder.expectCounts(1, .{ 0, 0, 0, 18168 });
     recorder.reset();
 
     // A point per region centre, and a line per connection between two.
-    try draw.regionConnections(stages.contours, 1.0);
+    try draw.regionConnections(stages.contours, 1.0, &failure);
     try recorder.expectCounts(2, .{ 4, 72, 0, 0 });
     recorder.reset();
 
     // Simplification is what the contour stage is for: the traced outline
     // carries seventeen times the vertices of the one the polygon mesh is
     // built from.
-    try draw.rawContours(stages.contours, 1.0);
+    try draw.rawContours(stages.contours, 1.0, &failure);
     try recorder.expectCounts(2, .{ 508, 1016, 0, 0 });
     recorder.reset();
 
-    try draw.contours(stages.contours, 1.0);
+    try draw.contours(stages.contours, 1.0, &failure);
     try recorder.expectCounts(2, .{ 30, 60, 0, 0 });
     recorder.reset();
 
     // Filled polygons, their internal edges, their boundary edges and their
     // vertices: four runs, and the detail mesh adds vertices to two of them.
-    try draw.polyMesh(stages.mesh);
+    try draw.polyMesh(stages.mesh, &failure);
     try recorder.expectCounts(4, .{ 24, 92, 66, 0 });
     recorder.reset();
 
-    try draw.polyMeshDetail(stages.mesh);
+    try draw.polyMeshDetail(stages.mesh, &failure);
     try recorder.expectCounts(4, .{ 46, 112, 66, 0 });
     recorder.reset();
 
@@ -7786,19 +8184,20 @@ test "every Recast container draws into a Zig renderer, and the counts hold" {
 
     // The soup is drawn as triangles, three textured vertices each, between
     // one texture-on and one texture-off.
-    try draw.triMesh(geometry, normals, flags, 1.0);
+    try draw.triMesh(geometry, normals, flags, 1.0, &failure);
     try recorder.expectCounts(1, .{ 0, 0, fixture.tri_count * 3, 0 });
     try std.testing.expectEqual(@as(u32, fixture.tri_count * 3), recorder.textured);
     try std.testing.expectEqual(@as(u32, 2), recorder.textures);
     recorder.reset();
 
-    try draw.triMeshSlope(geometry, normals, 45.0, 1.0);
+    try draw.triMeshSlope(geometry, normals, 45.0, 1.0, &failure);
     try recorder.expectCounts(1, .{ 0, 0, fixture.tri_count * 3, 0 });
     try std.testing.expectEqual(@as(u32, fixture.tri_count * 3), recorder.textured);
     recorder.reset();
 }
 
 test "a draw call refuses a renderer with a hook missing" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7814,18 +8213,19 @@ test "a draw call refuses a renderer with a hook missing" {
     inline for (.{ "depth_mask", "texture", "begin", "vertex", "vertex_xyz", "vertex_uv", "vertex_xyz_uv", "end" }) |field| {
         var holed = complete;
         @field(holed, field) = null;
-        try std.testing.expectError(zrecast.Error.InvalidArgument, holed.polyMesh(poly));
+        try expectRefusal(zrecast.Error.InvalidArgument, &failure, holed.polyMesh(poly, &failure));
     }
 
     // area_to_col is the one upstream gives a default for, so a table without
     // it is complete.
     var without_colors = complete;
     without_colors.area_to_col = null;
-    try without_colors.polyMesh(poly);
+    try without_colors.polyMesh(poly, &failure);
     try recorder.expectWellFormed();
 }
 
 test "a renderer's own area colours are used when it supplies them" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7864,16 +8264,16 @@ test "a renderer's own area colours are used when it supplies them" {
     // Upstream colours the two area ids it knows itself — walkable and null —
     // and asks the renderer about every other one, so a cook that paints its
     // own ids is what reaches the hook.
-    try draw.compactHeightfieldSolid(stages.compact);
+    try draw.compactHeightfieldSolid(stages.compact, &failure);
     try renderer.inner.expectWellFormed();
     try std.testing.expectEqual(@as(u32, 0), renderer.asked);
     renderer.inner.reset();
 
-    const info = try stages.compact.info();
+    const info = try stages.compact.info(&failure);
     const span_count: usize = @intCast(info.span_count);
     const areas = try gpa.alloc(u8, span_count);
     defer gpa.free(areas);
-    try stages.compact.areas(0, areas);
+    try stages.compact.areas(0, areas, &failure);
     var painted: u32 = 0;
     for (areas) |*area| {
         if (area.* == zrecast.area_walkable) {
@@ -7882,86 +8282,87 @@ test "a renderer's own area colours are used when it supplies them" {
         }
     }
     try std.testing.expect(painted > 0);
-    try stages.compact.setAreas(0, areas);
+    try stages.compact.setAreas(0, areas, &failure);
 
-    try draw.compactHeightfieldSolid(stages.compact);
+    try draw.compactHeightfieldSolid(stages.compact, &failure);
     try renderer.inner.expectWellFormed();
     try std.testing.expectEqual(painted, renderer.asked);
 }
 
 test "every Detour container draws into a Zig renderer" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+    const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
-    const query = try zrecast.NavMeshQuery.init(mesh, 2048);
+    const query = try zrecast.NavMeshQuery.init(mesh, 2048, &failure);
     defer query.deinit();
 
     var recorder = DrawRecorder{};
     const draw = zrecast.DebugDraw.of(&recorder);
 
-    try draw.navMesh(mesh, .{});
+    try draw.navMesh(mesh, .{}, &failure);
     try recorder.expectWellFormed();
     const plain = recorder.total();
     recorder.reset();
 
     // Colouring by tile changes no geometry, only the colour of it.
-    try draw.navMesh(mesh, .{ .color_tiles = true, .off_mesh_connections = true });
+    try draw.navMesh(mesh, .{ .color_tiles = true, .off_mesh_connections = true }, &failure);
     try recorder.expectWellFormed();
     try std.testing.expectEqual(plain, recorder.total());
     recorder.reset();
 
-    try draw.navMeshBvTree(mesh);
+    try draw.navMeshBvTree(mesh, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
     // A single-tile mesh has no tile boundary to portal across, so this is a
     // well-formed empty answer; the tiled mesh below is where the portals are.
-    try draw.navMeshPortals(mesh);
+    try draw.navMeshPortals(mesh, &failure);
     try std.testing.expectEqual(@as(u32, 0), recorder.total());
     try std.testing.expect(!recorder.misordered);
     recorder.reset();
 
     const tiled = try TiledWorld.init();
     defer tiled.deinit();
-    try draw.navMeshPortals(tiled.mesh);
+    try draw.navMeshPortals(tiled.mesh, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
-    try draw.navMeshPolysWithFlags(mesh, zrecast.poly_flag_walkable, zrecast.rgba(0, 192, 255, 64));
+    try draw.navMeshPolysWithFlags(mesh, zrecast.poly_flag_walkable, zrecast.rgba(0, 192, 255, 64), &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
     // A flag word no polygon carries draws nothing at all, which is a
     // well-formed empty answer rather than an error.
-    try draw.navMeshPolysWithFlags(mesh, 0x8000, zrecast.rgba(0, 192, 255, 64));
+    try draw.navMeshPolysWithFlags(mesh, 0x8000, zrecast.rgba(0, 192, 255, 64), &failure);
     try std.testing.expectEqual(@as(u32, 0), recorder.total());
     try std.testing.expect(!recorder.misordered);
     recorder.reset();
 
-    const filter = try zrecast.QueryFilter.initDefault();
+    const filter = try zrecast.QueryFilter.initDefault(&failure);
     defer filter.deinit();
-    const from = try query.findNearestPoly(fixture.start, search_extents, filter);
-    const to = try query.findNearestPoly(fixture.goal, search_extents, filter);
+    const from = try query.findNearestPoly(fixture.start, search_extents, filter, &failure);
+    const to = try query.findNearestPoly(fixture.goal, search_extents, filter, &failure);
     try std.testing.expect(from.ref != null and to.ref != null);
 
-    try draw.navMeshPoly(mesh, from.ref.?, zrecast.rgba(255, 255, 255, 128));
+    try draw.navMeshPoly(mesh, from.ref.?, zrecast.rgba(255, 255, 255, 128), &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
     // A reference naming no resident polygon draws nothing: upstream's own
     // silence, not an error.
-    try draw.navMeshPoly(mesh, 0xffffffff, zrecast.rgba(255, 255, 255, 128));
+    try draw.navMeshPoly(mesh, 0xffffffff, zrecast.rgba(255, 255, 255, 128), &failure);
     try std.testing.expectEqual(@as(u32, 0), recorder.total());
     recorder.reset();
 
     // Before a search, the node pool is empty and the closed-list shading has
     // nothing to shade; after one, both have something to say.
-    try draw.navMeshNodes(query);
+    try draw.navMeshNodes(query, &failure);
     try std.testing.expectEqual(@as(u32, 0), recorder.total());
     recorder.reset();
 
@@ -7973,19 +8374,21 @@ test "every Detour container draws into a Zig renderer" {
         to.point,
         filter,
         &corridor,
+        &failure,
     );
     try std.testing.expect(path.len > 1);
 
-    try draw.navMeshNodes(query);
+    try draw.navMeshNodes(query, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
-    try draw.navMeshWithClosedList(mesh, query, .{ .closed_list = true });
+    try draw.navMeshWithClosedList(mesh, query, .{ .closed_list = true }, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 }
 
 test "the layered heightfield and a tile cache rebuild draw into a Zig renderer" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7994,37 +8397,39 @@ test "the layered heightfield and a tile cache rebuild draw into a Zig renderer"
     defer stages.deinit();
 
     const config = zrecast.defaultConfig();
-    const cells = try zrecast.buildCells(config);
+    const cells = try zrecast.buildCells(config, &failure);
     const layers = try zrecast.HeightfieldLayerSet.init(
         null,
         stages.compact,
         cells.border_size,
         cells.walkable_height,
+        &failure,
     );
     defer layers.deinit();
-    const layer_count = try layers.count();
+    const layer_count = try layers.count(&failure);
     try std.testing.expect(layer_count > 0);
 
     var recorder = DrawRecorder{};
     const draw = zrecast.DebugDraw.of(&recorder);
 
-    try draw.heightfieldLayer(layers, 0);
+    try draw.heightfieldLayer(layers, 0, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
-    try draw.heightfieldLayers(layers);
+    try draw.heightfieldLayers(layers, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
     // An index past the last sheet is refused rather than read.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        draw.heightfieldLayer(layers, layer_count),
+        &failure,
+        draw.heightfieldLayer(layers, layer_count, &failure),
     );
 
     // The tile cache's own three stages, driven by hand so each can be drawn
     // between one and the next.
-    const layer = try layers.at(0);
+    const layer = try layers.at(0, &failure);
     const n: usize = @intCast(layer.width * layer.height);
     const heights = try gpa.alloc(u8, n);
     defer gpa.free(heights);
@@ -8032,9 +8437,9 @@ test "the layered heightfield and a tile cache rebuild draw into a Zig renderer"
     defer gpa.free(areas);
     const cons = try gpa.alloc(u8, n);
     defer gpa.free(cons);
-    try layers.heights(0, 0, heights);
-    try layers.areas(0, 0, areas);
-    try layers.cons(0, 0, cons);
+    try layers.heights(0, 0, heights, &failure);
+    try layers.areas(0, 0, areas, &failure);
+    try layers.cons(0, 0, cons, &failure);
 
     const header = zrecast.TileCacheLayerHeader{
         .tile_x = 0,
@@ -8052,18 +8457,18 @@ test "the layered heightfield and a tile cache rebuild draw into a Zig renderer"
         .max_z = layer.max_z,
     };
     var codec = StoreCodec.compressor();
-    const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons);
+    const bytes = try zrecast.buildTileCacheLayer(&codec, header, heights, areas, cons, &failure);
     defer bytes.deinit();
 
-    const decoded = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes.bytes));
+    const decoded = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(bytes.bytes), &failure);
     defer decoded.deinit();
 
-    try draw.tileCacheLayerAreas(decoded, config.cell_size, config.cell_height);
+    try draw.tileCacheLayerAreas(decoded, config.cell_size, config.cell_height, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
-    try decoded.buildRegions(cells.walkable_climb);
-    try draw.tileCacheLayerRegions(decoded, config.cell_size, config.cell_height);
+    try decoded.buildRegions(cells.walkable_climb, &failure);
+    try draw.tileCacheLayerRegions(decoded, config.cell_size, config.cell_height, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
@@ -8072,20 +8477,22 @@ test "the layered heightfield and a tile cache rebuild draw into a Zig renderer"
         decoded,
         cells.walkable_climb,
         cells.max_simplification_error,
+        &failure,
     );
     defer traced.deinit();
-    try draw.tileCacheContours(traced, layer.bmin, config.cell_size, config.cell_height);
+    try draw.tileCacheContours(traced, layer.bmin, config.cell_size, config.cell_height, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
-    const rebuilt = try zrecast.TileCachePolyMesh.init(null, traced);
+    const rebuilt = try zrecast.TileCachePolyMesh.init(null, traced, &failure);
     defer rebuilt.deinit();
-    try draw.tileCachePolyMesh(rebuilt, layer.bmin, config.cell_size, config.cell_height);
+    try draw.tileCachePolyMesh(rebuilt, layer.bmin, config.cell_size, config.cell_height, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 }
 
 test "the primitive helpers emit the runs they are named for" {
+    var failure: zrecast.Failure = .{};
     var recorder = DrawRecorder{};
     const draw = zrecast.DebugDraw.of(&recorder);
 
@@ -8095,7 +8502,7 @@ test "the primitive helpers emit the runs they are named for" {
     const faces = zrecast.boxColors(col, zrecast.darkenCol(col));
 
     // A wire box is twelve edges, so twenty-four line vertices in one run.
-    try draw.boxWire(bmin, bmax, col, 1.0);
+    try draw.boxWire(bmin, bmax, col, 1.0, &failure);
     try std.testing.expectEqual(@as(u32, 1), recorder.runs());
     try std.testing.expectEqual(
         @as(u32, 24),
@@ -8105,7 +8512,7 @@ test "the primitive helpers emit the runs they are named for" {
     recorder.reset();
 
     // A solid box is six quads, four vertices each.
-    try draw.box(bmin, bmax, &faces);
+    try draw.box(bmin, bmax, &faces, &failure);
     try std.testing.expectEqual(
         @as(u32, 24),
         recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.quads)],
@@ -8114,7 +8521,7 @@ test "the primitive helpers emit the runs they are named for" {
     recorder.reset();
 
     // A cross is three segments through the centre: six line vertices.
-    try draw.cross(.{ 0, 0, 0 }, 1.0, col, 1.0);
+    try draw.cross(.{ 0, 0, 0 }, 1.0, col, 1.0, &failure);
     try std.testing.expectEqual(
         @as(u32, 6),
         recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.lines)],
@@ -8127,38 +8534,38 @@ test "the primitive helpers emit the runs they are named for" {
         .{ "circle", .{ zrecast.Vec3{ 0, 0, 0 }, 1.0, col, 1.0 } },
         .{ "cylinder", .{ bmin, bmax, col } },
     }) |shape| {
-        try @call(.auto, @field(zrecast.DebugDraw, shape[0]), .{draw} ++ shape[1]);
+        try @call(.auto, @field(zrecast.DebugDraw, shape[0]), .{draw} ++ shape[1] ++ .{&failure});
         try recorder.expectWellFormed();
         recorder.reset();
     }
 
-    try draw.arc(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.25, 0.1, 0.1, col, 1.0);
+    try draw.arc(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.25, 0.1, 0.1, col, 1.0, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
-    try draw.arrow(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.1, 0.1, col, 1.0);
+    try draw.arrow(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.1, 0.1, col, 1.0, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
-    try draw.gridXZ(.{ 0, 0, 0 }, 4, 4, 1.0, col, 1.0);
+    try draw.gridXZ(.{ 0, 0, 0 }, 4, 4, 1.0, col, 1.0, &failure);
     try recorder.expectWellFormed();
     recorder.reset();
 
     // The grid is drawn as fence posts rather than cells: `w + 1` lines one
     // way and `h + 1` the other, so a zero-cell grid is still a cross of two.
-    try draw.gridXZ(.{ 0, 0, 0 }, 0, 0, 1.0, col, 1.0);
+    try draw.gridXZ(.{ 0, 0, 0 }, 0, 0, 1.0, col, 1.0, &failure);
     try std.testing.expectEqual(@as(u32, 4), recorder.total());
     recorder.reset();
 
     // The append forms share one run, which is the only way to draw many
     // shapes without a state change between each.
     recorder.begin(.lines, 1.0);
-    try draw.appendBoxWire(bmin, bmax, col);
-    try draw.appendCylinderWire(bmin, bmax, col);
-    try draw.appendArc(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.25, 0.1, 0.1, col);
-    try draw.appendArrow(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.1, 0.1, col);
-    try draw.appendCircle(.{ 0, 0, 0 }, 1.0, col);
-    try draw.appendCross(.{ 0, 0, 0 }, 1.0, col);
+    try draw.appendBoxWire(bmin, bmax, col, &failure);
+    try draw.appendCylinderWire(bmin, bmax, col, &failure);
+    try draw.appendArc(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.25, 0.1, 0.1, col, &failure);
+    try draw.appendArrow(.{ -1, 0, 0 }, .{ 1, 0, 0 }, 0.1, 0.1, col, &failure);
+    try draw.appendCircle(.{ 0, 0, 0 }, 1.0, col, &failure);
+    try draw.appendCross(.{ 0, 0, 0 }, 1.0, col, &failure);
     recorder.end();
     try std.testing.expectEqual(@as(u32, 1), recorder.runs());
     try recorder.expectWellFormed();
@@ -8169,7 +8576,7 @@ test "the primitive helpers emit the runs they are named for" {
     // Sixteen, not eight: upstream emits each of the top and bottom outlines
     // as four segments, so every corner arrives twice.
     recorder.begin(.lines, 1.0);
-    try draw.appendBoxPoints(bmin, bmax, col);
+    try draw.appendBoxPoints(bmin, bmax, col, &failure);
     recorder.end();
     try std.testing.expectEqual(
         @as(u32, 16),
@@ -8178,8 +8585,8 @@ test "the primitive helpers emit the runs they are named for" {
     recorder.reset();
 
     recorder.begin(.quads, 1.0);
-    try draw.appendBox(bmin, bmax, &faces);
-    try draw.appendCylinder(bmin, bmax, col);
+    try draw.appendBox(bmin, bmax, &faces, &failure);
+    try draw.appendCylinder(bmin, bmax, col, &failure);
     recorder.end();
     try recorder.expectWellFormed();
     recorder.reset();
@@ -8187,9 +8594,10 @@ test "the primitive helpers emit the runs they are named for" {
     // A non-finite coordinate would be multiplied straight into a host's
     // vertex buffer.
     const nan = std.math.nan(f32);
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        draw.circle(.{ nan, 0, 0 }, 1.0, col, 1.0),
+        &failure,
+        draw.circle(.{ nan, 0, 0 }, 1.0, col, 1.0, &failure),
     );
 }
 
@@ -8236,30 +8644,31 @@ test "the colour helpers pack the channels upstream packs" {
 }
 
 test "a display list records a run and replays it into another renderer" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
-    const list = try zrecast.DisplayList.init(16);
+    const list = try zrecast.DisplayList.init(16, &failure);
     defer list.deinit();
-    try std.testing.expectEqual(@as(u32, 0), try list.count());
+    try std.testing.expectEqual(@as(u32, 0), try list.count(&failure));
 
     // An empty list replays nothing at all, not even the begin/end pair.
     var recorder = DrawRecorder{};
     const draw = zrecast.DebugDraw.of(&recorder);
-    try list.draw(draw);
+    try list.draw(draw, &failure);
     try std.testing.expectEqual(@as(u32, 0), recorder.runs());
     try std.testing.expectEqual(@as(u32, 0), recorder.depth_masks);
 
     const col = zrecast.rgba(10, 20, 30, 255);
-    try list.setDepthMask(false);
-    try list.begin(.lines, 2.0);
-    try list.vertex(.{ 1, 2, 3 }, col);
-    try list.vertexXyz(4, 5, 6, col);
-    try list.end();
-    try std.testing.expectEqual(@as(u32, 2), try list.count());
+    try list.setDepthMask(false, &failure);
+    try list.begin(.lines, 2.0, &failure);
+    try list.vertex(.{ 1, 2, 3 }, col, &failure);
+    try list.vertexXyz(4, 5, 6, col, &failure);
+    try list.end(&failure);
+    try std.testing.expectEqual(@as(u32, 2), try list.count(&failure));
 
-    try list.draw(draw);
+    try list.draw(draw, &failure);
     try std.testing.expectEqual(@as(u32, 1), recorder.runs());
     try std.testing.expectEqual(
         @as(u32, 2),
@@ -8271,19 +8680,19 @@ test "a display list records a run and replays it into another renderer" {
 
     // Clearing keeps the primitive type and drops the vertices, so the list
     // replays nothing again.
-    try list.clear();
-    try std.testing.expectEqual(@as(u32, 0), try list.count());
-    try list.draw(draw);
+    try list.clear(&failure);
+    try std.testing.expectEqual(@as(u32, 0), try list.count(&failure));
+    try list.draw(draw, &failure);
     try std.testing.expectEqual(@as(u32, 0), recorder.runs());
 
     // A list is a renderer as well: a draw call records into it, and the
     // replay puts the same vertices into a recorder. `begin` discards what
     // the list held, so what survives is the draw's last run.
     const recorder_draw = list.recorder();
-    try recorder_draw.cross(.{ 0, 0, 0 }, 1.0, col, 1.0);
-    try std.testing.expectEqual(@as(u32, 6), try list.count());
+    try recorder_draw.cross(.{ 0, 0, 0 }, 1.0, col, 1.0, &failure);
+    try std.testing.expectEqual(@as(u32, 6), try list.count(&failure));
 
-    try list.draw(draw);
+    try list.draw(draw, &failure);
     try std.testing.expectEqual(
         @as(u32, 6),
         recorder.verts[@backingInt(zrecast.DebugDrawPrimitive.lines)],
@@ -8294,9 +8703,10 @@ test "a display list records a run and replays it into another renderer" {
     // refuses a primitive outside the four, which no test here can reach: the
     // Zig enum is exhaustive, and forging one in C is the undefined behaviour
     // the sanitizer stops.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        list.vertex(.{ std.math.nan(f32), 0, 0 }, col),
+        &failure,
+        list.vertex(.{ std.math.nan(f32), 0, 0 }, col, &failure),
     );
 }
 
@@ -8350,17 +8760,18 @@ pub const MemoryStream = struct {
 };
 
 test "a polygon mesh and its detail mesh dump to OBJ through a Zig stream" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
 
     const poly = try bakeFixture(null);
     defer poly.deinit();
-    const built = try poly.info();
+    const built = try poly.info(&failure);
 
     var stream = MemoryStream.init(gpa, true);
     defer stream.deinit();
-    try zrecast.dumpPolyMeshToObj(poly, zrecast.FileIO.of(&stream));
+    try zrecast.dumpPolyMeshToObj(poly, zrecast.FileIO.of(&stream), &failure);
 
     const text = stream.bytes.items;
     try std.testing.expect(std.mem.startsWith(u8, text, "# Recast Navmesh\n"));
@@ -8382,29 +8793,31 @@ test "a polygon mesh and its detail mesh dump to OBJ through a Zig stream" {
     // A stream that says it is reading is refused before upstream prints to
     // the host's console about it.
     stream.rewind();
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.dumpPolyMeshToObj(poly, zrecast.FileIO.of(&stream)),
+        &failure,
+        zrecast.dumpPolyMeshToObj(poly, zrecast.FileIO.of(&stream), &failure),
     );
 
     var detail = MemoryStream.init(gpa, true);
     defer detail.deinit();
-    try zrecast.dumpPolyMeshDetailToObj(poly, zrecast.FileIO.of(&detail));
+    try zrecast.dumpPolyMeshDetailToObj(poly, zrecast.FileIO.of(&detail), &failure);
     try std.testing.expect(detail.bytes.items.len > 0);
     try std.testing.expect(std.mem.find(u8, detail.bytes.items, "\nf ") != null);
 
     // A mesh whose detail mesh was never built writes the two header lines
     // and no geometry, which is an empty answer rather than an error.
-    const bare = try zrecast.PolyMesh.initEmpty();
+    const bare = try zrecast.PolyMesh.initEmpty(&failure);
     defer bare.deinit();
     var none = MemoryStream.init(gpa, true);
     defer none.deinit();
-    try zrecast.dumpPolyMeshDetailToObj(bare, zrecast.FileIO.of(&none));
+    try zrecast.dumpPolyMeshDetailToObj(bare, zrecast.FileIO.of(&none), &failure);
     try std.testing.expect(std.mem.find(u8, none.bytes.items, "\nv ") == null);
     try std.testing.expect(std.mem.find(u8, none.bytes.items, "\nf ") == null);
 }
 
 test "a contour set survives a dump and a read" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -8414,15 +8827,15 @@ test "a contour set survives a dump and a read" {
 
     var stream = MemoryStream.init(gpa, true);
     defer stream.deinit();
-    try zrecast.dumpContourSet(stages.contours, zrecast.FileIO.of(&stream));
+    try zrecast.dumpContourSet(stages.contours, zrecast.FileIO.of(&stream), &failure);
     try std.testing.expect(stream.bytes.items.len > 0);
 
     stream.rewind();
-    const read_back = try zrecast.readContourSet(zrecast.FileIO.of(&stream));
+    const read_back = try zrecast.readContourSet(zrecast.FileIO.of(&stream), &failure);
     defer read_back.deinit();
 
-    const before = try stages.contours.info();
-    const after = try read_back.info();
+    const before = try stages.contours.info(&failure);
+    const after = try read_back.info(&failure);
     // Every field upstream's format carries. `max_error` is not one of them:
     // duDumpContourSet never writes it, so it comes back as the default the
     // container was allocated with.
@@ -8437,16 +8850,16 @@ test "a contour set survives a dump and a read" {
 
     var index: u32 = 0;
     while (index < @as(u32, @intCast(before.contour_count))) : (index += 1) {
-        const one = try stages.contours.at(index);
-        const two = try read_back.at(index);
+        const one = try stages.contours.at(index, &failure);
+        const two = try read_back.at(index, &failure);
         try std.testing.expectEqual(one, two);
 
         const verts_a = try gpa.alloc(zrecast.ContourVertex, @intCast(one.vert_count));
         defer gpa.free(verts_a);
         const verts_b = try gpa.alloc(zrecast.ContourVertex, @intCast(two.vert_count));
         defer gpa.free(verts_b);
-        try stages.contours.verts(index, 0, verts_a);
-        try read_back.verts(index, 0, verts_b);
+        try stages.contours.verts(index, 0, verts_a, &failure);
+        try read_back.verts(index, 0, verts_b, &failure);
         try std.testing.expectEqualSlices(zrecast.ContourVertex, verts_a, verts_b);
     }
 
@@ -8454,10 +8867,10 @@ test "a contour set survives a dump and a read" {
     // it produced draws exactly as the one it was copied from.
     var recorder = DrawRecorder{};
     const draw = zrecast.DebugDraw.of(&recorder);
-    try draw.contours(stages.contours, 1.0);
+    try draw.contours(stages.contours, 1.0, &failure);
     const original = recorder.total();
     recorder.reset();
-    try draw.contours(read_back, 1.0);
+    try draw.contours(read_back, 1.0, &failure);
     try std.testing.expectEqual(original, recorder.total());
 
     // Bytes that are not a contour set are refused rather than trusted.
@@ -8465,13 +8878,15 @@ test "a contour set survives a dump and a read" {
     defer garbage.deinit();
     try std.testing.expect(garbage.write(&@as([64]u8, @splat(0))));
     garbage.rewind();
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.BadFormat,
-        zrecast.readContourSet(zrecast.FileIO.of(&garbage)),
+        &failure,
+        zrecast.readContourSet(zrecast.FileIO.of(&garbage), &failure),
     );
 }
 
 test "a compact heightfield survives a dump and a read" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -8481,45 +8896,46 @@ test "a compact heightfield survives a dump and a read" {
 
     var stream = MemoryStream.init(gpa, true);
     defer stream.deinit();
-    try zrecast.dumpCompactHeightfield(stages.compact, zrecast.FileIO.of(&stream));
+    try zrecast.dumpCompactHeightfield(stages.compact, zrecast.FileIO.of(&stream), &failure);
 
     stream.rewind();
-    const read_back = try zrecast.readCompactHeightfield(zrecast.FileIO.of(&stream));
+    const read_back = try zrecast.readCompactHeightfield(zrecast.FileIO.of(&stream), &failure);
     defer read_back.deinit();
 
     // Every field the format carries, in one comparison.
-    try std.testing.expectEqual(try stages.compact.info(), try read_back.info());
+    try std.testing.expectEqual(try stages.compact.info(&failure), try read_back.info(&failure));
 
-    const info = try read_back.info();
+    const info = try read_back.info(&failure);
     const span_count: usize = @intCast(info.span_count);
     const areas_a = try gpa.alloc(u8, span_count);
     defer gpa.free(areas_a);
     const areas_b = try gpa.alloc(u8, span_count);
     defer gpa.free(areas_b);
-    try stages.compact.areas(0, areas_a);
-    try read_back.areas(0, areas_b);
+    try stages.compact.areas(0, areas_a, &failure);
+    try read_back.areas(0, areas_b, &failure);
     try std.testing.expectEqualSlices(u8, areas_a, areas_b);
 
     const dist_a = try gpa.alloc(u16, span_count);
     defer gpa.free(dist_a);
     const dist_b = try gpa.alloc(u16, span_count);
     defer gpa.free(dist_b);
-    try stages.compact.distances(0, dist_a);
-    try read_back.distances(0, dist_b);
+    try stages.compact.distances(0, dist_a, &failure);
+    try read_back.distances(0, dist_b, &failure);
     try std.testing.expectEqualSlices(u16, dist_a, dist_b);
 
     // And it draws the same, which is the end-to-end statement: dumped, read
     // and rendered produces the picture the original does.
     var recorder = DrawRecorder{};
     const draw = zrecast.DebugDraw.of(&recorder);
-    try draw.compactHeightfieldRegions(stages.compact);
+    try draw.compactHeightfieldRegions(stages.compact, &failure);
     const original = recorder.total();
     recorder.reset();
-    try draw.compactHeightfieldRegions(read_back);
+    try draw.compactHeightfieldRegions(read_back, &failure);
     try std.testing.expectEqual(original, recorder.total());
 }
 
 test "a dump refuses a stream with a hook missing" {
+    var failure: zrecast.Failure = .{};
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -8533,15 +8949,17 @@ test "a dump refuses a stream with a hook missing" {
     inline for (.{ "is_writing", "is_reading", "write", "read" }) |field| {
         var holed = complete;
         @field(holed, field) = null;
-        try std.testing.expectError(
+        try expectRefusal(
             zrecast.Error.InvalidArgument,
-            zrecast.dumpPolyMeshToObj(poly, holed),
+            &failure,
+            zrecast.dumpPolyMeshToObj(poly, holed, &failure),
         );
     }
     try std.testing.expectEqual(@as(usize, 0), stream.bytes.items.len);
 }
 
 test "build times reach a context's log hook" {
+    var failure: zrecast.Failure = .{};
     const Timings = struct {
         var lines: u32 = 0;
         var total_seen: bool = false;
@@ -8570,7 +8988,7 @@ test "build times reach a context's log hook" {
         .log_enabled = true,
         .timers_enabled = true,
     };
-    try zrecast.logBuildTimes(&context, 100000);
+    try zrecast.logBuildTimes(&context, 100000, &failure);
 
     // A heading, twenty-five phases and a total.
     try std.testing.expectEqual(@as(u32, 27), Timings.lines);
@@ -8580,16 +8998,18 @@ test "build times reach a context's log hook" {
     Timings.lines = 0;
     var quiet = context;
     quiet.log_enabled = false;
-    try zrecast.logBuildTimes(&quiet, 100000);
+    try zrecast.logBuildTimes(&quiet, 100000, &failure);
     try std.testing.expectEqual(@as(u32, 0), Timings.lines);
 
     // A zero total is a division upstream performs before anything else.
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.logBuildTimes(&context, 0),
+        &failure,
+        zrecast.logBuildTimes(&context, 0, &failure),
     );
-    try std.testing.expectError(
+    try expectRefusal(
         zrecast.Error.InvalidArgument,
-        zrecast.logBuildTimes(null, -1),
+        &failure,
+        zrecast.logBuildTimes(null, -1, &failure),
     );
 }

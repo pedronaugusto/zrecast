@@ -43,9 +43,10 @@ const Context = struct {
     crowd_c: *anyopaque = undefined,
 
     fn loadZig(c: *Context, n: u64) Failed!void {
+        var failure: zrecast.Failure = .{};
         var tiles: u64 = 0;
         for (0..n) |_| {
-            const mesh = zrecast.NavMesh.initFromBytes(.init(c.image)) catch return error.Failed;
+            const mesh = zrecast.NavMesh.initFromBytes(.init(c.image), &failure) catch return error.Failed;
             tiles += mesh.maxTiles();
             mesh.deinit();
         }
@@ -69,9 +70,10 @@ const Context = struct {
     }
 
     fn nearestZig(c: *Context, n: u64) Failed!void {
+        var failure: zrecast.Failure = .{};
         var found: u64 = 0;
         for (0..n) |i| {
-            const near = c.query.findNearestPoly(c.points[i % point_count], extents, c.filter) catch return error.Failed;
+            const near = c.query.findNearestPoly(c.points[i % point_count], extents, c.filter, &failure) catch return error.Failed;
             found += @intFromBool(near.ref != null);
         }
         std.mem.doNotOptimizeAway(found);
@@ -82,6 +84,7 @@ const Context = struct {
     }
 
     fn routeZig(c: *Context, n: u64) Failed!void {
+        var failure: zrecast.Failure = .{};
         var corridor: [256]zrecast.PolyRef = undefined;
         var corners: [64][3]f32 = undefined;
         var walked: u64 = 0;
@@ -89,8 +92,8 @@ const Context = struct {
             const pair = c.pairs[i % point_count];
             const from = c.points[pair[0]];
             const to = c.points[pair[1]];
-            const path = c.query.findPath(c.refs[pair[0]], c.refs[pair[1]], from, to, c.filter, &corridor) catch return error.Failed;
-            const walk = c.query.findStraightPath(from, to, corridor[0..path.len], .{}, &corners, null, null) catch return error.Failed;
+            const path = c.query.findPath(c.refs[pair[0]], c.refs[pair[1]], from, to, c.filter, &corridor, &failure) catch return error.Failed;
+            const walk = c.query.findStraightPath(from, to, corridor[0..path.len], .{}, &corners, null, null, &failure) catch return error.Failed;
             walked += walk.len;
         }
         std.mem.doNotOptimizeAway(walked);
@@ -101,10 +104,11 @@ const Context = struct {
     }
 
     fn raycastZig(c: *Context, n: u64) Failed!void {
+        var failure: zrecast.Failure = .{};
         var sum: f32 = 0;
         for (0..n) |i| {
             const pair = c.pairs[i % point_count];
-            const ray = c.query.raycast(c.refs[pair[0]], c.points[pair[0]], c.points[pair[1]], c.filter, .{}, null, null) catch return error.Failed;
+            const ray = c.query.raycast(c.refs[pair[0]], c.points[pair[0]], c.points[pair[1]], c.filter, .{}, null, null, &failure) catch return error.Failed;
             sum += ray.hit.t;
         }
         std.mem.doNotOptimizeAway(sum);
@@ -118,11 +122,12 @@ const Context = struct {
     /// every agent just sent across the level, and every batch is the same
     /// `crowd_frames` frames on both sides.
     fn openCrowd(c: *Context) Failed!void {
-        c.crowd = zrecast.Crowd.init(c.mesh, point_count, agent_radius) catch return error.Failed;
+        var failure: zrecast.Failure = .{};
+        c.crowd = zrecast.Crowd.init(c.mesh, point_count, agent_radius, &failure) catch return error.Failed;
         errdefer c.crowd.deinit();
         for (c.pairs) |pair| {
-            const agent = c.crowd.addAgent(c.points[pair[0]], agentParams()) catch return error.Failed;
-            c.crowd.requestMoveTarget(agent, c.refs[pair[1]], c.points[pair[1]]) catch return error.Failed;
+            const agent = c.crowd.addAgent(c.points[pair[0]], agentParams(), &failure) catch return error.Failed;
+            c.crowd.requestMoveTarget(agent, c.refs[pair[1]], c.points[pair[1]], &failure) catch return error.Failed;
         }
     }
 
@@ -131,8 +136,9 @@ const Context = struct {
     }
 
     fn crowdZig(c: *Context, n: u64) Failed!void {
-        for (0..n) |_| c.crowd.update(frame) catch return error.Failed;
-        std.mem.doNotOptimizeAway(c.crowd.activeAgentCount() catch return error.Failed);
+        var failure: zrecast.Failure = .{};
+        for (0..n) |_| c.crowd.update(frame, &failure) catch return error.Failed;
+        std.mem.doNotOptimizeAway(c.crowd.activeAgentCount(&failure) catch return error.Failed);
     }
 
     fn openCrowdC(c: *Context) Failed!void {
@@ -222,6 +228,7 @@ const Level = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
+    var failure: zrecast.Failure = .{};
     const gpa = init.gpa;
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     const options = try shakedown.bench.Options.fromArguments(args[1..]);
@@ -234,11 +241,11 @@ pub fn main(init: std.process.Init) !void {
     const image = image: {
         var level = try Level.build(gpa);
         defer level.deinit(gpa);
-        const poly = try zrecast.PolyMesh.bake(zrecast.defaultConfig(), .{ .verts = level.verts.items, .tris = level.tris.items }, null, null);
+        const poly = try zrecast.PolyMesh.bake(zrecast.defaultConfig(), .{ .verts = level.verts.items, .tris = level.tris.items }, null, null, &failure);
         defer poly.deinit();
-        const baked = try zrecast.NavMesh.initFromPolyMesh(poly, null);
+        const baked = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
         defer baked.deinit();
-        break :image try baked.serialize();
+        break :image try baked.serialize(&failure);
     };
     defer image.deinit();
 
@@ -260,11 +267,11 @@ pub fn main(init: std.process.Init) !void {
     };
     try shakedown.bench.run(Failed, gpa, init.io, &stdout.interface, &context, &loads, metadata, options);
 
-    context.mesh = try zrecast.NavMesh.initFromBytes(.init(image.bytes));
+    context.mesh = try zrecast.NavMesh.initFromBytes(.init(image.bytes), &failure);
     defer context.mesh.deinit();
-    context.query = try zrecast.NavMeshQuery.init(context.mesh, max_nodes);
+    context.query = try zrecast.NavMeshQuery.init(context.mesh, max_nodes, &failure);
     defer context.query.deinit();
-    context.filter = try zrecast.QueryFilter.initDefault();
+    context.filter = try zrecast.QueryFilter.initDefault(&failure);
     defer context.filter.deinit();
     context.world = baseline.zrecast_baseline_open(image.bytes.ptr, image.bytes.len, max_nodes) orelse return error.BaselineOpen;
     defer baseline.zrecast_baseline_close(context.world);
@@ -274,7 +281,7 @@ pub fn main(init: std.process.Init) !void {
             0,
             @as(f32, @floatFromInt(i / 8)) * pillar_spacing + pillar_spacing / 2,
         };
-        const near = try context.query.findNearestPoly(at, extents, context.filter);
+        const near = try context.query.findNearestPoly(at, extents, context.filter, &failure);
         ref.* = near.ref orelse return error.OffMesh;
         point.* = near.point;
     }

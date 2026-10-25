@@ -130,11 +130,11 @@ pub const Crowd = struct {
     /// `max_agents` is `[1, crowd_max_agents]`; `max_agent_radius` sizes the
     /// crowd's proximity grid and its placement search box, and an agent added
     /// with a larger radius is refused.
-    pub fn init(navmesh: NavMesh, max_agents: u32, max_agent_radius: f32) err.Error!Crowd {
+    pub fn init(navmesh: NavMesh, max_agents: u32, max_agent_radius: f32, failure: *err.Failure) err.Error!Crowd {
         const agents = aegis.int.cast(i32, max_agents) catch
-            return err.Error.InvalidArgument;
+            return err.refuse(failure, .crowd_create, error.InvalidArgument);
         var handle: *c.Crowd = undefined;
-        try err.check(c.zrcCrowdCreate(navmesh.handle, agents, max_agent_radius, &handle));
+        try err.check(failure, .crowd_create, c.zrcCrowdCreate(navmesh.handle, agents, max_agent_radius, &handle));
         return .{ .handle = handle };
     }
 
@@ -148,10 +148,10 @@ pub const Crowd = struct {
     /// stops resolving**, including ones the caller still holds. A failure
     /// leaves the crowd empty rather than in its previous state: the purge
     /// happens first and cannot be undone.
-    pub fn reinit(self: Crowd, navmesh: NavMesh, max_agents: u32, max_agent_radius: f32) err.Error!void {
+    pub fn reinit(self: Crowd, navmesh: NavMesh, max_agents: u32, max_agent_radius: f32, failure: *err.Failure) err.Error!void {
         const agents = aegis.int.cast(i32, max_agents) catch
-            return err.Error.InvalidArgument;
-        try err.check(c.zrcCrowdInit(self.handle, navmesh.handle, agents, max_agent_radius));
+            return err.refuse(failure, .crowd_init, error.InvalidArgument);
+        try err.check(failure, .crowd_init, c.zrcCrowdInit(self.handle, navmesh.handle, agents, max_agent_radius));
     }
 
     //-- Agents ---------------------------------------------------------------
@@ -167,43 +167,44 @@ pub const Crowd = struct {
         self: Crowd,
         position: [3]f32,
         params: CrowdAgentParams,
+        failure: *err.Failure,
     ) err.Error!AgentRef {
         var ref: AgentRef = 0;
-        try err.check(c.zrcCrowdAddAgent(self.handle, &position, &params, &ref));
+        try err.check(failure, .crowd_add_agent, c.zrcCrowdAddAgent(self.handle, &position, &params, &ref));
         return ref;
     }
 
     /// Removes an agent. Its slot becomes available and `ref` stops resolving.
-    pub fn removeAgent(self: Crowd, ref: AgentRef) err.Error!void {
-        try err.check(c.zrcCrowdRemoveAgent(self.handle, ref));
+    pub fn removeAgent(self: Crowd, ref: AgentRef, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .crowd_remove_agent, c.zrcCrowdRemoveAgent(self.handle, ref));
     }
 
     /// Replaces an agent's parameters. Position, velocity and target are
     /// untouched.
-    pub fn setAgentParams(self: Crowd, ref: AgentRef, params: CrowdAgentParams) err.Error!void {
-        try err.check(c.zrcCrowdSetAgentParams(self.handle, ref, &params));
+    pub fn setAgentParams(self: Crowd, ref: AgentRef, params: CrowdAgentParams, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .crowd_set_agent_params, c.zrcCrowdSetAgentParams(self.handle, ref, &params));
     }
 
     /// Everything about one agent except its corridor and its local boundary,
     /// which have accessors of their own.
-    pub fn agent(self: Crowd, ref: AgentRef) err.Error!CrowdAgent {
+    pub fn agent(self: Crowd, ref: AgentRef, failure: *err.Failure) err.Error!CrowdAgent {
         var out: CrowdAgent = undefined;
-        try err.check(c.zrcCrowdAgentInfo(self.handle, ref, &out));
+        try err.check(failure, .crowd_agent_info, c.zrcCrowdAgentInfo(self.handle, ref, &out));
         return out;
     }
 
     /// Agent slots the crowd was created for, live or not. Not a population;
     /// that is `activeAgentCount`.
-    pub fn agentCapacity(self: Crowd) err.Error!u32 {
+    pub fn agentCapacity(self: Crowd, failure: *err.Failure) err.Error!u32 {
         var out: i32 = 0;
-        try err.check(c.zrcCrowdAgentCapacity(self.handle, &out));
+        try err.check(failure, .crowd_agent_capacity, c.zrcCrowdAgentCapacity(self.handle, &out));
         return c.reported(u32, out);
     }
 
     /// Agents currently in the crowd.
-    pub fn activeAgentCount(self: Crowd) err.Error!u32 {
+    pub fn activeAgentCount(self: Crowd, failure: *err.Failure) err.Error!u32 {
         var out: i32 = 0;
-        try err.check(c.zrcCrowdActiveAgentCount(self.handle, &out));
+        try err.check(failure, .crowd_active_agent_count, c.zrcCrowdActiveAgentCount(self.handle, &out));
         return c.reported(u32, out);
     }
 
@@ -213,22 +214,22 @@ pub const Crowd = struct {
     /// so a caller compares it against `out.len` to see whether a second,
     /// larger call is needed rather than treating a short buffer as failure.
     /// An empty `out` asks only for the count.
-    pub fn activeAgents(self: Crowd, out: []AgentRef) err.Error!usize {
+    pub fn activeAgents(self: Crowd, out: []AgentRef, failure: *err.Failure) err.Error!usize {
         const max_agents = aegis.int.cast(i32, out.len) catch
-            return err.Error.InvalidArgument;
+            return err.refuse(failure, .crowd_active_agents, error.InvalidArgument);
         const ptr: ?[*]AgentRef = if (out.len == 0) null else out.ptr;
         var count: i32 = 0;
         const result = c.zrcCrowdActiveAgents(self.handle, ptr, max_agents, &count);
         if (result == .buffer_too_small) return c.reported(usize, count);
-        try err.check(result);
+        try err.check(failure, .crowd_active_agents, result);
         return c.reported(usize, count);
     }
 
     /// The reference of the agent in slot `index`, or 0 when the slot is free.
-    pub fn agentRefAt(self: Crowd, index: u32) err.Error!AgentRef {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+    pub fn agentRefAt(self: Crowd, index: u32, failure: *err.Failure) err.Error!AgentRef {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .crowd_agent_ref_at, error.InvalidArgument);
         var ref: AgentRef = 0;
-        try err.check(c.zrcCrowdAgentRefAt(self.handle, i, &ref));
+        try err.check(failure, .crowd_agent_ref_at, c.zrcCrowdAgentRefAt(self.handle, i, &ref));
         return ref;
     }
 
@@ -240,11 +241,12 @@ pub const Crowd = struct {
         ref: AgentRef,
         first: u32,
         out: []CrowdCorner,
+        failure: *err.Failure,
     ) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .crowd_agent_corners, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .crowd_agent_corners, error.InvalidArgument);
         const ptr: ?[*]CrowdCorner = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcCrowdAgentCorners(self.handle, ref, first_i, count, ptr));
+        try err.check(failure, .crowd_agent_corners, c.zrcCrowdAgentCorners(self.handle, ref, first_i, count, ptr));
     }
 
     /// The same for its neighbours, nearest first. The total is
@@ -254,19 +256,20 @@ pub const Crowd = struct {
         ref: AgentRef,
         first: u32,
         out: []CrowdNeighbour,
+        failure: *err.Failure,
     ) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .crowd_agent_neighbours, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .crowd_agent_neighbours, error.InvalidArgument);
         const ptr: ?[*]CrowdNeighbour = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcCrowdAgentNeighbours(self.handle, ref, first_i, count, ptr));
+        try err.check(failure, .crowd_agent_neighbours, c.zrcCrowdAgentNeighbours(self.handle, ref, first_i, count, ptr));
     }
 
     /// The corridor the agent is walking, read-only. The standalone
     /// `PathCorridor` is the same object, editable, for a host steering one
     /// character itself.
-    pub fn agentCorridor(self: Crowd, ref: AgentRef) err.Error!PathCorridorInfo {
+    pub fn agentCorridor(self: Crowd, ref: AgentRef, failure: *err.Failure) err.Error!PathCorridorInfo {
         var out: PathCorridorInfo = undefined;
-        try err.check(c.zrcCrowdAgentCorridorInfo(self.handle, ref, &out));
+        try err.check(failure, .crowd_agent_corridor_info, c.zrcCrowdAgentCorridorInfo(self.handle, ref, &out));
         return out;
     }
 
@@ -277,25 +280,26 @@ pub const Crowd = struct {
         ref: AgentRef,
         first: u32,
         out: []PolyRef,
+        failure: *err.Failure,
     ) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .crowd_agent_corridor_path, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .crowd_agent_corridor_path, error.InvalidArgument);
         const ptr: ?[*]PolyRef = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcCrowdAgentCorridorPath(self.handle, ref, first_i, count, ptr));
+        try err.check(failure, .crowd_agent_corridor_path, c.zrcCrowdAgentCorridorPath(self.handle, ref, first_i, count, ptr));
     }
 
     /// The position the agent's cached walls were last collected around. See
     /// `LocalBoundary.center` for the sentinel an uncollected one reports.
-    pub fn agentBoundaryCenter(self: Crowd, ref: AgentRef) err.Error![3]f32 {
+    pub fn agentBoundaryCenter(self: Crowd, ref: AgentRef, failure: *err.Failure) err.Error![3]f32 {
         var out: [3]f32 = undefined;
-        try err.check(c.zrcCrowdAgentBoundaryCenter(self.handle, ref, &out));
+        try err.check(failure, .crowd_agent_boundary_center, c.zrcCrowdAgentBoundaryCenter(self.handle, ref, &out));
         return out;
     }
 
     /// Walls the agent is steering around, at most eight.
-    pub fn agentBoundarySegmentCount(self: Crowd, ref: AgentRef) err.Error!u32 {
+    pub fn agentBoundarySegmentCount(self: Crowd, ref: AgentRef, failure: *err.Failure) err.Error!u32 {
         var out: i32 = 0;
-        try err.check(c.zrcCrowdAgentBoundarySegmentCount(self.handle, ref, &out));
+        try err.check(failure, .crowd_agent_boundary_segment_count, c.zrcCrowdAgentBoundarySegmentCount(self.handle, ref, &out));
         return c.reported(u32, out);
     }
 
@@ -306,11 +310,12 @@ pub const Crowd = struct {
         ref: AgentRef,
         first: u32,
         out: [][6]f32,
+        failure: *err.Failure,
     ) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .crowd_agent_boundary_segments, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .crowd_agent_boundary_segments, error.InvalidArgument);
         const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-        try err.check(c.zrcCrowdAgentBoundarySegments(self.handle, ref, first_i, count, ptr));
+        try err.check(failure, .crowd_agent_boundary_segments, c.zrcCrowdAgentBoundarySegments(self.handle, ref, first_i, count, ptr));
     }
 
     //-- Where an agent is going ---------------------------------------------
@@ -325,49 +330,50 @@ pub const Crowd = struct {
         ref: AgentRef,
         poly: PolyRef,
         position: [3]f32,
+        failure: *err.Failure,
     ) err.Error!void {
-        try err.check(c.zrcCrowdRequestMoveTarget(self.handle, ref, poly, &position));
+        try err.check(failure, .crowd_request_move_target, c.zrcCrowdRequestMoveTarget(self.handle, ref, poly, &position));
     }
 
     /// Steers the agent along `velocity` instead of towards a place. Still
     /// clamped by its speed and acceleration limits, and still constrained to
     /// the navmesh.
-    pub fn requestMoveVelocity(self: Crowd, ref: AgentRef, velocity: [3]f32) err.Error!void {
-        try err.check(c.zrcCrowdRequestMoveVelocity(self.handle, ref, &velocity));
+    pub fn requestMoveVelocity(self: Crowd, ref: AgentRef, velocity: [3]f32, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .crowd_request_move_velocity, c.zrcCrowdRequestMoveVelocity(self.handle, ref, &velocity));
     }
 
     /// Clears the agent's target. It stops where it is.
-    pub fn resetMoveTarget(self: Crowd, ref: AgentRef) err.Error!void {
-        try err.check(c.zrcCrowdResetMoveTarget(self.handle, ref));
+    pub fn resetMoveTarget(self: Crowd, ref: AgentRef, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .crowd_reset_move_target, c.zrcCrowdResetMoveTarget(self.handle, ref));
     }
 
     //-- The frame ------------------------------------------------------------
 
     /// Advances every agent by `dt` seconds. `dt` must be finite and greater
     /// than zero.
-    pub fn update(self: Crowd, dt: f32) err.Error!void {
-        try err.check(c.zrcCrowdUpdate(self.handle, dt, null));
+    pub fn update(self: Crowd, dt: f32, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .crowd_update, c.zrcCrowdUpdate(self.handle, dt, null));
     }
 
     /// The same, recording what one agent did. `debug` is read for what to
     /// record and written with what was recorded.
-    pub fn updateDebug(self: Crowd, dt: f32, debug: *CrowdAgentDebug) err.Error!void {
+    pub fn updateDebug(self: Crowd, dt: f32, debug: *CrowdAgentDebug, failure: *err.Failure) err.Error!void {
         var raw = c.CrowdAgentDebug{
             .agent = debug.agent,
             .samples = if (debug.samples) |d| d.handle else null,
             .opt_start = debug.opt_start,
             .opt_end = debug.opt_end,
         };
-        try err.check(c.zrcCrowdUpdate(self.handle, dt, &raw));
+        try err.check(failure, .crowd_update, c.zrcCrowdUpdate(self.handle, dt, &raw));
         debug.opt_start = raw.opt_start;
         debug.opt_end = raw.opt_end;
     }
 
     /// Candidate velocities the avoidance sampler tried during the last
     /// update, summed across every agent. A cost measure, not a state.
-    pub fn velocitySampleCount(self: Crowd) err.Error!u32 {
+    pub fn velocitySampleCount(self: Crowd, failure: *err.Failure) err.Error!u32 {
         var out: i32 = 0;
-        try err.check(c.zrcCrowdVelocitySampleCount(self.handle, &out));
+        try err.check(failure, .crowd_velocity_sample_count, c.zrcCrowdVelocitySampleCount(self.handle, &out));
         return c.reported(u32, out);
     }
 
@@ -375,64 +381,64 @@ pub const Crowd = struct {
 
     /// Replaces one of the crowd's avoidance configurations. `index` is
     /// `[0, crowd_max_avoidance_params)`.
-    pub fn setAvoidanceParams(self: Crowd, index: u32, params: AvoidanceParams) err.Error!void {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
-        try err.check(c.zrcCrowdSetAvoidanceParams(self.handle, i, &params));
+    pub fn setAvoidanceParams(self: Crowd, index: u32, params: AvoidanceParams, failure: *err.Failure) err.Error!void {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .crowd_set_avoidance_params, error.InvalidArgument);
+        try err.check(failure, .crowd_set_avoidance_params, c.zrcCrowdSetAvoidanceParams(self.handle, i, &params));
     }
 
     /// Reads one back. Every index holds `avoidanceParamsDefault` until set.
-    pub fn avoidanceParams(self: Crowd, index: u32) err.Error!AvoidanceParams {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+    pub fn avoidanceParams(self: Crowd, index: u32, failure: *err.Failure) err.Error!AvoidanceParams {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .crowd_avoidance_params, error.InvalidArgument);
         var out: AvoidanceParams = undefined;
-        try err.check(c.zrcCrowdAvoidanceParams(self.handle, i, &out));
+        try err.check(failure, .crowd_avoidance_params, c.zrcCrowdAvoidanceParams(self.handle, i, &out));
         return out;
     }
 
     /// Replaces one of the crowd's query filters with a copy of `value`,
     /// which need not outlive the call. `index` is `[0, crowd_max_filters)`.
-    pub fn setFilter(self: Crowd, index: u32, value: QueryFilter) err.Error!void {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
-        try err.check(c.zrcCrowdSetFilter(self.handle, i, value.handle));
+    pub fn setFilter(self: Crowd, index: u32, value: QueryFilter, failure: *err.Failure) err.Error!void {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .crowd_set_filter, error.InvalidArgument);
+        try err.check(failure, .crowd_set_filter, c.zrcCrowdSetFilter(self.handle, i, value.handle));
     }
 
     /// Reads one back.
-    pub fn filter(self: Crowd, index: u32) err.Error!QueryFilterDesc {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+    pub fn filter(self: Crowd, index: u32, failure: *err.Failure) err.Error!QueryFilterDesc {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .crowd_filter, error.InvalidArgument);
         var out: QueryFilterDesc = undefined;
-        try err.check(c.zrcCrowdFilter(self.handle, i, &out));
+        try err.check(failure, .crowd_filter, c.zrcCrowdFilter(self.handle, i, &out));
         return out;
     }
 
     /// The half extents of the box the crowd searches when it places or
     /// recovers an agent. Derived from `max_agent_radius`.
-    pub fn queryHalfExtents(self: Crowd) err.Error![3]f32 {
+    pub fn queryHalfExtents(self: Crowd, failure: *err.Failure) err.Error![3]f32 {
         var out: [3]f32 = undefined;
-        try err.check(c.zrcCrowdQueryHalfExtents(self.handle, &out));
+        try err.check(failure, .crowd_query_half_extents, c.zrcCrowdQueryHalfExtents(self.handle, &out));
         return out;
     }
 
     /// The crowd's proximity grid. Borrowed: the crowd owns it, and it dies
     /// with the crowd or at the next `reinit`. Rebuilt from scratch at the
     /// start of every `update`.
-    pub fn grid(self: Crowd) err.Error!BorrowedProximityGrid {
+    pub fn grid(self: Crowd, failure: *err.Failure) err.Error!BorrowedProximityGrid {
         var handle: *const c.ProximityGrid = undefined;
-        try err.check(c.zrcCrowdGrid(self.handle, &handle));
+        try err.check(failure, .crowd_grid, c.zrcCrowdGrid(self.handle, &handle));
         return .{ .handle = handle };
     }
 
     /// The crowd's path request queue. Borrowed, same lifetime rules.
-    pub fn pathQueue(self: Crowd) err.Error!BorrowedPathQueue {
+    pub fn pathQueue(self: Crowd, failure: *err.Failure) err.Error!BorrowedPathQueue {
         var handle: *const c.PathQueue = undefined;
-        try err.check(c.zrcCrowdPathQueue(self.handle, &handle));
+        try err.check(failure, .crowd_path_queue, c.zrcCrowdPathQueue(self.handle, &handle));
         return .{ .handle = handle };
     }
 
     /// The crowd's own query object. Borrowed, same lifetime rules, and
     /// read-only: starting a sliced search on it would take the node pool out
     /// from under the crowd's per-frame searches.
-    pub fn navMeshQuery(self: Crowd) err.Error!BorrowedNavMeshQuery {
+    pub fn navMeshQuery(self: Crowd, failure: *err.Failure) err.Error!BorrowedNavMeshQuery {
         var handle: *const c.NavMeshQuery = undefined;
-        try err.check(c.zrcCrowdNavMeshQuery(self.handle, &handle));
+        try err.check(failure, .crowd_nav_mesh_query, c.zrcCrowdNavMeshQuery(self.handle, &handle));
         return .{ .handle = handle };
     }
 };
@@ -458,11 +464,11 @@ fn ProximityGridOf(comptime access: c.Access) type {
         /// `pool_size` is `[1, 65534]`; `cell_size` must be finite, positive and
         /// large enough that its reciprocal is finite. One item spans as many
         /// entries as its footprint covers cells.
-        pub fn init(pool_size: u32, cell_size: f32) err.Error!ProximityGrid {
+        pub fn init(pool_size: u32, cell_size: f32, failure: *err.Failure) err.Error!ProximityGrid {
             comptime c.ownedOnly(access);
-            const size = aegis.int.cast(i32, pool_size) catch return err.Error.InvalidArgument;
+            const size = aegis.int.cast(i32, pool_size) catch return err.refuse(failure, .proximity_grid_create, error.InvalidArgument);
             var handle: *c.ProximityGrid = undefined;
-            try err.check(c.zrcProximityGridCreate(size, cell_size, &handle));
+            try err.check(failure, .proximity_grid_create, c.zrcProximityGridCreate(size, cell_size, &handle));
             return .{ .handle = handle };
         }
 
@@ -474,8 +480,8 @@ fn ProximityGridOf(comptime access: c.Access) type {
         }
 
         /// Empties the grid. The pool and the cell size stay as they were.
-        pub fn clear(self: Self) err.Error!void {
-            try err.check(c.zrcProximityGridClear(self.handle));
+        pub fn clear(self: Self, failure: *err.Failure) err.Error!void {
+            try err.check(failure, .proximity_grid_clear, c.zrcProximityGridClear(self.handle));
         }
 
         /// Files `id` under every cell the box covers. The two axes are the
@@ -490,8 +496,9 @@ fn ProximityGridOf(comptime access: c.Access) type {
             min_y: f32,
             max_x: f32,
             max_y: f32,
+            failure: *err.Failure,
         ) err.Error!void {
-            try err.check(c.zrcProximityGridAddItem(self.handle, id, min_x, min_y, max_x, max_y));
+            try err.check(failure, .proximity_grid_add_item, c.zrcProximityGridAddItem(self.handle, id, min_x, min_y, max_x, max_y));
         }
 
         /// Every distinct id filed under any cell the box covers, into `out`.
@@ -506,11 +513,12 @@ fn ProximityGridOf(comptime access: c.Access) type {
             max_x: f32,
             max_y: f32,
             out: []u16,
+            failure: *err.Failure,
         ) err.Error!usize {
-            const max_ids = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+            const max_ids = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .proximity_grid_query_items, error.InvalidArgument);
             const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
             var count: i32 = 0;
-            try err.check(c.zrcProximityGridQueryItems(
+            try err.check(failure, .proximity_grid_query_items, c.zrcProximityGridQueryItems(
                 self.handle,
                 min_x,
                 min_y,
@@ -524,24 +532,24 @@ fn ProximityGridOf(comptime access: c.Access) type {
         }
 
         /// How many entries are filed at exactly cell `(x, y)`.
-        pub fn itemCountAt(self: Self, x: i32, y: i32) err.Error!u32 {
+        pub fn itemCountAt(self: Self, x: i32, y: i32, failure: *err.Failure) err.Error!u32 {
             var out: i32 = 0;
-            try err.check(c.zrcProximityGridItemCountAt(self.handle, x, y, &out));
+            try err.check(failure, .proximity_grid_item_count_at, c.zrcProximityGridItemCountAt(self.handle, x, y, &out));
             return c.reported(u32, out);
         }
 
         /// The cell bounds of everything added since the last clear: min x, min y,
         /// max x, max y. An empty grid reports upstream's inverted sentinel, so
         /// `min > max` is how a caller tells empty from one cell at the origin.
-        pub fn bounds(self: Self) err.Error![4]i32 {
+        pub fn bounds(self: Self, failure: *err.Failure) err.Error![4]i32 {
             var out: [4]i32 = undefined;
-            try err.check(c.zrcProximityGridBounds(self.handle, &out));
+            try err.check(failure, .proximity_grid_bounds, c.zrcProximityGridBounds(self.handle, &out));
             return out;
         }
 
-        pub fn cellSize(self: Self) err.Error!f32 {
+        pub fn cellSize(self: Self, failure: *err.Failure) err.Error!f32 {
             var out: f32 = 0;
-            try err.check(c.zrcProximityGridCellSize(self.handle, &out));
+            try err.check(failure, .proximity_grid_cell_size, c.zrcProximityGridCellSize(self.handle, &out));
             return out;
         }
     };
@@ -558,11 +566,11 @@ pub const AvoidanceQuery = struct {
 
     /// Room for `max_circles` moving obstacles and `max_segments` walls, both
     /// `[1, 65535]`. A crowd asks for 6 and 8.
-    pub fn init(max_circles: u32, max_segments: u32) err.Error!AvoidanceQuery {
-        const circles = aegis.int.cast(i32, max_circles) catch return err.Error.InvalidArgument;
-        const segments = aegis.int.cast(i32, max_segments) catch return err.Error.InvalidArgument;
+    pub fn init(max_circles: u32, max_segments: u32, failure: *err.Failure) err.Error!AvoidanceQuery {
+        const circles = aegis.int.cast(i32, max_circles) catch return err.refuse(failure, .avoidance_query_create, error.InvalidArgument);
+        const segments = aegis.int.cast(i32, max_segments) catch return err.refuse(failure, .avoidance_query_create, error.InvalidArgument);
         var handle: *c.AvoidanceQuery = undefined;
-        try err.check(c.zrcAvoidanceQueryCreate(circles, segments, &handle));
+        try err.check(failure, .avoidance_query_create, c.zrcAvoidanceQueryCreate(circles, segments, &handle));
         return .{ .handle = handle };
     }
 
@@ -571,8 +579,8 @@ pub const AvoidanceQuery = struct {
     }
 
     /// Forgets every obstacle. The capacities stay as they were.
-    pub fn reset(self: AvoidanceQuery) err.Error!void {
-        try err.check(c.zrcAvoidanceQueryReset(self.handle));
+    pub fn reset(self: AvoidanceQuery, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .avoidance_query_reset, c.zrcAvoidanceQueryReset(self.handle));
     }
 
     /// Adds a moving circular obstacle. `error.BufferTooSmall` once
@@ -584,8 +592,9 @@ pub const AvoidanceQuery = struct {
         radius: f32,
         velocity: [3]f32,
         desired_velocity: [3]f32,
+        failure: *err.Failure,
     ) err.Error!void {
-        try err.check(c.zrcAvoidanceAddCircle(
+        try err.check(failure, .avoidance_add_circle, c.zrcAvoidanceAddCircle(
             self.handle,
             &position,
             radius,
@@ -595,8 +604,8 @@ pub const AvoidanceQuery = struct {
     }
 
     /// Adds a wall segment. Same capacity rule.
-    pub fn addSegment(self: AvoidanceQuery, p: [3]f32, q: [3]f32) err.Error!void {
-        try err.check(c.zrcAvoidanceAddSegment(self.handle, &p, &q));
+    pub fn addSegment(self: AvoidanceQuery, p: [3]f32, q: [3]f32, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .avoidance_add_segment, c.zrcAvoidanceAddSegment(self.handle, &p, &q));
     }
 
     /// What a sampler chose, and how many candidates it scored.
@@ -616,9 +625,11 @@ pub const AvoidanceQuery = struct {
         desired_velocity: [3]f32,
         params: AvoidanceParams,
         debug: ?AvoidanceDebug,
+        failure: *err.Failure,
     ) err.Error!Chosen {
         return self.sample(
             c.zrcAvoidanceSampleGrid,
+            .avoidance_sample_grid,
             position,
             radius,
             max_speed,
@@ -626,6 +637,7 @@ pub const AvoidanceQuery = struct {
             desired_velocity,
             params,
             debug,
+            failure,
         );
     }
 
@@ -642,9 +654,11 @@ pub const AvoidanceQuery = struct {
         desired_velocity: [3]f32,
         params: AvoidanceParams,
         debug: ?AvoidanceDebug,
+        failure: *err.Failure,
     ) err.Error!Chosen {
         return self.sample(
             c.zrcAvoidanceSampleAdaptive,
+            .avoidance_sample_adaptive,
             position,
             radius,
             max_speed,
@@ -652,12 +666,14 @@ pub const AvoidanceQuery = struct {
             desired_velocity,
             params,
             debug,
+            failure,
         );
     }
 
     fn sample(
         self: AvoidanceQuery,
         comptime call: anytype,
+        comptime name: err.Call,
         position: [3]f32,
         radius: f32,
         max_speed: f32,
@@ -665,10 +681,11 @@ pub const AvoidanceQuery = struct {
         desired_velocity: [3]f32,
         params: AvoidanceParams,
         debug: ?AvoidanceDebug,
+        failure: *err.Failure,
     ) err.Error!Chosen {
         var chosen: [3]f32 = .{ 0, 0, 0 };
         var samples: i32 = 0;
-        try err.check(call(
+        try err.check(failure, name, call(
             self.handle,
             &position,
             radius,
@@ -683,32 +700,32 @@ pub const AvoidanceQuery = struct {
         return .{ .velocity = chosen, .samples = c.reported(u32, samples) };
     }
 
-    pub fn circleCount(self: AvoidanceQuery) err.Error!u32 {
+    pub fn circleCount(self: AvoidanceQuery, failure: *err.Failure) err.Error!u32 {
         var out: i32 = 0;
-        try err.check(c.zrcAvoidanceCircleCount(self.handle, &out));
+        try err.check(failure, .avoidance_circle_count, c.zrcAvoidanceCircleCount(self.handle, &out));
         return c.reported(u32, out);
     }
 
     /// One of them. The index is bounded here; upstream's accessor bounds
     /// nothing.
-    pub fn circleAt(self: AvoidanceQuery, index: u32) err.Error!AvoidanceCircle {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+    pub fn circleAt(self: AvoidanceQuery, index: u32, failure: *err.Failure) err.Error!AvoidanceCircle {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .avoidance_circle_at, error.InvalidArgument);
         var out: AvoidanceCircle = undefined;
-        try err.check(c.zrcAvoidanceCircleAt(self.handle, i, &out));
+        try err.check(failure, .avoidance_circle_at, c.zrcAvoidanceCircleAt(self.handle, i, &out));
         return out;
     }
 
-    pub fn segmentCount(self: AvoidanceQuery) err.Error!u32 {
+    pub fn segmentCount(self: AvoidanceQuery, failure: *err.Failure) err.Error!u32 {
         var out: i32 = 0;
-        try err.check(c.zrcAvoidanceSegmentCount(self.handle, &out));
+        try err.check(failure, .avoidance_segment_count, c.zrcAvoidanceSegmentCount(self.handle, &out));
         return c.reported(u32, out);
     }
 
     /// One of them. Same bounding.
-    pub fn segmentAt(self: AvoidanceQuery, index: u32) err.Error!AvoidanceSegment {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+    pub fn segmentAt(self: AvoidanceQuery, index: u32, failure: *err.Failure) err.Error!AvoidanceSegment {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .avoidance_segment_at, error.InvalidArgument);
         var out: AvoidanceSegment = undefined;
-        try err.check(c.zrcAvoidanceSegmentAt(self.handle, i, &out));
+        try err.check(failure, .avoidance_segment_at, c.zrcAvoidanceSegmentAt(self.handle, i, &out));
         return out;
     }
 };
@@ -718,10 +735,10 @@ pub const AvoidanceDebug = struct {
     handle: *c.AvoidanceDebug,
 
     /// `max_samples` is `[1, 65535]`.
-    pub fn init(max_samples: u32) err.Error!AvoidanceDebug {
-        const samples = aegis.int.cast(i32, max_samples) catch return err.Error.InvalidArgument;
+    pub fn init(max_samples: u32, failure: *err.Failure) err.Error!AvoidanceDebug {
+        const samples = aegis.int.cast(i32, max_samples) catch return err.refuse(failure, .avoidance_debug_create, error.InvalidArgument);
         var handle: *c.AvoidanceDebug = undefined;
-        try err.check(c.zrcAvoidanceDebugCreate(samples, &handle));
+        try err.check(failure, .avoidance_debug_create, c.zrcAvoidanceDebugCreate(samples, &handle));
         return .{ .handle = handle };
     }
 
@@ -730,34 +747,34 @@ pub const AvoidanceDebug = struct {
     }
 
     /// Forgets every sample. The capacity stays as it was.
-    pub fn reset(self: AvoidanceDebug) err.Error!void {
-        try err.check(c.zrcAvoidanceDebugReset(self.handle));
+    pub fn reset(self: AvoidanceDebug, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .avoidance_debug_reset, c.zrcAvoidanceDebugReset(self.handle));
     }
 
     /// Records one candidate by hand, for a host scoring velocities itself.
     /// `error.BufferTooSmall` once full.
-    pub fn addSample(self: AvoidanceDebug, sample: AvoidanceSample) err.Error!void {
-        try err.check(c.zrcAvoidanceDebugAddSample(self.handle, &sample));
+    pub fn addSample(self: AvoidanceDebug, sample: AvoidanceSample, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .avoidance_debug_add_sample, c.zrcAvoidanceDebugAddSample(self.handle, &sample));
     }
 
     /// Rescales every recorded penalty into `[0, 1]` against the largest.
     /// Idempotent; a recorder with no samples is a no-op.
-    pub fn normalize(self: AvoidanceDebug) err.Error!void {
-        try err.check(c.zrcAvoidanceDebugNormalize(self.handle));
+    pub fn normalize(self: AvoidanceDebug, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .avoidance_debug_normalize, c.zrcAvoidanceDebugNormalize(self.handle));
     }
 
-    pub fn sampleCount(self: AvoidanceDebug) err.Error!u32 {
+    pub fn sampleCount(self: AvoidanceDebug, failure: *err.Failure) err.Error!u32 {
         var out: i32 = 0;
-        try err.check(c.zrcAvoidanceDebugSampleCount(self.handle, &out));
+        try err.check(failure, .avoidance_debug_sample_count, c.zrcAvoidanceDebugSampleCount(self.handle, &out));
         return c.reported(u32, out);
     }
 
     /// One of them. The index is bounded here; all seven of upstream's
     /// accessors index their arrays unchecked.
-    pub fn sampleAt(self: AvoidanceDebug, index: u32) err.Error!AvoidanceSample {
-        const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+    pub fn sampleAt(self: AvoidanceDebug, index: u32, failure: *err.Failure) err.Error!AvoidanceSample {
+        const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .avoidance_debug_sample_at, error.InvalidArgument);
         var out: AvoidanceSample = undefined;
-        try err.check(c.zrcAvoidanceDebugSampleAt(self.handle, i, &out));
+        try err.check(failure, .avoidance_debug_sample_at, c.zrcAvoidanceDebugSampleAt(self.handle, i, &out));
         return out;
     }
 };
@@ -774,10 +791,10 @@ pub const PathCorridor = struct {
     /// `max_path` is `[path_corridor_min_path, 65535]`. The minimum is not a
     /// preference: three of upstream's own operations write past a shorter
     /// buffer in every build configuration. See `ffi/zrecast.h`.
-    pub fn init(max_path: u32) err.Error!PathCorridor {
-        const size = aegis.int.cast(i32, max_path) catch return err.Error.InvalidArgument;
+    pub fn init(max_path: u32, failure: *err.Failure) err.Error!PathCorridor {
+        const size = aegis.int.cast(i32, max_path) catch return err.refuse(failure, .path_corridor_create, error.InvalidArgument);
         var handle: *c.PathCorridor = undefined;
-        try err.check(c.zrcPathCorridorCreate(size, &handle));
+        try err.check(failure, .path_corridor_create, c.zrcPathCorridorCreate(size, &handle));
         return .{ .handle = handle };
     }
 
@@ -787,8 +804,8 @@ pub const PathCorridor = struct {
 
     /// Empties the corridor and puts it at `position` inside `poly`, which may
     /// be 0 for a corridor whose agent is not on the navmesh.
-    pub fn reset(self: PathCorridor, poly: PolyRef, position: [3]f32) err.Error!void {
-        try err.check(c.zrcPathCorridorReset(self.handle, poly, &position));
+    pub fn reset(self: PathCorridor, poly: PolyRef, position: [3]f32, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .path_corridor_reset, c.zrcPathCorridorReset(self.handle, poly, &position));
     }
 
     /// Replaces the corridor and its target. `path` must hold between 1 and
@@ -797,10 +814,11 @@ pub const PathCorridor = struct {
         self: PathCorridor,
         target: [3]f32,
         polys: []const PolyRef,
+        failure: *err.Failure,
     ) err.Error!void {
-        const count = aegis.int.cast(i32, polys.len) catch return err.Error.InvalidArgument;
-        if (polys.len == 0) return err.Error.InvalidArgument;
-        try err.check(c.zrcPathCorridorSetCorridor(self.handle, &target, polys.ptr, count));
+        const count = aegis.int.cast(i32, polys.len) catch return err.refuse(failure, .path_corridor_set_corridor, error.InvalidArgument);
+        if (polys.len == 0) return err.refuse(failure, .path_corridor_set_corridor, error.InvalidArgument);
+        try err.check(failure, .path_corridor_set_corridor, c.zrcPathCorridorSetCorridor(self.handle, &target, polys.ptr, count));
     }
 
     /// String-pulls the corridor ahead into the corners to walk, returning how
@@ -816,11 +834,12 @@ pub const PathCorridor = struct {
         query: NavMeshQuery,
         filter: QueryFilter,
         out: []CrowdCorner,
+        failure: *err.Failure,
     ) err.Error!usize {
-        const max_corners = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        const max_corners = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .path_corridor_find_corners, error.InvalidArgument);
         const ptr: ?[*]CrowdCorner = if (out.len == 0) null else out.ptr;
         var count: i32 = 0;
-        try err.check(c.zrcPathCorridorFindCorners(
+        try err.check(failure, .path_corridor_find_corners, c.zrcPathCorridorFindCorners(
             self.handle,
             query.handle,
             filter.handle,
@@ -840,8 +859,9 @@ pub const PathCorridor = struct {
         range: f32,
         query: NavMeshQuery,
         filter: QueryFilter,
+        failure: *err.Failure,
     ) err.Error!void {
-        try err.check(c.zrcPathCorridorOptimizeVisibility(
+        try err.check(failure, .path_corridor_optimize_visibility, c.zrcPathCorridorOptimizeVisibility(
             self.handle,
             &next,
             range,
@@ -856,9 +876,10 @@ pub const PathCorridor = struct {
         self: PathCorridor,
         query: NavMeshQuery,
         filter: QueryFilter,
+        failure: *err.Failure,
     ) err.Error!bool {
         var changed: c.Bool = c.c_false;
-        try err.check(c.zrcPathCorridorOptimizeTopology(
+        try err.check(failure, .path_corridor_optimize_topology, c.zrcPathCorridorOptimizeTopology(
             self.handle,
             query.handle,
             filter.handle,
@@ -883,6 +904,7 @@ pub const PathCorridor = struct {
         self: PathCorridor,
         offmesh_poly: PolyRef,
         query: NavMeshQuery,
+        failure: *err.Failure,
     ) err.Error!OffMeshMove {
         var out = OffMeshMove{
             .refs = .{ 0, 0 },
@@ -891,7 +913,7 @@ pub const PathCorridor = struct {
             .moved = false,
         };
         var moved: c.Bool = c.c_false;
-        try err.check(c.zrcPathCorridorMoveOverOffmeshConnection(
+        try err.check(failure, .path_corridor_move_over_offmesh_connection, c.zrcPathCorridorMoveOverOffmeshConnection(
             self.handle,
             offmesh_poly,
             query.handle,
@@ -909,9 +931,10 @@ pub const PathCorridor = struct {
         self: PathCorridor,
         safe_poly: PolyRef,
         safe_position: [3]f32,
+        failure: *err.Failure,
     ) err.Error!bool {
         var fixed: c.Bool = c.c_false;
-        try err.check(c.zrcPathCorridorFixStart(self.handle, safe_poly, &safe_position, &fixed));
+        try err.check(failure, .path_corridor_fix_start, c.zrcPathCorridorFixStart(self.handle, safe_poly, &safe_position, &fixed));
         return fixed != c.c_false;
     }
 
@@ -923,9 +946,10 @@ pub const PathCorridor = struct {
         safe_position: [3]f32,
         query: NavMeshQuery,
         filter: QueryFilter,
+        failure: *err.Failure,
     ) err.Error!bool {
         var trimmed: c.Bool = c.c_false;
-        try err.check(c.zrcPathCorridorTrimInvalid(
+        try err.check(failure, .path_corridor_trim_invalid, c.zrcPathCorridorTrimInvalid(
             self.handle,
             safe_poly,
             &safe_position,
@@ -943,11 +967,12 @@ pub const PathCorridor = struct {
         max_lookahead: u32,
         query: NavMeshQuery,
         filter: QueryFilter,
+        failure: *err.Failure,
     ) err.Error!bool {
         const lookahead = aegis.int.cast(i32, max_lookahead) catch
-            return err.Error.InvalidArgument;
+            return err.refuse(failure, .path_corridor_is_valid, error.InvalidArgument);
         var valid: c.Bool = c.c_false;
-        try err.check(c.zrcPathCorridorIsValid(
+        try err.check(failure, .path_corridor_is_valid, c.zrcPathCorridorIsValid(
             self.handle,
             lookahead,
             query.handle,
@@ -965,9 +990,10 @@ pub const PathCorridor = struct {
         position: [3]f32,
         query: NavMeshQuery,
         filter: QueryFilter,
+        failure: *err.Failure,
     ) err.Error!bool {
         var moved: c.Bool = c.c_false;
-        try err.check(c.zrcPathCorridorMovePosition(
+        try err.check(failure, .path_corridor_move_position, c.zrcPathCorridorMovePosition(
             self.handle,
             &position,
             query.handle,
@@ -983,9 +1009,10 @@ pub const PathCorridor = struct {
         position: [3]f32,
         query: NavMeshQuery,
         filter: QueryFilter,
+        failure: *err.Failure,
     ) err.Error!bool {
         var moved: c.Bool = c.c_false;
-        try err.check(c.zrcPathCorridorMoveTargetPosition(
+        try err.check(failure, .path_corridor_move_target_position, c.zrcPathCorridorMoveTargetPosition(
             self.handle,
             &position,
             query.handle,
@@ -996,19 +1023,19 @@ pub const PathCorridor = struct {
     }
 
     /// Where the corridor is, where it ends, and how long it is.
-    pub fn info(self: PathCorridor) err.Error!PathCorridorInfo {
+    pub fn info(self: PathCorridor, failure: *err.Failure) err.Error!PathCorridorInfo {
         var out: PathCorridorInfo = undefined;
-        try err.check(c.zrcPathCorridorInfo(self.handle, &out));
+        try err.check(failure, .path_corridor_info, c.zrcPathCorridorInfo(self.handle, &out));
         return out;
     }
 
     /// Copies polygons of the corridor into `out`, starting at `first`, in
     /// walking order.
-    pub fn path(self: PathCorridor, first: u32, out: []PolyRef) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn path(self: PathCorridor, first: u32, out: []PolyRef, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .path_corridor_path, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .path_corridor_path, error.InvalidArgument);
         const ptr: ?[*]PolyRef = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcPathCorridorPath(self.handle, first_i, count, ptr));
+        try err.check(failure, .path_corridor_path, c.zrcPathCorridorPath(self.handle, first_i, count, ptr));
     }
 };
 
@@ -1026,8 +1053,9 @@ pub fn mergeCorridorStartMoved(
     path: []PolyRef,
     path_count: usize,
     visited: []const PolyRef,
+    failure: *err.Failure,
 ) err.Error!usize {
-    return merge(c.zrcMergeCorridorStartMoved, path, path_count, visited);
+    return merge(c.zrcMergeCorridorStartMoved, .merge_corridor_start_moved, path, path_count, visited, failure);
 }
 
 /// For a target that slid forwards.
@@ -1035,8 +1063,9 @@ pub fn mergeCorridorEndMoved(
     path: []PolyRef,
     path_count: usize,
     visited: []const PolyRef,
+    failure: *err.Failure,
 ) err.Error!usize {
-    return merge(c.zrcMergeCorridorEndMoved, path, path_count, visited);
+    return merge(c.zrcMergeCorridorEndMoved, .merge_corridor_end_moved, path, path_count, visited, failure);
 }
 
 /// For a visibility optimisation that skipped ahead.
@@ -1044,22 +1073,25 @@ pub fn mergeCorridorStartShortcut(
     path: []PolyRef,
     path_count: usize,
     visited: []const PolyRef,
+    failure: *err.Failure,
 ) err.Error!usize {
-    return merge(c.zrcMergeCorridorStartShortcut, path, path_count, visited);
+    return merge(c.zrcMergeCorridorStartShortcut, .merge_corridor_start_shortcut, path, path_count, visited, failure);
 }
 
 fn merge(
     comptime call: anytype,
+    comptime name: err.Call,
     path: []PolyRef,
     path_count: usize,
     visited: []const PolyRef,
+    failure: *err.Failure,
 ) err.Error!usize {
-    const max_path = aegis.int.cast(i32, path.len) catch return err.Error.InvalidArgument;
-    const count = aegis.int.cast(i32, path_count) catch return err.Error.InvalidArgument;
+    const max_path = aegis.int.cast(i32, path.len) catch return err.refuse(failure, name, error.InvalidArgument);
+    const count = aegis.int.cast(i32, path_count) catch return err.refuse(failure, name, error.InvalidArgument);
     const visited_count = aegis.int.cast(i32, visited.len) catch
-        return err.Error.InvalidArgument;
+        return err.refuse(failure, name, error.InvalidArgument);
     var out: i32 = 0;
-    try err.check(call(path.ptr, count, max_path, visited.ptr, visited_count, &out));
+    try err.check(failure, name, call(path.ptr, count, max_path, visited.ptr, visited_count, &out));
     return c.reported(usize, out);
 }
 
@@ -1072,9 +1104,9 @@ fn merge(
 pub const LocalBoundary = struct {
     handle: *c.LocalBoundary,
 
-    pub fn init() err.Error!LocalBoundary {
+    pub fn init(failure: *err.Failure) err.Error!LocalBoundary {
         var handle: *c.LocalBoundary = undefined;
-        try err.check(c.zrcLocalBoundaryCreate(&handle));
+        try err.check(failure, .local_boundary_create, c.zrcLocalBoundaryCreate(&handle));
         return .{ .handle = handle };
     }
 
@@ -1083,8 +1115,8 @@ pub const LocalBoundary = struct {
     }
 
     /// Forgets every segment and every polygon it was collected from.
-    pub fn reset(self: LocalBoundary) err.Error!void {
-        try err.check(c.zrcLocalBoundaryReset(self.handle));
+    pub fn reset(self: LocalBoundary, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .local_boundary_reset, c.zrcLocalBoundaryReset(self.handle));
     }
 
     /// Re-collects the walls within `range` of `position`, starting from
@@ -1096,8 +1128,9 @@ pub const LocalBoundary = struct {
         range: f32,
         query: NavMeshQuery,
         filter: QueryFilter,
+        failure: *err.Failure,
     ) err.Error!void {
-        try err.check(c.zrcLocalBoundaryUpdate(
+        try err.check(failure, .local_boundary_update, c.zrcLocalBoundaryUpdate(
             self.handle,
             poly,
             &position,
@@ -1113,9 +1146,10 @@ pub const LocalBoundary = struct {
         self: LocalBoundary,
         query: NavMeshQuery,
         filter: QueryFilter,
+        failure: *err.Failure,
     ) err.Error!bool {
         var valid: c.Bool = c.c_false;
-        try err.check(c.zrcLocalBoundaryIsValid(self.handle, query.handle, filter.handle, &valid));
+        try err.check(failure, .local_boundary_is_valid, c.zrcLocalBoundaryIsValid(self.handle, query.handle, filter.handle, &valid));
         return valid != c.c_false;
     }
 
@@ -1123,26 +1157,26 @@ pub const LocalBoundary = struct {
     ///
     /// A boundary that has never been updated reports upstream's own sentinel,
     /// `FLT_MAX` on all three axes, rather than a zero.
-    pub fn center(self: LocalBoundary) err.Error![3]f32 {
+    pub fn center(self: LocalBoundary, failure: *err.Failure) err.Error![3]f32 {
         var out: [3]f32 = undefined;
-        try err.check(c.zrcLocalBoundaryCenter(self.handle, &out));
+        try err.check(failure, .local_boundary_center, c.zrcLocalBoundaryCenter(self.handle, &out));
         return out;
     }
 
     /// Segments currently held, at most eight.
-    pub fn segmentCount(self: LocalBoundary) err.Error!u32 {
+    pub fn segmentCount(self: LocalBoundary, failure: *err.Failure) err.Error!u32 {
         var out: i32 = 0;
-        try err.check(c.zrcLocalBoundarySegmentCount(self.handle, &out));
+        try err.check(failure, .local_boundary_segment_count, c.zrcLocalBoundarySegmentCount(self.handle, &out));
         return c.reported(u32, out);
     }
 
     /// Copies segments into `out`, starting at `first`, nearest first. Each is
     /// the two endpoints.
-    pub fn segments(self: LocalBoundary, first: u32, out: [][6]f32) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn segments(self: LocalBoundary, first: u32, out: [][6]f32, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .local_boundary_segments, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .local_boundary_segments, error.InvalidArgument);
         const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-        try err.check(c.zrcLocalBoundarySegments(self.handle, first_i, count, ptr));
+        try err.check(failure, .local_boundary_segments, c.zrcLocalBoundarySegments(self.handle, first_i, count, ptr));
     }
 };
 
@@ -1172,14 +1206,15 @@ fn PathQueueOf(comptime access: c.Access) type {
             navmesh: NavMesh,
             max_path_size: u32,
             max_search_nodes: u32,
+            failure: *err.Failure,
         ) err.Error!PathQueue {
             comptime c.ownedOnly(access);
             const path_size = aegis.int.cast(i32, max_path_size) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .path_queue_create, error.InvalidArgument);
             const nodes = aegis.int.cast(i32, max_search_nodes) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .path_queue_create, error.InvalidArgument);
             var handle: *c.PathQueue = undefined;
-            try err.check(c.zrcPathQueueCreate(navmesh.handle, path_size, nodes, &handle));
+            try err.check(failure, .path_queue_create, c.zrcPathQueueCreate(navmesh.handle, path_size, nodes, &handle));
             return .{ .handle = handle };
         }
 
@@ -1197,9 +1232,9 @@ fn PathQueueOf(comptime access: c.Access) type {
         /// call's budget holds the front and the others wait behind it, and a
         /// finished result is discarded two calls after it became ready — both
         /// upstream's behaviour.
-        pub fn update(self: Self, max_iters: u32) err.Error!void {
-            const iters = aegis.int.cast(i32, max_iters) catch return err.Error.InvalidArgument;
-            try err.check(c.zrcPathQueueUpdate(self.handle, iters));
+        pub fn update(self: Self, max_iters: u32, failure: *err.Failure) err.Error!void {
+            const iters = aegis.int.cast(i32, max_iters) catch return err.refuse(failure, .path_queue_update, error.InvalidArgument);
+            try err.check(failure, .path_queue_update, c.zrcPathQueueUpdate(self.handle, iters));
         }
 
         /// Submits a search. The result is `path_request_none` when every slot is
@@ -1214,9 +1249,10 @@ fn PathQueueOf(comptime access: c.Access) type {
             start_position: [3]f32,
             end_position: [3]f32,
             filter: QueryFilter,
+            failure: *err.Failure,
         ) err.Error!PathRequestRef {
             var ref: PathRequestRef = path_request_none;
-            try err.check(c.zrcPathQueueRequest(
+            try err.check(failure, .path_queue_request, c.zrcPathQueueRequest(
                 self.handle,
                 start_poly,
                 end_poly,
@@ -1230,9 +1266,9 @@ fn PathQueueOf(comptime access: c.Access) type {
 
         /// Where a request has got to. An unknown reference is `.unknown` rather
         /// than an error.
-        pub fn requestStatus(self: Self, ref: PathRequestRef) err.Error!PathRequestState {
+        pub fn requestStatus(self: Self, ref: PathRequestRef, failure: *err.Failure) err.Error!PathRequestState {
             var state: PathRequestState = .unknown;
-            try err.check(c.zrcPathQueueRequestStatus(self.handle, ref, &state));
+            try err.check(failure, .path_queue_request_status, c.zrcPathQueueRequestStatus(self.handle, ref, &state));
             return state;
         }
 
@@ -1244,19 +1280,19 @@ fn PathQueueOf(comptime access: c.Access) type {
         /// freed whichever way a successful call ends, so size `out` at the
         /// queue's `max_path_size` rather than retrying after
         /// `error.BufferTooSmall`.
-        pub fn result(self: Self, ref: PathRequestRef, out: []PolyRef) err.Error!usize {
-            const max_path = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        pub fn result(self: Self, ref: PathRequestRef, out: []PolyRef, failure: *err.Failure) err.Error!usize {
+            const max_path = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .path_queue_result, error.InvalidArgument);
             const ptr: ?[*]PolyRef = if (out.len == 0) null else out.ptr;
             var count: i32 = 0;
-            try err.check(c.zrcPathQueueResult(self.handle, ref, ptr, max_path, &count));
+            try err.check(failure, .path_queue_result, c.zrcPathQueueResult(self.handle, ref, ptr, max_path, &count));
             return c.reported(usize, count);
         }
 
         /// The query object the queue runs its searches on. Borrowed; it dies with
         /// the queue.
-        pub fn navMeshQuery(self: Self) err.Error!BorrowedNavMeshQuery {
+        pub fn navMeshQuery(self: Self, failure: *err.Failure) err.Error!BorrowedNavMeshQuery {
             var handle: *const c.NavMeshQuery = undefined;
-            try err.check(c.zrcPathQueueNavMeshQuery(self.handle, &handle));
+            try err.check(failure, .path_queue_nav_mesh_query, c.zrcPathQueueNavMeshQuery(self.handle, &handle));
             return .{ .handle = handle };
         }
     };

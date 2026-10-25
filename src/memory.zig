@@ -131,7 +131,7 @@ pub fn setAllocator(gpa: std.mem.Allocator) void {
     };
     // The boundary refuses only a bridge missing a function, and this one
     // has both.
-    err.check(c.zrcSetAllocator(&bridge)) catch aegis.assert.never("the Zig bridge has both functions");
+    err.map(c.zrcSetAllocator(&bridge)) catch aegis.assert.never("the Zig bridge has both functions");
 }
 
 /// Restores upstream's built-in malloc/free allocators.
@@ -154,8 +154,8 @@ pub const AllocHint = c.AllocHint;
 /// Reachable so a host already accounting for Recast's and Detour's own
 /// allocations can make one on the same seam and have it accounted the same
 /// way — scratch for `geom.randomPointInConvexPoly`, say.
-pub fn alloc(size: usize, hint: AllocHint) err.Error![]u8 {
-    const p = c.zrcAlloc(size, hint) orelse return err.Error.OutOfMemory;
+pub fn alloc(size: usize, hint: AllocHint, failure: *err.Failure) err.Error![]u8 {
+    const p = c.zrcAlloc(size, hint) orelse return err.refuse(failure, .alloc, error.OutOfMemory);
     const bytes: [*]u8 = @ptrCast(p); // safe: zrcAlloc returns a block of size bytes
     return bytes[0..size];
 }
@@ -218,11 +218,12 @@ test "installing an incomplete allocator is refused" {
 }
 
 test "alloc and free round-trip through the installed allocator" {
+    var failure: err.Failure = .{};
     const gpa = std.testing.allocator;
     setAllocator(gpa);
     defer resetAllocator();
 
-    const block = try alloc(128, .perm);
+    const block = try alloc(128, .perm, &failure);
     try std.testing.expectEqual(@as(usize, 128), block.len);
     @memset(block, 0xCD);
     free(block);

@@ -67,9 +67,9 @@ pub const TileAuthoring = struct {
     /// smaller tile and a slower query.
     skip_bv_tree: bool = false,
 
-    fn toC(self: TileAuthoring) err.Error!c.TileAuthoring {
+    fn toC(self: TileAuthoring, failure: *err.Failure, call: err.Call) err.Error!c.TileAuthoring {
         const connection_count = aegis.int.cast(i32, self.connections.len) catch
-            return err.Error.InvalidArgument;
+            return err.refuse(failure, call, error.InvalidArgument);
         return .{
             .connections = if (self.connections.len == 0) null else self.connections.ptr,
             .connection_count = connection_count,
@@ -102,14 +102,14 @@ fn NavMeshOf(comptime access: c.Access) type {
         ///
         /// `authoring` is optional and supplies the off-mesh connections and the
         /// opaque user id the single tile this creates is built with.
-        pub fn initFromPolyMesh(mesh: PolyMesh, authoring: ?TileAuthoring) err.Error!NavMesh {
+        pub fn initFromPolyMesh(mesh: PolyMesh, authoring: ?TileAuthoring, failure: *err.Failure) err.Error!NavMesh {
             comptime c.ownedOnly(access);
             var authoring_storage: c.TileAuthoring = undefined;
-            if (authoring) |a| authoring_storage = try a.toC();
+            if (authoring) |a| authoring_storage = try a.toC(failure, .nav_mesh_create);
             const c_authoring: ?*const c.TileAuthoring =
                 if (authoring != null) &authoring_storage else null;
             var handle: *c.NavMesh = undefined;
-            try err.check(c.zrcNavMeshCreate(mesh.handle, c_authoring, &handle));
+            try err.check(failure, .nav_mesh_create, c.zrcNavMeshCreate(mesh.handle, c_authoring, &handle));
             return .{ .handle = handle };
         }
 
@@ -124,29 +124,30 @@ fn NavMeshOf(comptime access: c.Access) type {
             grid: TileGrid,
             max_tiles: u32,
             max_polys_per_tile: u32,
+            failure: *err.Failure,
         ) err.Error!NavMesh {
             comptime c.ownedOnly(access);
             const tiles = aegis.int.cast(i32, max_tiles) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .nav_mesh_create_tiled, error.InvalidArgument);
             const polys = aegis.int.cast(i32, max_polys_per_tile) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .nav_mesh_create_tiled, error.InvalidArgument);
             var handle: *c.NavMesh = undefined;
-            try err.check(c.zrcNavMeshCreateTiled(&grid, tiles, polys, &handle));
+            try err.check(failure, .nav_mesh_create_tiled, c.zrcNavMeshCreateTiled(&grid, tiles, polys, &handle));
             return .{ .handle = handle };
         }
 
         /// Adds a tile, checking the bytes in full first and then copying them, so
         /// `image` stays the caller's and may be freed immediately.
-        pub fn addTile(self: Self, image: Image) err.Error!TileRef {
+        pub fn addTile(self: Self, image: Image, failure: *err.Failure) err.Error!TileRef {
             const bytes = image.readForParse();
             var ref: TileRef = 0;
-            try err.check(c.zrcNavMeshAddTile(self.handle, bytes.ptr, bytes.len, &ref));
+            try err.check(failure, .nav_mesh_add_tile, c.zrcNavMeshAddTile(self.handle, bytes.ptr, bytes.len, &ref));
             return ref;
         }
 
         /// Removes a tile and releases the copy the navmesh made of it.
-        pub fn removeTile(self: Self, ref: TileRef) err.Error!void {
-            try err.check(c.zrcNavMeshRemoveTile(self.handle, ref));
+        pub fn removeTile(self: Self, ref: TileRef, failure: *err.Failure) err.Error!void {
+            try err.check(failure, .nav_mesh_remove_tile, c.zrcNavMeshRemoveTile(self.handle, ref));
         }
 
         /// The tile at a grid position, or 0 when the slot is empty — a fact about
@@ -156,9 +157,10 @@ fn NavMeshOf(comptime access: c.Access) type {
             tile_x: i32,
             tile_z: i32,
             tile_layer: i32,
+            failure: *err.Failure,
         ) err.Error!TileRef {
             var ref: TileRef = 0;
-            try err.check(c.zrcNavMeshTileRefAt(
+            try err.check(failure, .nav_mesh_tile_ref_at, c.zrcNavMeshTileRefAt(
                 self.handle,
                 tile_x,
                 tile_z,
@@ -190,21 +192,22 @@ fn NavMeshOf(comptime access: c.Access) type {
             tile_x: i32,
             tile_z: i32,
             out: []TileRef,
+            failure: *err.Failure,
         ) err.Error!usize {
             const max_tiles = aegis.int.cast(i32, out.len) catch
-                return err.Error.InvalidArgument;
+                return err.refuse(failure, .nav_mesh_tile_refs_at, error.InvalidArgument);
             const ptr: ?[*]TileRef = if (out.len == 0) null else out.ptr;
             var count: i32 = 0;
             const result = c.zrcNavMeshTileRefsAt(self.handle, tile_x, tile_z, ptr, max_tiles, &count);
             if (result == .buffer_too_small) return c.reported(usize, count);
-            try err.check(result);
+            try err.check(failure, .nav_mesh_tile_refs_at, result);
             return c.reported(usize, count);
         }
 
-        pub fn tileRefAtIndex(self: Self, index: u32) err.Error!TileRef {
-            const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        pub fn tileRefAtIndex(self: Self, index: u32, failure: *err.Failure) err.Error!TileRef {
+            const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .nav_mesh_tile_ref_at_index, error.InvalidArgument);
             var ref: TileRef = 0;
-            try err.check(c.zrcNavMeshTileRefAtIndex(self.handle, i, &ref));
+            try err.check(failure, .nav_mesh_tile_ref_at_index, c.zrcNavMeshTileRefAtIndex(self.handle, i, &ref));
             return ref;
         }
 
@@ -214,9 +217,9 @@ fn NavMeshOf(comptime access: c.Access) type {
         }
 
         /// World-space bounds of one resident tile, `.{ min, max }`.
-        pub fn tileBounds(self: Self, ref: TileRef) err.Error![2][3]f32 {
+        pub fn tileBounds(self: Self, ref: TileRef, failure: *err.Failure) err.Error![2][3]f32 {
             var result: [2][3]f32 = undefined;
-            try err.check(c.zrcNavMeshTileBounds(
+            try err.check(failure, .nav_mesh_tile_bounds, c.zrcNavMeshTileBounds(
                 self.handle,
                 ref,
                 &result[0],
@@ -231,29 +234,29 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// `Filter.area_cost`; the flags are what it admits or refuses outright.
         /// Both are per polygon and both are a write into the tile the reference
         /// names, so a world can change shape without being re-cooked.
-        pub fn polyArea(self: Self, ref: c.PolyRef) err.Error!i32 {
+        pub fn polyArea(self: Self, ref: c.PolyRef, failure: *err.Failure) err.Error!i32 {
             var area: i32 = 0;
-            try err.check(c.zrcNavMeshGetPolyArea(self.handle, ref, &area));
+            try err.check(failure, .nav_mesh_get_poly_area, c.zrcNavMeshGetPolyArea(self.handle, ref, &area));
             return area;
         }
 
         /// Rewrites the area id of one polygon. `InvalidArgument` outside
         /// `0..max_areas`.
-        pub fn setPolyArea(self: Self, ref: c.PolyRef, area: i32) err.Error!void {
-            try err.check(c.zrcNavMeshSetPolyArea(self.handle, ref, area));
+        pub fn setPolyArea(self: Self, ref: c.PolyRef, area: i32, failure: *err.Failure) err.Error!void {
+            try err.check(failure, .nav_mesh_set_poly_area, c.zrcNavMeshSetPolyArea(self.handle, ref, area));
         }
 
         /// The query flags of one polygon.
-        pub fn polyFlags(self: Self, ref: c.PolyRef) err.Error!u16 {
+        pub fn polyFlags(self: Self, ref: c.PolyRef, failure: *err.Failure) err.Error!u16 {
             var flags: u16 = 0;
-            try err.check(c.zrcNavMeshGetPolyFlags(self.handle, ref, &flags));
+            try err.check(failure, .nav_mesh_get_poly_flags, c.zrcNavMeshGetPolyFlags(self.handle, ref, &flags));
             return flags;
         }
 
         /// Rewrites the query flags of one polygon. Zero makes it invisible to
         /// every query.
-        pub fn setPolyFlags(self: Self, ref: c.PolyRef, flags: u16) err.Error!void {
-            try err.check(c.zrcNavMeshSetPolyFlags(self.handle, ref, flags));
+        pub fn setPolyFlags(self: Self, ref: c.PolyRef, flags: u16, failure: *err.Failure) err.Error!void {
+            try err.check(failure, .nav_mesh_set_poly_flags, c.zrcNavMeshSetPolyFlags(self.handle, ref, flags));
         }
 
         /// Which kind of polygon a reference names.
@@ -261,9 +264,9 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// There is no setter: a polygon's type decides how every query treats it
         /// and which of a tile's arrays it may index, so a host chooses it by
         /// supplying connections at build time instead.
-        pub fn polyType(self: Self, ref: c.PolyRef) err.Error!PolyType {
+        pub fn polyType(self: Self, ref: c.PolyRef, failure: *err.Failure) err.Error!PolyType {
             var out_type: i32 = 0;
-            try err.check(c.zrcNavMeshGetPolyType(self.handle, ref, &out_type));
+            try err.check(failure, .nav_mesh_get_poly_type, c.zrcNavMeshGetPolyType(self.handle, ref, &out_type));
             return std.enums.fromInt(PolyType, out_type) orelse
                 aegis.assert.never("the C boundary reports only the polygon types Detour defines");
         }
@@ -280,9 +283,10 @@ fn NavMeshOf(comptime access: c.Access) type {
             self: Self,
             prev_ref: c.PolyRef,
             poly_ref: c.PolyRef,
+            failure: *err.Failure,
         ) err.Error![2][3]f32 {
             var result: [2][3]f32 = undefined;
-            try err.check(c.zrcNavMeshOffMeshConnectionEndPoints(
+            try err.check(failure, .nav_mesh_off_mesh_connection_end_points, c.zrcNavMeshOffMeshConnectionEndPoints(
                 self.handle,
                 prev_ref,
                 poly_ref,
@@ -299,24 +303,24 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// endpoints are the stored ones, which is not always where the
         /// connection attached: `offMeshConnectionEndPoints` reports where it
         /// landed.
-        pub fn offMeshConnection(self: Self, ref: c.PolyRef) err.Error!OffMeshConnection {
+        pub fn offMeshConnection(self: Self, ref: c.PolyRef, failure: *err.Failure) err.Error!OffMeshConnection {
             var out: OffMeshConnection = undefined;
-            try err.check(c.zrcNavMeshOffMeshConnection(self.handle, ref, &out));
+            try err.check(failure, .nav_mesh_off_mesh_connection, c.zrcNavMeshOffMeshConnection(self.handle, ref, &out));
             return out;
         }
 
         /// The tile's opaque user id, as given to `buildTileData` or
         /// `initFromPolyMesh`.
-        pub fn tileUserId(self: Self, ref: TileRef) err.Error!u32 {
+        pub fn tileUserId(self: Self, ref: TileRef, failure: *err.Failure) err.Error!u32 {
             var out_user_id: u32 = 0;
-            try err.check(c.zrcNavMeshTileUserId(self.handle, ref, &out_user_id));
+            try err.check(failure, .nav_mesh_tile_user_id, c.zrcNavMeshTileUserId(self.handle, ref, &out_user_id));
             return out_user_id;
         }
 
         /// How this navmesh's tile grid was sized, as `initTiled` set it up.
-        pub fn params(self: Self) err.Error!NavMeshParams {
+        pub fn params(self: Self, failure: *err.Failure) err.Error!NavMeshParams {
             var out: NavMeshParams = undefined;
-            try err.check(c.zrcNavMeshParams(self.handle, &out));
+            try err.check(failure, .nav_mesh_params, c.zrcNavMeshParams(self.handle, &out));
             return out;
         }
 
@@ -325,23 +329,23 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// Answers for any position, including one outside the grid: the result is
         /// the coordinate the position would have, not a promise that a tile is
         /// there.
-        pub fn calcTileLoc(self: Self, pos: [3]f32) err.Error!TileLoc {
+        pub fn calcTileLoc(self: Self, pos: [3]f32, failure: *err.Failure) err.Error!TileLoc {
             var loc: TileLoc = undefined;
-            try err.check(c.zrcNavMeshCalcTileLoc(self.handle, &pos, &loc.x, &loc.z));
+            try err.check(failure, .nav_mesh_calc_tile_loc, c.zrcNavMeshCalcTileLoc(self.handle, &pos, &loc.x, &loc.z));
             return loc;
         }
 
         /// Everything a tile's header says about it, copied out.
-        pub fn tileInfo(self: Self, ref: TileRef) err.Error!TileInfo {
+        pub fn tileInfo(self: Self, ref: TileRef, failure: *err.Failure) err.Error!TileInfo {
             var out: TileInfo = undefined;
-            try err.check(c.zrcNavMeshTileInfo(self.handle, ref, &out));
+            try err.check(failure, .nav_mesh_tile_info, c.zrcNavMeshTileInfo(self.handle, ref, &out));
             return out;
         }
 
         /// One polygon, copied out of the tile that holds it.
-        pub fn polyInfo(self: Self, ref: c.PolyRef) err.Error!PolyInfo {
+        pub fn polyInfo(self: Self, ref: c.PolyRef, failure: *err.Failure) err.Error!PolyInfo {
             var out: PolyInfo = undefined;
-            try err.check(c.zrcNavMeshPolyInfo(self.handle, ref, &out));
+            try err.check(failure, .nav_mesh_poly_info, c.zrcNavMeshPolyInfo(self.handle, ref, &out));
             return out;
         }
 
@@ -351,10 +355,10 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// already returned, so a tile's polygons could not be walked at all. The
         /// index runs over the whole tile: the first `TileInfo.ground_poly_count`
         /// are ground, the rest belong to off-mesh connections.
-        pub fn tilePolyRef(self: Self, ref: TileRef, index: u32) err.Error!c.PolyRef {
-            const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        pub fn tilePolyRef(self: Self, ref: TileRef, index: u32, failure: *err.Failure) err.Error!c.PolyRef {
+            const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .nav_mesh_tile_poly_ref, error.InvalidArgument);
             var out: c.PolyRef = 0;
-            try err.check(c.zrcNavMeshTilePolyRef(self.handle, ref, i, &out));
+            try err.check(failure, .nav_mesh_tile_poly_ref, c.zrcNavMeshTilePolyRef(self.handle, ref, i, &out));
             return out;
         }
 
@@ -363,18 +367,18 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// Indices come from `PolyInfo.first_link` and from `Link.next`; there is
         /// no reason to walk the array itself, and a link not on any polygon's
         /// chain is free storage rather than an edge.
-        pub fn tileLink(self: Self, ref: TileRef, index: u32) err.Error!Link {
-            const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        pub fn tileLink(self: Self, ref: TileRef, index: u32, failure: *err.Failure) err.Error!Link {
+            const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .nav_mesh_tile_link, error.InvalidArgument);
             var out: Link = undefined;
-            try err.check(c.zrcNavMeshTileLink(self.handle, ref, i, &out));
+            try err.check(failure, .nav_mesh_tile_link, c.zrcNavMeshTileLink(self.handle, ref, i, &out));
             return out;
         }
 
         /// One node of a tile's bounding-volume tree by index.
-        pub fn tileBvNode(self: Self, ref: TileRef, index: u32) err.Error!BvNode {
-            const i = aegis.int.cast(i32, index) catch return err.Error.InvalidArgument;
+        pub fn tileBvNode(self: Self, ref: TileRef, index: u32, failure: *err.Failure) err.Error!BvNode {
+            const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .nav_mesh_tile_bv_node, error.InvalidArgument);
             var out: BvNode = undefined;
-            try err.check(c.zrcNavMeshTileBvNode(self.handle, ref, i, &out));
+            try err.check(failure, .nav_mesh_tile_bv_node, c.zrcNavMeshTileBvNode(self.handle, ref, i, &out));
             return out;
         }
 
@@ -383,20 +387,20 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// `out.len` is the count read; a range partly outside the tile's vertex
         /// array is `InvalidArgument` rather than a short read, since a silently
         /// short read is indistinguishable from an empty tile.
-        pub fn tileVerts(self: Self, ref: TileRef, first: u32, out: [][3]f32) err.Error!void {
-            const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-            const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        pub fn tileVerts(self: Self, ref: TileRef, first: u32, out: [][3]f32, failure: *err.Failure) err.Error!void {
+            const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .nav_mesh_tile_verts, error.InvalidArgument);
+            const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .nav_mesh_tile_verts, error.InvalidArgument);
             const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-            try err.check(c.zrcNavMeshTileVerts(self.handle, ref, first_i, count, ptr));
+            try err.check(failure, .nav_mesh_tile_verts, c.zrcNavMeshTileVerts(self.handle, ref, first_i, count, ptr));
         }
 
         /// Copies detail vertices into `out`, starting at `first`, one `[3]f32`
         /// each. Same range rule as `tileVerts`.
-        pub fn tileDetailVerts(self: Self, ref: TileRef, first: u32, out: [][3]f32) err.Error!void {
-            const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-            const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        pub fn tileDetailVerts(self: Self, ref: TileRef, first: u32, out: [][3]f32, failure: *err.Failure) err.Error!void {
+            const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .nav_mesh_tile_detail_verts, error.InvalidArgument);
+            const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .nav_mesh_tile_detail_verts, error.InvalidArgument);
             const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-            try err.check(c.zrcNavMeshTileDetailVerts(self.handle, ref, first_i, count, ptr));
+            try err.check(failure, .nav_mesh_tile_detail_verts, c.zrcNavMeshTileDetailVerts(self.handle, ref, first_i, count, ptr));
         }
 
         /// Copies detail triangles into `out`, starting at `first`, one `[4]u8`
@@ -406,17 +410,17 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// A corner below the owning polygon's `vert_count` names one of its own
         /// corners; at or above it, name `detail_vert_base + corner - vert_count`
         /// in the detail vertex array.
-        pub fn tileDetailTris(self: Self, ref: TileRef, first: u32, out: [][4]u8) err.Error!void {
-            const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-            const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+        pub fn tileDetailTris(self: Self, ref: TileRef, first: u32, out: [][4]u8, failure: *err.Failure) err.Error!void {
+            const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .nav_mesh_tile_detail_tris, error.InvalidArgument);
+            const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .nav_mesh_tile_detail_tris, error.InvalidArgument);
             const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-            try err.check(c.zrcNavMeshTileDetailTris(self.handle, ref, first_i, count, ptr));
+            try err.check(failure, .nav_mesh_tile_detail_tris, c.zrcNavMeshTileDetailTris(self.handle, ref, first_i, count, ptr));
         }
 
         /// Bytes `storeTileState` needs for this tile.
-        pub fn tileStateSize(self: Self, ref: TileRef) err.Error!usize {
+        pub fn tileStateSize(self: Self, ref: TileRef, failure: *err.Failure) err.Error!usize {
             var out_size: usize = 0;
-            try err.check(c.zrcNavMeshTileStateSize(self.handle, ref, &out_size));
+            try err.check(failure, .nav_mesh_tile_state_size, c.zrcNavMeshTileStateSize(self.handle, ref, &out_size));
             return out_size;
         }
 
@@ -426,8 +430,8 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// at least it: too small is `BufferTooSmall`, too large is
         /// `InvalidArgument`. See `ZrcTileAuthoring`'s tile-state section in
         /// zrecast.h for why the length has to be exact.
-        pub fn storeTileState(self: Self, ref: TileRef, data: []u8) err.Error!void {
-            try err.check(c.zrcNavMeshStoreTileState(self.handle, ref, data.ptr, data.len));
+        pub fn storeTileState(self: Self, ref: TileRef, data: []u8, failure: *err.Failure) err.Error!void {
+            try err.check(failure, .nav_mesh_store_tile_state, c.zrcNavMeshStoreTileState(self.handle, ref, data.ptr, data.len));
         }
 
         /// Puts stored areas and flags back onto the tile they came from.
@@ -435,9 +439,9 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// `state`'s length must equal `tileStateSize`'s answer exactly, the same rule
         /// `storeTileState` enforces. A tile removed and re-added gets a new
         /// salt, so its old state no longer applies to it.
-        pub fn restoreTileState(self: Self, ref: TileRef, state: Image) err.Error!void {
+        pub fn restoreTileState(self: Self, ref: TileRef, state: Image, failure: *err.Failure) err.Error!void {
             const data = state.readForParse();
-            try err.check(c.zrcNavMeshRestoreTileState(self.handle, ref, data.ptr, data.len));
+            try err.check(failure, .nav_mesh_restore_tile_state, c.zrcNavMeshRestoreTileState(self.handle, ref, data.ptr, data.len));
         }
 
         /// Rebuilds a navmesh from bytes produced by `serialize`.
@@ -445,11 +449,11 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// The bytes are checked before Detour sees any of them, then copied, so
         /// the slice need not outlive the call. See `validate` for exactly what
         /// that check does and does not cover.
-        pub fn initFromBytes(image: Image) err.Error!NavMesh {
+        pub fn initFromBytes(image: Image, failure: *err.Failure) err.Error!NavMesh {
             comptime c.ownedOnly(access);
             const bytes = image.readForParse();
             var handle: *c.NavMesh = undefined;
-            try err.check(c.zrcNavMeshDeserialize(bytes.ptr, bytes.len, &handle));
+            try err.check(failure, .nav_mesh_deserialize, c.zrcNavMeshDeserialize(bytes.ptr, bytes.len, &handle));
             return .{ .handle = handle };
         }
 
@@ -462,11 +466,11 @@ fn NavMeshOf(comptime access: c.Access) type {
         ///
         /// A tiled navmesh has no single image and this is `InvalidArgument` for
         /// one; cook each tile with `buildTileData` instead.
-        pub fn serialize(self: Self) err.Error!Serialized {
+        pub fn serialize(self: Self, failure: *err.Failure) err.Error!Serialized {
             var data: ?*anyopaque = null;
             var size: usize = 0;
-            try err.check(c.zrcNavMeshSerialize(self.handle, &data, &size));
-            const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult); // safe: the C boundary allocates the image as bytes, through the allocator seam
+            try err.check(failure, .nav_mesh_serialize, c.zrcNavMeshSerialize(self.handle, &data, &size));
+            const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .nav_mesh_serialize, error.EmptyResult)); // safe: the C boundary allocates the image as bytes, through the allocator seam
             return .{ .bytes = ptr[0..size] };
         }
 
@@ -475,9 +479,9 @@ fn NavMeshOf(comptime access: c.Access) type {
         }
 
         /// World-space bounds, `.{ min, max }`.
-        pub fn bounds(self: Self) err.Error![2][3]f32 {
+        pub fn bounds(self: Self, failure: *err.Failure) err.Error![2][3]f32 {
             var result: [2][3]f32 = undefined;
-            try err.check(c.zrcNavMeshBounds(self.handle, &result[0], &result[1]));
+            try err.check(failure, .nav_mesh_bounds, c.zrcNavMeshBounds(self.handle, &result[0], &result[1]));
             return result;
         }
     };
@@ -521,14 +525,15 @@ pub fn buildTileData(
     tile_z: i32,
     tile_layer: i32,
     authoring: ?TileAuthoring,
+    failure: *err.Failure,
 ) err.Error!Serialized {
     var authoring_storage: c.TileAuthoring = undefined;
-    if (authoring) |a| authoring_storage = try a.toC();
+    if (authoring) |a| authoring_storage = try a.toC(failure, .tile_data_build);
     const c_authoring: ?*const c.TileAuthoring =
         if (authoring != null) &authoring_storage else null;
     var data: ?*anyopaque = null;
     var size: usize = 0;
-    try err.check(c.zrcTileDataBuild(
+    try err.check(failure, .tile_data_build, c.zrcTileDataBuild(
         mesh.handle,
         tile_x,
         tile_z,
@@ -537,7 +542,7 @@ pub fn buildTileData(
         &data,
         &size,
     ));
-    const ptr: [*]u8 = @ptrCast(data orelse return err.Error.EmptyResult); // safe: the C boundary allocates the image as bytes, through the allocator seam
+    const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .tile_data_build, error.EmptyResult)); // safe: the C boundary allocates the image as bytes, through the allocator seam
     return .{ .bytes = ptr[0..size] };
 }
 
@@ -563,9 +568,9 @@ pub fn buildTileData(
 /// It does not decide whether the mesh is *sensible*. An in-bounds image can
 /// still describe a degenerate or useless navmesh. This is a guarantee about
 /// memory safety, not about trustworthiness.
-pub fn validate(image: Image) err.Error!void {
+pub fn validate(image: Image, failure: *err.Failure) err.Error!void {
     const bytes = image.readForParse();
-    try err.check(c.zrcNavMeshValidate(bytes.ptr, bytes.len));
+    try err.check(failure, .nav_mesh_validate, c.zrcNavMeshValidate(bytes.ptr, bytes.len));
 }
 
 /// A byte range inside a tile image.
@@ -604,29 +609,29 @@ pub const TileLayout = struct {
 ///
 /// The image is validated first, so every range this returns is inside
 /// `image` and every array it names is fully contained.
-pub fn tileLayout(image: Image) err.Error!TileLayout {
+pub fn tileLayout(image: Image, failure: *err.Failure) err.Error!TileLayout {
     const bytes = image.readForParse();
     var out: c.TileLayout = undefined;
-    try err.check(c.zrcTileLayout(bytes.ptr, bytes.len, &out));
+    try err.check(failure, .tile_layout, c.zrcTileLayout(bytes.ptr, bytes.len, &out));
 
     const cast = struct {
-        fn toUsize(x: i64) err.Error!usize {
-            return aegis.int.cast(usize, x) catch return err.Error.BadFormat;
+        fn toUsize(x: i64, into: *err.Failure) err.Error!usize {
+            return aegis.int.cast(usize, x) catch return err.refuse(into, .tile_layout, error.BadFormat);
         }
-        fn range(offset: i64, len: i64) err.Error!Range {
-            return .{ .offset = try toUsize(offset), .len = try toUsize(len) };
+        fn range(offset: i64, len: i64, into: *err.Failure) err.Error!Range {
+            return .{ .offset = try toUsize(offset, into), .len = try toUsize(len, into) };
         }
     };
     return .{
-        .verts = try cast.range(out.verts_offset, out.verts_size),
-        .polys = try cast.range(out.polys_offset, out.polys_size),
-        .links = try cast.range(out.links_offset, out.links_size),
-        .detail_meshes = try cast.range(out.detail_meshes_offset, out.detail_meshes_size),
-        .detail_verts = try cast.range(out.detail_verts_offset, out.detail_verts_size),
-        .detail_tris = try cast.range(out.detail_tris_offset, out.detail_tris_size),
-        .bv_tree = try cast.range(out.bv_tree_offset, out.bv_tree_size),
-        .off_mesh_cons = try cast.range(out.off_mesh_cons_offset, out.off_mesh_cons_size),
-        .total_size = try cast.toUsize(out.total_size),
+        .verts = try cast.range(out.verts_offset, out.verts_size, failure),
+        .polys = try cast.range(out.polys_offset, out.polys_size, failure),
+        .links = try cast.range(out.links_offset, out.links_size, failure),
+        .detail_meshes = try cast.range(out.detail_meshes_offset, out.detail_meshes_size, failure),
+        .detail_verts = try cast.range(out.detail_verts_offset, out.detail_verts_size, failure),
+        .detail_tris = try cast.range(out.detail_tris_offset, out.detail_tris_size, failure),
+        .bv_tree = try cast.range(out.bv_tree_offset, out.bv_tree_size, failure),
+        .off_mesh_cons = try cast.range(out.off_mesh_cons_offset, out.off_mesh_cons_size, failure),
+        .total_size = try cast.toUsize(out.total_size, failure),
     };
 }
 
@@ -640,11 +645,11 @@ pub fn tileLayout(image: Image) err.Error!TileLayout {
 /// can load and the result is for the other machine, false when `image` came
 /// from that machine and the result is for this one. Either way the result is
 /// validated in full before it is handed back.
-pub fn swapImageEndian(image: Image, from_native: bool) err.Error!Serialized {
+pub fn swapImageEndian(image: Image, from_native: bool, failure: *err.Failure) err.Error!Serialized {
     const bytes = image.readForParse();
     var data: ?*anyopaque = null;
     var size: usize = 0;
-    try err.check(c.zrcNavMeshImageSwapEndian(
+    try err.check(failure, .nav_mesh_image_swap_endian, c.zrcNavMeshImageSwapEndian(
         bytes.ptr,
         bytes.len,
         if (from_native) c.c_true else c.c_false,
@@ -665,9 +670,9 @@ pub fn dataVersion() i32 {
 /// `InvalidArgument` outside `0..8`.
 ///
 /// A free function rather than a `NavMesh` method: it takes no navmesh.
-pub fn oppositeTileSide(side: i32) err.Error!i32 {
+pub fn oppositeTileSide(side: i32, failure: *err.Failure) err.Error!i32 {
     var out: i32 = 0;
-    try err.check(c.zrcOppositeTileSide(side, &out));
+    try err.check(failure, .opposite_tile_side, c.zrcOppositeTileSide(side, &out));
     return out;
 }
 
@@ -686,11 +691,12 @@ pub fn detailTriEdgeFlags(tri_flags: u8, edge_index: u2) u8 {
 }
 
 test "obvious non-navmesh bytes are rejected" {
+    var failure: err.Failure = .{};
     const line = "this is not a navigation mesh, not even a little bit";
     const garbage = line ++ line ++ line ++ line;
-    try std.testing.expectError(err.Error.BadFormat, validate(.init(garbage)));
-    try std.testing.expectError(err.Error.BadFormat, validate(.init("")));
-    try std.testing.expectError(err.Error.BadFormat, NavMesh.initFromBytes(.init(garbage)));
+    try std.testing.expectError(err.Error.BadFormat, validate(.init(garbage), &failure));
+    try std.testing.expectError(err.Error.BadFormat, validate(.init(""), &failure));
+    try std.testing.expectError(err.Error.BadFormat, NavMesh.initFromBytes(.init(garbage), &failure));
 }
 
 test "the data version is a real number the C side agrees on" {

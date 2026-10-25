@@ -50,11 +50,12 @@ pub fn convexVolume(
     y_min: f32,
     y_max: f32,
     verts: []const f32,
+    failure: *err.Failure,
 ) err.Error!AreaVolume {
-    if (verts.len % 3 != 0) return err.Error.InvalidArgument;
+    if (verts.len % 3 != 0) return err.refuse(failure, .convex_volume, error.InvalidArgument);
     const vert_count = aegis.int.cast(i32, verts.len / 3) catch
-        return err.Error.InvalidArgument;
-    if (vert_count < 3) return err.Error.InvalidArgument;
+        return err.refuse(failure, .convex_volume, error.InvalidArgument);
+    if (vert_count < 3) return err.refuse(failure, .convex_volume, error.InvalidArgument);
     return .{
         .shape = .convex,
         .area = area,
@@ -127,9 +128,10 @@ pub const AreaAuthoring = struct {
     /// polygon that some filter still admits is a polygon a path can cross.
     area_flags: ?*const [c.max_areas]u16 = null,
 
-    pub fn toC(self: AreaAuthoring) err.Error!c.AreaAuthoring {
+    /// `call` is the call the authoring is for, which a refusal names.
+    pub fn toC(self: AreaAuthoring, failure: *err.Failure, call: err.Call) err.Error!c.AreaAuthoring {
         const volume_count = aegis.int.cast(i32, self.volumes.len) catch
-            return err.Error.InvalidArgument;
+            return err.refuse(failure, call, error.InvalidArgument);
         return .{
             .volumes = if (self.volumes.len == 0) null else self.volumes.ptr,
             .volume_count = volume_count,
@@ -142,10 +144,10 @@ pub const AreaAuthoring = struct {
 ///
 /// `InvalidArgument` when `config.tile_size` is 0: a single-tile bake has no
 /// grid, and `PolyMesh.bake` is the entry point for one.
-pub fn tileGrid(config: Config, mesh: TriMesh) err.Error!TileGrid {
-    const c_mesh = try mesh.toC();
+pub fn tileGrid(config: Config, mesh: TriMesh, failure: *err.Failure) err.Error!TileGrid {
+    const c_mesh = try mesh.toC(failure, .tile_grid_compute);
     var grid: TileGrid = undefined;
-    try err.check(c.zrcTileGridCompute(&config, &c_mesh, &grid));
+    try err.check(failure, .tile_grid_compute, c.zrcTileGridCompute(&config, &c_mesh, &grid));
     return grid;
 }
 
@@ -159,17 +161,18 @@ pub const TriMesh = struct {
     /// `3 * m` indices into the vertex array.
     tris: []const i32,
 
-    pub fn toC(self: TriMesh) err.Error!c.TriMesh {
+    /// `call` is the call the mesh is for, which a refusal names.
+    pub fn toC(self: TriMesh, failure: *err.Failure, call: err.Call) err.Error!c.TriMesh {
         // The C side re-checks all of this. Doing it here too is not
         // redundancy: it is what lets the division below be safe, and it turns
         // a slice whose length is not a multiple of three — something the C
         // struct cannot express — into an error rather than a silent truncation.
-        if (self.verts.len == 0 or self.verts.len % 3 != 0) return err.Error.InvalidArgument;
-        if (self.tris.len == 0 or self.tris.len % 3 != 0) return err.Error.InvalidArgument;
+        if (self.verts.len == 0 or self.verts.len % 3 != 0) return err.refuse(failure, call, error.InvalidArgument);
+        if (self.tris.len == 0 or self.tris.len % 3 != 0) return err.refuse(failure, call, error.InvalidArgument);
         const vert_count = aegis.int.cast(i32, self.verts.len / 3) catch
-            return err.Error.InvalidArgument;
+            return err.refuse(failure, call, error.InvalidArgument);
         const tri_count = aegis.int.cast(i32, self.tris.len / 3) catch
-            return err.Error.InvalidArgument;
+            return err.refuse(failure, call, error.InvalidArgument);
         return .{
             .verts = self.verts.ptr,
             .vert_count = vert_count,
@@ -191,9 +194,9 @@ pub const PolyMesh = struct {
 
     /// Allocates an empty polygon mesh, for a later `polyMeshBuild`,
     /// `polyMeshCopy` or `polyMeshMerge` stage to fill.
-    pub fn initEmpty() err.Error!PolyMesh {
+    pub fn initEmpty(failure: *err.Failure) err.Error!PolyMesh {
         var handle: *c.PolyMesh = undefined;
-        try err.check(c.zrcPolyMeshCreate(&handle));
+        try err.check(failure, .poly_mesh_create, c.zrcPolyMeshCreate(&handle));
         return .{ .handle = handle };
     }
 
@@ -211,18 +214,19 @@ pub const PolyMesh = struct {
         mesh: TriMesh,
         authoring: ?AreaAuthoring,
         log: ?[]u8,
+        failure: *err.Failure,
     ) err.Error!PolyMesh {
-        const c_mesh = try mesh.toC();
+        const c_mesh = try mesh.toC(failure, .poly_mesh_bake);
         var c_log = c.BakeLog{
             .buffer = if (log) |buffer| buffer.ptr else null,
             .capacity = if (log) |buffer| buffer.len else 0,
         };
         var authoring_storage: c.AreaAuthoring = undefined;
-        if (authoring) |a| authoring_storage = try a.toC();
+        if (authoring) |a| authoring_storage = try a.toC(failure, .poly_mesh_bake);
         const c_authoring: ?*const c.AreaAuthoring =
             if (authoring != null) &authoring_storage else null;
         var handle: *c.PolyMesh = undefined;
-        try err.check(c.zrcPolyMeshBake(
+        try err.check(failure, .poly_mesh_bake, c.zrcPolyMeshBake(
             &config,
             &c_mesh,
             c_authoring,
@@ -247,18 +251,19 @@ pub const PolyMesh = struct {
         tile_z: i32,
         authoring: ?AreaAuthoring,
         log: ?[]u8,
+        failure: *err.Failure,
     ) err.Error!?PolyMesh {
-        const c_mesh = try mesh.toC();
+        const c_mesh = try mesh.toC(failure, .poly_mesh_bake_tile);
         var c_log = c.BakeLog{
             .buffer = if (log) |buffer| buffer.ptr else null,
             .capacity = if (log) |buffer| buffer.len else 0,
         };
         var authoring_storage: c.AreaAuthoring = undefined;
-        if (authoring) |a| authoring_storage = try a.toC();
+        if (authoring) |a| authoring_storage = try a.toC(failure, .poly_mesh_bake_tile);
         const c_authoring: ?*const c.AreaAuthoring =
             if (authoring != null) &authoring_storage else null;
         var handle: ?*c.PolyMesh = null;
-        try err.check(c.zrcPolyMeshBakeTile(
+        try err.check(failure, .poly_mesh_bake_tile, c.zrcPolyMeshBakeTile(
             &config,
             &c_mesh,
             &grid,
@@ -285,8 +290,9 @@ pub const PolyMesh = struct {
         walkable_height: f32,
         walkable_radius: f32,
         walkable_climb: f32,
+        failure: *err.Failure,
     ) err.Error!void {
-        try err.check(c.zrcPolyMeshSetAgentDims(
+        try err.check(failure, .poly_mesh_set_agent_dims, c.zrcPolyMeshSetAgentDims(
             self.handle,
             walkable_height,
             walkable_radius,
@@ -294,20 +300,20 @@ pub const PolyMesh = struct {
         ));
     }
 
-    pub fn info(self: PolyMesh) err.Error!PolyMeshInfo {
+    pub fn info(self: PolyMesh, failure: *err.Failure) err.Error!PolyMeshInfo {
         var out: PolyMeshInfo = undefined;
-        try err.check(c.zrcPolyMeshInfo(self.handle, &out));
+        try err.check(failure, .poly_mesh_info, c.zrcPolyMeshInfo(self.handle, &out));
         return out;
     }
 
     /// Copies vertices into `out`, starting at `first`, one `[3]u16` each, in
     /// cells above the mesh's minimum corner. A range outside the array is an
     /// error rather than a short read.
-    pub fn verts(self: PolyMesh, first: u32, out: [][3]u16) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn verts(self: PolyMesh, first: u32, out: [][3]u16, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_verts, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_verts, error.InvalidArgument);
         const ptr: ?[*]u16 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-        try err.check(c.zrcPolyMeshVerts(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_verts, c.zrcPolyMeshVerts(self.handle, first_i, count, ptr));
     }
 
     /// Copies polygons into `out`, starting at `first`.
@@ -317,48 +323,48 @@ pub const PolyMesh = struct {
     /// each edge. `out.len` must be a whole number of polygons, and the
     /// polygon array is `max_polys` long rather than `poly_count` — that is
     /// what indexes it.
-    pub fn polys(self: PolyMesh, first: u32, out: []u16) err.Error!void {
+    pub fn polys(self: PolyMesh, first: u32, out: []u16, failure: *err.Failure) err.Error!void {
         const stride = 2 * c.reported(usize, (try self.info()).verts_per_poly);
-        if (stride == 0 or out.len % stride != 0) return err.Error.InvalidArgument;
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
+        if (stride == 0 or out.len % stride != 0) return err.refuse(failure, .poly_mesh_polys, error.InvalidArgument);
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_polys, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len / stride) catch
-            return err.Error.InvalidArgument;
+            return err.refuse(failure, .poly_mesh_polys, error.InvalidArgument);
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcPolyMeshPolys(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_polys, c.zrcPolyMeshPolys(self.handle, first_i, count, ptr));
     }
 
     /// Copies region ids into `out`, one per polygon. `multiple_regs` marks a
     /// polygon merged from more than one region.
-    pub fn regions(self: PolyMesh, first: u32, out: []u16) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn regions(self: PolyMesh, first: u32, out: []u16, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_regions, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_regions, error.InvalidArgument);
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcPolyMeshRegions(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_regions, c.zrcPolyMeshRegions(self.handle, first_i, count, ptr));
     }
 
     /// Copies area ids into `out`, one per polygon.
-    pub fn polyAreas(self: PolyMesh, first: u32, out: []u8) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn polyAreas(self: PolyMesh, first: u32, out: []u8, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_poly_areas, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_poly_areas, error.InvalidArgument);
         const ptr: ?[*]u8 = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcPolyMeshPolyAreas(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_poly_areas, c.zrcPolyMeshPolyAreas(self.handle, first_i, count, ptr));
     }
 
     /// Writes area ids back, starting at `first`. Each must be below
     /// `max_areas`; a batch with one that is not is refused whole.
-    pub fn setPolyAreas(self: PolyMesh, first: u32, areas: []const u8) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, areas.len) catch return err.Error.InvalidArgument;
+    pub fn setPolyAreas(self: PolyMesh, first: u32, areas: []const u8, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_set_poly_areas, error.InvalidArgument);
+        const count = aegis.int.cast(i32, areas.len) catch return err.refuse(failure, .poly_mesh_set_poly_areas, error.InvalidArgument);
         const ptr: [*]const u8 = if (areas.len == 0) undefined else areas.ptr;
-        try err.check(c.zrcPolyMeshSetPolyAreas(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_set_poly_areas, c.zrcPolyMeshSetPolyAreas(self.handle, first_i, count, ptr));
     }
 
     /// Copies polygon flags into `out`, one per polygon.
-    pub fn polyFlags(self: PolyMesh, first: u32, out: []u16) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn polyFlags(self: PolyMesh, first: u32, out: []u16, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_poly_flags, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_poly_flags, error.InvalidArgument);
         const ptr: ?[*]u16 = if (out.len == 0) null else out.ptr;
-        try err.check(c.zrcPolyMeshPolyFlags(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_poly_flags, c.zrcPolyMeshPolyFlags(self.handle, first_i, count, ptr));
     }
 
     /// Writes polygon flags back, starting at `first`.
@@ -366,38 +372,38 @@ pub const PolyMesh = struct {
     /// A mesh assembled a stage at a time comes out with every flag zero,
     /// which no nonzero query filter admits, so this is not optional for one.
     /// `bake` assigns them already.
-    pub fn setPolyFlags(self: PolyMesh, first: u32, flags: []const u16) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, flags.len) catch return err.Error.InvalidArgument;
+    pub fn setPolyFlags(self: PolyMesh, first: u32, flags: []const u16, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_set_poly_flags, error.InvalidArgument);
+        const count = aegis.int.cast(i32, flags.len) catch return err.refuse(failure, .poly_mesh_set_poly_flags, error.InvalidArgument);
         const ptr: [*]const u16 = if (flags.len == 0) undefined else flags.ptr;
-        try err.check(c.zrcPolyMeshSetPolyFlags(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_set_poly_flags, c.zrcPolyMeshSetPolyFlags(self.handle, first_i, count, ptr));
     }
 
     /// Copies detail sub-meshes into `out`, one `[4]u32` each: the first
     /// vertex and vertex count, then the first triangle and triangle count, of
     /// the polygon at the same index.
-    pub fn detailMeshes(self: PolyMesh, first: u32, out: [][4]u32) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn detailMeshes(self: PolyMesh, first: u32, out: [][4]u32, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_detail_meshes, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_detail_meshes, error.InvalidArgument);
         const ptr: ?[*]u32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-        try err.check(c.zrcPolyMeshDetailMeshes(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_detail_meshes, c.zrcPolyMeshDetailMeshes(self.handle, first_i, count, ptr));
     }
 
     /// Copies detail vertices into `out`, one `[3]f32` each, in world units.
-    pub fn detailVerts(self: PolyMesh, first: u32, out: [][3]f32) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn detailVerts(self: PolyMesh, first: u32, out: [][3]f32, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_detail_verts, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_detail_verts, error.InvalidArgument);
         const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-        try err.check(c.zrcPolyMeshDetailVerts(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_detail_verts, c.zrcPolyMeshDetailVerts(self.handle, first_i, count, ptr));
     }
 
     /// Copies detail triangles into `out`, one `[4]u8` each: three corner
     /// indices into the owning sub-mesh's vertices, then the edge flags.
-    pub fn detailTris(self: PolyMesh, first: u32, out: [][4]u8) err.Error!void {
-        const first_i = aegis.int.cast(i32, first) catch return err.Error.InvalidArgument;
-        const count = aegis.int.cast(i32, out.len) catch return err.Error.InvalidArgument;
+    pub fn detailTris(self: PolyMesh, first: u32, out: [][4]u8, failure: *err.Failure) err.Error!void {
+        const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_detail_tris, error.InvalidArgument);
+        const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_detail_tris, error.InvalidArgument);
         const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
-        try err.check(c.zrcPolyMeshDetailTris(self.handle, first_i, count, ptr));
+        try err.check(failure, .poly_mesh_detail_tris, c.zrcPolyMeshDetailTris(self.handle, first_i, count, ptr));
     }
 };
 
@@ -412,9 +418,9 @@ pub const BuildCells = c.BuildCells;
 /// internally, so a host that drives the stages with these numbers reproduces a
 /// bake exactly rather than approximately. Fails for exactly the configurations
 /// `bake` rejects.
-pub fn buildCells(config: Config) err.Error!BuildCells {
+pub fn buildCells(config: Config, failure: *err.Failure) err.Error!BuildCells {
     var out: BuildCells = undefined;
-    try err.check(c.zrcBakeConfigCells(&config, &out));
+    try err.check(failure, .bake_config_cells, c.zrcBakeConfigCells(&config, &out));
     return out;
 }
 
@@ -437,20 +443,21 @@ test "the default config describes a human-sized agent" {
 }
 
 test "a triangle soup with a length that is not a multiple of three is refused" {
+    var failure: err.Failure = .{};
     const verts = [_]f32{ 0, 0, 0, 1, 0, 0, 0, 0, 1 };
     const tris = [_]i32{ 0, 1, 2 };
 
     try std.testing.expectError(
         err.Error.InvalidArgument,
-        (TriMesh{ .verts = verts[0..8], .tris = &tris }).toC(),
+        (TriMesh{ .verts = verts[0..8], .tris = &tris }).toC(&failure, .poly_mesh_bake),
     );
     try std.testing.expectError(
         err.Error.InvalidArgument,
-        (TriMesh{ .verts = &verts, .tris = tris[0..2] }).toC(),
+        (TriMesh{ .verts = &verts, .tris = tris[0..2] }).toC(&failure, .poly_mesh_bake),
     );
     try std.testing.expectError(
         err.Error.InvalidArgument,
-        (TriMesh{ .verts = &.{}, .tris = &tris }).toC(),
+        (TriMesh{ .verts = &.{}, .tris = &tris }).toC(&failure, .poly_mesh_bake),
     );
 }
 

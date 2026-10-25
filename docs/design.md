@@ -127,6 +127,21 @@ corridors), so upstream's documentation stays usable as this package's.
   a caller passes `[]PolyRef` and gets `.len` back.
 - `ZrcResult` becomes the error set in `src/error.zig`; a partial outcome that
   upstream reports as success stays a success with a `.partial` field.
+- Every call that can fail takes the caller's `Failure`
+  (`aegis.err.Context`) last, and pushes one `Frame` where it refuses: the
+  `Call`, which is the C entry point's name in snake case (`zrcFindPath` is
+  `.find_path`), and the `ZrcResult` it returned. A refusal the wrapper makes
+  before calling C, a slice too long for an `int`, names the call it was
+  about to make, with the result its error stands for; the two with no C call
+  behind them, `convexVolume` and `dirForOffset`, name themselves. A call
+  that only passes a refusal on pushes nothing, so one refusal is one frame.
+  Four are kept, and `truncated` says a fifth arrived. Tests in
+  `src/error.zig` read the modules as compiled and fail if a checked call's
+  frame names any other call, if an error of the set is returned any other
+  way, or if a module makes a `Failure` of its own.
+- A call whose refusal cannot happen from Zig, such as the assertion
+  handler's or `QueryFilter.setIncludeFlags`, takes no `Failure` and ends in
+  `aegis.assert.never`.
 - Optionals mean what they say: a nullable pointer parameter is `?`, a
   reference that can be "none" is `?PolyRef`, never a magic zero at the
   surface.
