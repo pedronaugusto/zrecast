@@ -139,7 +139,6 @@ pub fn build(b: *std.Build) void {
     lib.root_module.addIncludePath(b.path("libs/recastnavigation/DebugUtils/Include"));
     lib.root_module.addIncludePath(b.path("ffi"));
 
-    if (!options.enable_asserts) lib.root_module.addCMacro("NDEBUG", "");
     if (options.shared) {
         // Not just an MSVC concern: on ELF and Mach-O these switch ZRC_API to
         // an explicit default-visibility attribute, which is what keeps the
@@ -179,9 +178,14 @@ pub fn build(b: *std.Build) void {
     // that landing never happening for any input anyone ever cooks. On
     // tests/reference.cpp the same flag is load-bearing outright, and the
     // comment at its inclusion below says why.
+    //
+    // NDEBUG is set exactly as `enable_asserts` says. Zig defines it for C by
+    // itself in ReleaseFast and ReleaseSmall, so keeping the asserts there
+    // takes an explicit -UNDEBUG, which follows Zig's own flags.
+    const ndebug = if (options.enable_asserts) "-UNDEBUG" else "-DNDEBUG";
     const msvc = target.result.abi == .msvc;
     const cxx_flags: []const []const u8 = if (msvc)
-        &.{ "-std=c++17", "-ffp-contract=off" }
+        &.{ "-std=c++17", "-ffp-contract=off", ndebug }
     else
         &.{
             "-std=c++17",
@@ -190,13 +194,14 @@ pub fn build(b: *std.Build) void {
             "-fno-rtti",
             "-fvisibility=hidden",
             "-fvisibility-inlines-hidden",
+            ndebug,
         };
 
     // Our own translation units additionally get -Wall -Wextra. The vendored
     // sources do not: they are not ours to clean up, and a wall of upstream
     // warnings is the fastest way to stop reading warnings altogether.
     const ffi_flags: []const []const u8 = if (msvc)
-        &.{ "-std=c++17", "-ffp-contract=off", "-Wall", "-Wextra" }
+        &.{ "-std=c++17", "-ffp-contract=off", "-Wall", "-Wextra", ndebug }
     else
         &.{
             "-std=c++17",
@@ -207,6 +212,7 @@ pub fn build(b: *std.Build) void {
             "-fvisibility-inlines-hidden",
             "-Wall",
             "-Wextra",
+            ndebug,
         };
 
     lib.root_module.addCSourceFiles(.{
@@ -306,7 +312,6 @@ pub fn build(b: *std.Build) void {
     // zrecast's FFI layer.
     fixture.root_module.addIncludePath(b.path("libs/recastnavigation/Recast/Include"));
     fixture.root_module.addIncludePath(b.path("libs/recastnavigation/Detour/Include"));
-    if (!options.enable_asserts) fixture.root_module.addCMacro("NDEBUG", "");
     // -ffp-contract=off (part of ffi_flags) is load-bearing on reference.cpp
     // specifically: contracting a multiply and an add into a fused
     // multiply-add would make the bit-identity test in src/vec.zig compare the

@@ -6,6 +6,11 @@ before 1.0 the minor is the breaking one.
 
 ## Unreleased
 
+- `-Denable_asserts=true` keeps Recast's and Detour's asserts in ReleaseFast
+  and ReleaseSmall. Zig defines `NDEBUG` for C by itself in those two modes, so
+  the option had no effect there and `assertsEnabled()` reported the asserts
+  gone. The C++ now gets `-UNDEBUG` when the option asks for asserts and
+  `-DNDEBUG` when it does not, in every mode.
 - `DebugUtils` is bound. Upstream's fifth directory is compiled and every
   public name in it carries a verdict, so the whole vendored tree is now
   accounted for rather than four fifths of it. A host can draw the heightfield,
