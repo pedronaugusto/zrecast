@@ -80,9 +80,6 @@ float zrcRefDtMathSqrtf(float x) { return dtMathSqrtf(x); }
 float zrcRefDtMathFabsf(float x) { return dtMathFabsf(x); }
 float zrcRefDtMathFloorf(float x) { return dtMathFloorf(x); }
 float zrcRefDtMathCeilf(float x) { return dtMathCeilf(x); }
-float zrcRefDtMathCosf(float x) { return dtMathCosf(x); }
-float zrcRefDtMathSinf(float x) { return dtMathSinf(x); }
-float zrcRefDtMathAtan2f(float y, float x) { return dtMathAtan2f(y, x); }
 int zrcRefDtMathIsfinite(float x) { return dtMathIsfinite(x) ? 1 : 0; }
 
 //===----------------------------------------------------------------------===//

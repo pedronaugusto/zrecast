@@ -8,8 +8,6 @@
 //! field moves on either side, the test fails loudly instead of corrupting
 //! memory quietly.
 
-const std = @import("std");
-
 //=============================================================================
 // Results
 //=============================================================================

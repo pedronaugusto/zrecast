@@ -1,7 +1,8 @@
 # expect: is not in ffi/*.h
-# run: tools/record.sh && ci/check-coverage.sh
---- a/tools/bindings.tsv
-+++ b/tools/bindings.tsv
+# run: zig build coverage -- --record
+# run: zig build check-coverage
+--- a/ci/coverage/bindings.tsv
++++ b/ci/coverage/bindings.tsv
 @@ -28,7 +28,7 @@
  const:-::DT_FAILURE	BOUND	ZRC_ERR_QUERY_FAILED is the generic-failure fallback zrc::ResultFromStatus returns once dtStatusFailed(status) is true and no detail bit matches
  const:-::DT_INVALID_PARAM	BOUND	ZRC_ERR_INVALID_ARGUMENT is returned by zrc::ResultFromStatus when this detail bit is set

@@ -59,7 +59,7 @@ pub fn intToCol(i: i32, a: i32) u32 {
 /// and inverts them, so the two produce different colours for the same `i`.
 pub fn intToColFloat(i: i32) [3]f32 {
     var out: [3]f32 = undefined;
-    // The only failure is a null pointer, which this cannot pass.
+    // unreachable: the only refusal is a null `out`, and this passes a local.
     err.check(c.zrcDebugIntToColFloat(i, &out)) catch unreachable;
     return out;
 }
@@ -88,6 +88,7 @@ pub fn transCol(col: u32, a: u32) u32 {
 /// colour, and the four darkened variants.
 pub fn boxColors(top: u32, side: u32) [6]u32 {
     var out: [6]u32 = undefined;
+    // unreachable: the only refusal is a null `out`, and this passes a local.
     err.check(c.zrcDebugCalcBoxColors(&out, top, side)) catch unreachable;
     return out;
 }
@@ -895,6 +896,8 @@ pub const DisplayList = struct {
     /// it. The table borrows the list and dies with it.
     pub fn recorder(self: DisplayList) DebugDraw {
         var out: c.DebugDraw = undefined;
+        // A DisplayList holds a live handle.
+        // unreachable: the only refusal is a null list or `out`, and neither is.
         err.check(c.zrcDisplayListRecorder(self.handle, &out)) catch unreachable;
         return .{
             .user = out.user,

@@ -10,10 +10,10 @@ verbatim, and `build.zig` compiles it.
 ## Usage
 
 The block below is a region of [`examples/usage.zig`](examples/usage.zig),
-which `zig build examples` builds and runs; `ci/readme_usage.sh` extracts it
-and `ci/check-docs.sh` fails if this copy has drifted.
+which the tests build and run; the gate fails if this copy has drifted from
+it.
 
-<!-- BEGIN GENERATED ci/readme_usage.sh -->
+<!-- BEGIN GENERATED zig build docs -- usage -->
 ```zig
 const zrecast = @import("zrecast");
 
@@ -86,14 +86,14 @@ exe.root_module.addImport("zrecast", zrecast_dep.module("zrecast"));
 exe.root_module.linkLibrary(zrecast_dep.artifact("zrecast"));
 ```
 
-Zig 0.16.0 or newer. Nothing else is fetched: upstream is in the tree and the
+Zig 0.17.0 or newer. Nothing else is fetched: upstream is in the tree and the
 package has no dependencies of its own.
 
 | Build option | Default | Effect |
 |---|---|---|
 | `-Dshared` | off | Build the C library as a shared object |
 | `-Denable_asserts` | on in Debug | Keep Recast's and Detour's internal asserts |
-| `-Dsanitize_c` | on in Debug | Keep Zig's C undefined-behaviour sanitizer |
+| `-Dsanitize_c` | off | Compile the C++ with Zig's undefined-behaviour sanitizer |
 
 Each is declared once and mirrored into a Zig `options` module, so the wrapper
 cannot disagree with how the C++ was compiled.
@@ -116,7 +116,7 @@ Everything is re-exported from the root module.
 
 Every public name in Recast, Detour, DetourCrowd, DetourTileCache and
 DebugUtils at the vendored version carries one verdict, and
-`ci/check-coverage.sh` re-derives the name list from the headers and checks
+`bay check-coverage` re-derives the name list from the headers and checks
 each verdict against the tree: bound through the C boundary, reimplemented in
 Zig, or C++-only — upstream's own containers (`rcVectorBase`, `rcIntArray`,
 `dtNodeQueue`), its libm wrappers and its `dtSwapEndian` overloads. One name is
@@ -227,7 +227,7 @@ allocation failure is fatal anyway, which is where a cook already lives.
 
 One target cooking the same geometry twice produces the same bytes, asserted by
 the suite; two targets sharing a C library produce the same bytes, gated by
-`ci/determinism.sh`. Two different C libraries are compared and reported, not
+`bay determinism`. Two different C libraries are compared and reported, not
 promised: upstream sorts with `qsort` in five places, ties fall to the
 implementation, and any order they land in is a valid navmesh. Ship cooks from
 one platform, or key the asset cache by cook platform.
@@ -269,45 +269,37 @@ explicitly there and both run the suite.
 ## Testing
 
 ```sh
-zig build test      # the Zig suite
-zig build test-c    # the C-level smoke test, plain C11, no Zig in the picture
-ci/run.sh           # the full matrix CI runs; --quick is native Debug only
-ci/probe.sh         # mutate each invariant, report the ones the suite survives
-ci/determinism.sh   # cook digests across architectures and C libraries
+bay test            # the gate: source checks, the checks in ci/, a consumer build, the suite
+bay probe           # mutate each invariant in ci/probes/, require the named failure
+bay determinism     # cook digests across the targets this host can run
 ```
 
-The suite generates its own geometry — a ground plane, a wall with a gap at one
-end, a pillar, and an island connected to nothing — so no third-party meshes
-are shipped. `ci/run.sh` is the same matrix as `.github/workflows/ci.yml`, and
-`ci/check-mirror.sh` fails if the two stop agreeing. See
-[docs/testing.md](docs/testing.md).
+The suite runs three times: against the C++ under Zig's undefined-behaviour
+sanitizer, as a consumer builds it, and with the asserts flipped from the
+mode's default. It generates its own geometry (a ground plane, a wall with a
+gap at one end, a pillar, and an island connected to nothing), so no
+third-party meshes are shipped. See [docs/testing.md](docs/testing.md).
 
 ## By the numbers
 
-<!-- BEGIN GENERATED ci/measurements.sh --markdown -->
+<!-- BEGIN GENERATED zig build measurements -->
 | | |
 |---:|---|
 | **0.1.1** | version (one home: `build.zig.zon`) |
-| **383** | C entry points (`ZRC_API` in `ffi/*.h`) |
-| **383** | Zig externs (`pub extern fn` in `src/`) |
-| **1186** | public Recast/Detour names, each carrying a verdict in `tools/` |
+| **383** | C entry points (`ZRC_API` in `ffi/*.h`), each with its Zig extern |
+| **1186** | public Recast/Detour names, each carrying a verdict in `ci/coverage/` |
 | **1041** | of them reachable through the C boundary (`BOUND`) |
 | **91** | C++-only surface a C boundary cannot carry (`LANGUAGE`), each with the reason |
 | **53** | reimplemented on the Zig side (`ZIG`), each naming its mirror |
 | **1** | declared upstream and defined nowhere (`UNDEFINED`), so no host can call it |
-| **166** | Zig tests `zig build test` executes |
 | **1145** | assertions in the standalone C smoke test |
 | **30** | vendored recastnavigation translation units `build.zig` compiles |
-| **19911** | C boundary lines (`ffi/`) |
-| **20432** | Zig source lines (`src/`) |
-| **96** | invariants `ci/probe.sh` mutates, each with the test that must notice |
-| **32** | steps `ci/run.sh` runs |
-| **8** | further targets `ci/run.sh` cross-compiles |
+| **97** | invariants `bay probe` mutates, each with the test that must notice |
 <!-- END GENERATED -->
 
-`ci/measurements.sh` recomputes those from the tree, and `ci/check-docs.sh`
-fails the build if the committed block differs or if this file states any other
-number `tools/doc_numbers.txt` has not accounted for.
+`bay measurements` recomputes those from the tree, and the gate fails if the
+committed block differs, or if a document states a number by hand that
+`ci/numbers.zig` does not account for.
 
 ## Contributing
 

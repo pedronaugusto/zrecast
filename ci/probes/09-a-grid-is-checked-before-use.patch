@@ -1,8 +1,8 @@
 # expect: a grid that zrcTileGridCompute could not have produced is refused
 --- a/ffi/zrecast_bake.cpp
 +++ b/ffi/zrecast_bake.cpp
-@@ -738,11 +738,6 @@
-     return mesh_valid;
+@@ -754,11 +754,6 @@
+     }
    }
  
 -  const ZrcResult grid_valid = zrc::ValidateTileGrid(*grid);

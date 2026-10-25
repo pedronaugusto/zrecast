@@ -10,7 +10,6 @@
 const std = @import("std");
 const zrecast = @import("zrecast.zig");
 const c = @import("c.zig");
-const err = @import("error.zig");
 
 //=============================================================================
 // Fixture bindings (tests/fixture.h)
@@ -469,7 +468,7 @@ fn cookAuthoredDigest() ![64]u8 {
 
 // The determinism claim, scoped to what is measured. One target cooking
 // twice gets the same bytes — asserted here, on every target that runs the
-// suite. Targets sharing a C library also agree; `ci/determinism.sh` cooks
+// suite. Targets sharing a C library also agree; `bay determinism` cooks
 // on both architectures of musl and glibc and compares. Two DIFFERENT C
 // libraries may disagree: upstream sorts BV items, holes and diagonals with
 // qsort, and ties fall to the implementation — UPSTREAM.md has the entry.
@@ -486,7 +485,7 @@ test "a cook is deterministic" {
     try std.testing.expectEqualStrings(&tiled, &(try cookTiledDigest()));
     try std.testing.expectEqualStrings(&authored, &(try cookAuthoredDigest()));
 
-    // ci/determinism.sh sets this and collects the three lines to compare
+    // `bay determinism` sets this and collects the three lines to compare
     // across targets; without it the test stays quiet, since the build runner
     // presents any test stderr under a spurious "failed command" banner.
     if (std.testing.environ.getAlloc(gpa, "ZRECAST_COOK_DIGESTS")) |value| {
@@ -708,8 +707,11 @@ test "random image mutations never fault the validator, the loader or the querie
             &corners,
             null,
             null,
+            // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
         ) catch {};
+        // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
         _ = query.raycast(ref, near.point, anchor.point, &filter, .{}, null, null) catch {};
+        // glint-ignore: Z026 -- the property is that a mutant never crashes a query; a refusal is an accepted outcome
         _ = query.moveAlongSurface(ref, near.point, anchor.point, &filter, null) catch {};
     }
 
@@ -2753,7 +2755,8 @@ test "a tile count and polygon count that leave Detour no salt are refused" {
     {
         var counting = std.testing.FailingAllocator.init(gpa, .{});
         try zrecast.setAllocator(counting.allocator());
-        defer zrecast.setAllocator(gpa) catch {};
+        // unreachable: setAllocator refuses only a bridge missing a function, and the Zig bridge has both.
+        defer zrecast.setAllocator(gpa) catch unreachable;
         try std.testing.expectError(
             zrecast.Error.InvalidArgument,
             zrecast.NavMesh.initTiled(grid, 1 << 12, 1 << 12),
@@ -4638,9 +4641,6 @@ extern fn zrcRefDtMathSqrtf(x: f32) f32;
 extern fn zrcRefDtMathFabsf(x: f32) f32;
 extern fn zrcRefDtMathFloorf(x: f32) f32;
 extern fn zrcRefDtMathCeilf(x: f32) f32;
-extern fn zrcRefDtMathCosf(x: f32) f32;
-extern fn zrcRefDtMathSinf(x: f32) f32;
-extern fn zrcRefDtMathAtan2f(y: f32, x: f32) f32;
 extern fn zrcRefDtMathIsfinite(x: f32) c_int;
 
 extern fn zrcRefTileArrayOffsets(data: *const anyopaque, out_offsets: *[8]i64) void;
@@ -5661,7 +5661,8 @@ test "a search that would clear the pool under a slice is refused" {
         &world.filter,
         .{},
     );
-    defer world.query.slicedFindPathCancel() catch {};
+    // unreachable: cancel refuses only a query without a handle, and `world.query` holds one.
+    defer world.query.slicedFindPathCancel() catch unreachable;
 
     // The five that begin by clearing the shared node pool. Detour's own class
     // comment says every const method is safe alongside a slice; these are the
@@ -5709,7 +5710,7 @@ test "a search that would clear the pool under a slice is refused" {
         ends.start.point,
         5,
         &world.filter,
-        fixedRandom,
+        fixed_random,
     ));
 
     // And the ones that touch no shared node keep working, because refusing
@@ -5745,7 +5746,7 @@ test "a search that would clear the pool under a slice is refused" {
         &local,
         &.{},
     );
-    _ = try world.query.findRandomPoint(&world.filter, fixedRandom);
+    _ = try world.query.findRandomPoint(&world.filter, fixed_random);
 
     // The slice survived all of that.
     try std.testing.expect(world.query.slicedFindPathActive());
@@ -5876,7 +5877,7 @@ fn fixedRandomNext(user: ?*anyopaque) callconv(.c) f32 {
     fixed_random_state = fixed_random_state *% 1664525 +% 1013904223;
     return @as(f32, @floatFromInt(fixed_random_state >> 8)) / 16777216.0;
 }
-const fixedRandom = zrecast.RandomSource{ .next = fixedRandomNext };
+const fixed_random = zrecast.RandomSource{ .next = fixedRandomNext };
 
 test "a random point is on the navmesh, and the same numbers give the same point" {
     const gpa = std.testing.allocator;
@@ -5887,7 +5888,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
     defer world.deinit();
 
     fixed_random_state = 12345;
-    const first = try world.query.findRandomPoint(&world.filter, fixedRandom);
+    const first = try world.query.findRandomPoint(&world.filter, fixed_random);
     try std.testing.expect(first.ref != 0);
 
     // On the navmesh, checked through a different entry point entirely.
@@ -5898,7 +5899,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
     // The same sequence of numbers places the same point, so a host can seed
     // a placement and reproduce it.
     fixed_random_state = 12345;
-    const again = try world.query.findRandomPoint(&world.filter, fixedRandom);
+    const again = try world.query.findRandomPoint(&world.filter, fixed_random);
     try std.testing.expectEqual(first.ref, again.ref);
     try std.testing.expectEqual(first.point, again.point);
 
@@ -5907,7 +5908,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
     var seed: u32 = 1;
     while (seed < 40 and !moved) : (seed += 1) {
         fixed_random_state = seed;
-        const other = try world.query.findRandomPoint(&world.filter, fixedRandom);
+        const other = try world.query.findRandomPoint(&world.filter, fixed_random);
         if (other.ref != first.ref or !std.meta.eql(other.point, first.point)) moved = true;
     }
     try std.testing.expect(moved);
@@ -5924,7 +5925,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
         near.point,
         3.0,
         &world.filter,
-        fixedRandom,
+        fixed_random,
     );
     try std.testing.expect(around.ref != 0);
     const on_poly = try world.query.closestPointOnPoly(around.ref, around.point);
@@ -6469,7 +6470,8 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     const total = count: {
         var counting = std.testing.FailingAllocator.init(sweep_gpa, .{});
         try zrecast.setAllocator(counting.allocator());
-        defer zrecast.setAllocator(gpa) catch {};
+        // unreachable: setAllocator refuses only a bridge missing a function, and the Zig bridge has both.
+        defer zrecast.setAllocator(gpa) catch unreachable;
         try runOwnedArc(mesh);
         break :count counting.alloc_index;
     };
@@ -6989,7 +6991,7 @@ test "a crowd's borrowed pieces are the ones it is driving" {
 ///
 /// `runs` also proves the protocol: every `begin` is closed by an `end`, and
 /// no vertex arrives outside a run.
-const DrawRecorder = struct {
+pub const DrawRecorder = struct {
     /// One counter per `DebugDrawPrimitive`, indexed by its tag value.
     begins: [4]u32 = .{ 0, 0, 0, 0 },
     verts: [4]u32 = .{ 0, 0, 0, 0 },
@@ -7786,7 +7788,7 @@ test "a display list records a run and replays it into another renderer" {
 
 /// A byte stream over a growable buffer, written and read back through the
 /// `FileIO` hooks.
-const MemoryStream = struct {
+pub const MemoryStream = struct {
     bytes: std.ArrayList(u8),
     gpa: std.mem.Allocator,
     cursor: usize = 0,

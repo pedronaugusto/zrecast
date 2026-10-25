@@ -1,0 +1,13 @@
+# expect: assertsEnabled agrees with how the C library was actually compiled
+# run: zig build test -Dci-lint=false -Doptimize=fast
+--- a/build.zig
++++ b/build.zig
+@@ -170,7 +170,7 @@
+ /// NDEBUG for C by itself in ReleaseFast and ReleaseSmall, so keeping the
+ /// asserts there takes an explicit -UNDEBUG, which follows Zig's own flags.
+ fn compileFlags(b: *std.Build, target: std.Build.ResolvedTarget, own: bool, enable_asserts: bool) []const []const u8 {
+-    const asserts: []const []const u8 = &.{if (enable_asserts) "-UNDEBUG" else "-DNDEBUG"};
++    const asserts: []const []const u8 = &.{if (enable_asserts) "-DZRECAST_ASSERTS" else "-DNDEBUG"};
+     return std.mem.concat(b.allocator, []const u8, &.{ cxxFlags(target, own), asserts }) catch @panic("out of memory");
+ }
+ 

@@ -9,21 +9,9 @@
         "ffi",
         "libs",
         "src",
-        "tests",
-        // Contributing tells people to run ci/run.sh before pushing, so a
-        // fetched copy has to actually contain it, the workflow it mirrors,
-        // and the tools/ directory the coverage record lives in.
-        "ci",
-        "tools",
-        ".github",
         "LICENSE",
         "README.md",
-        "UPSTREAM.md",
-        "BINDING.md",
         "CHANGELOG.md",
-        "examples",
-        // README links into docs/, so a fetched copy has to carry it.
-        "docs",
     },
     .dev_dependencies = .{
         .preflight = .{
@@ -33,6 +21,10 @@
         .shakedown = .{
             .url = "git+https://github.com/pedronaugusto/shakedown?ref=v0.4.17#b96c548a2fed2a4cc8b9d790fdbf29332b056f9d",
             .hash = "shakedown-0.4.17-BR8U41SzFgBFNel0aa2pn9ELQvUHoVDmnXOWslP0wHV7",
+        },
+        .recastnavigation = .{
+            .url = "git+https://github.com/recastnavigation/recastnavigation?ref=v1.6.0#6dc1667f580357e8a2154c28b7867bea7e8ad3a7",
+            .hash = "N-V-__8AAGlkOgBJIQtSwXEF4eOCP6QRtlUavwI7EB9V8B8B",
         },
     },
 }

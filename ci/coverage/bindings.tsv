@@ -2,9 +2,9 @@
 #
 # SYMBOL<TAB>VERDICT<TAB>EVIDENCE, one line per public Recast/Detour name that
 # is not a gap. This is the only hand-maintained half of the coverage record:
-# tools/record.sh joins it with the upstream harvest and tools/tranches.awk to
-# write tools/unbound_*.txt, and ci/check-coverage.sh then checks every line of
-# it against the tree.
+# `bay coverage -- --record` joins it with the upstream harvest and the
+# tranche rules in ci/coverage.zig to write ci/coverage/unbound_*.txt, and
+# `bay check-coverage` then checks every line of it against the tree.
 #
 # Binding a name is one line appended here. The verdicts:
 #
@@ -12,13 +12,13 @@
 #   EXTENSION  zrecast offers it in a shape upstream does not have
 #   LANGUAGE   Zig spells it directly; the evidence names the facility
 #   ZIG        src/FILE.zig:decl implements it
-#   INTERNAL   upstream marks it internal; tools/classify.sh must agree
+#   INTERNAL   upstream marks it internal; `--classify` must agree
 #   UNDEFINED  a header declares it and no vendored source defines it, so
 #              there is no symbol for any host to call
 #
 # Evidence is prose that has to survive a check: BOUND and EXTENSION name a
 # symbol ffi/*.h declares, LANGUAGE names a facility from a closed list, ZIG
-# names a declaration that exists, INTERNAL must match what classify.sh
+# names a declaration that exists, INTERNAL must match what `--classify`
 # computes, and UNDEFINED is rechecked against the vendored sources. Sorted by
 # symbol.
 const:-::DT_ALREADY_OCCUPIED	BOUND	ZRC_ERR_TILE_OCCUPIED - zrcNavMeshAddTile checks the slot itself so the condition has its own result rather than a generic failure

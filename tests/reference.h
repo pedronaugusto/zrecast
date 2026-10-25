@@ -85,9 +85,6 @@ float zrcRefDtMathSqrtf(float x);
 float zrcRefDtMathFabsf(float x);
 float zrcRefDtMathFloorf(float x);
 float zrcRefDtMathCeilf(float x);
-float zrcRefDtMathCosf(float x);
-float zrcRefDtMathSinf(float x);
-float zrcRefDtMathAtan2f(float y, float x);
 int zrcRefDtMathIsfinite(float x);
 
 /// Byte offset of each of a tile image's eight arrays, derived the way

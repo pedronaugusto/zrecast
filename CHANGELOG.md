@@ -1,16 +1,24 @@
 # Changelog
 
-Each entry says what the old shape could not express, so a port has the reason
-and not only the diff. Versions follow [semantic versioning](https://semver.org);
-before 1.0 the minor is the breaking one.
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html); before
+1.0 the minor is the breaking one. Each entry says what the old shape could
+not express, so a port has the reason and not only the diff.
 
-## Unreleased
+## [Unreleased]
 
-- `-Denable_asserts=true` keeps Recast's and Detour's asserts in ReleaseFast
-  and ReleaseSmall. Zig defines `NDEBUG` for C by itself in those two modes, so
-  the option had no effect there and `assertsEnabled()` reported the asserts
-  gone. The C++ now gets `-UNDEBUG` when the option asks for asserts and
-  `-DNDEBUG` when it does not, in every mode.
+### Breaking
+
+- Builds on Zig 0.17.0, which `build.zig.zon` now requires. The wrapper walks
+  0.17's reflection lists and `main` takes `std.process.Init`.
+- `-Dsanitize_c` is off by default, no longer tied to `optimize`. Zig's C
+  sanitizer emits calls into a runtime linked only into a compilation that is
+  itself sanitized, so defaulting it on in Debug handed a consumer who forgot
+  to forward `optimize` a link failure naming a `__ubsan` symbol.
+
+### Added
+
 - `DebugUtils` is bound. Upstream's fifth directory is compiled and every
   public name in it carries a verdict, so the whole vendored tree is now
   accounted for rather than four fifths of it. A host can draw the heightfield,
@@ -38,7 +46,40 @@ before 1.0 the minor is the breaking one.
   supplies the definition fails the gate until it is bound rather than passing
   with the name quietly excused.
 
-## 0.1.1
+### Changed
+
+- The development gate is preflight's, run with `bay test`: formatting,
+  structure layers, lint, documentation drift, the suite three times (under
+  the C sanitizer, without it, and with the asserts flipped), the C smoke test
+  against the installed header, the examples, the shared and asserts-flipped
+  library builds, and a consumer build. Every check that was a shell script is
+  a Zig program in `ci/`: comments, ignored files, coverage, hand-written
+  numbers and the vendor comparison, which now fetches upstream by URL and
+  hash at the pinned commit.
+- The mutation probes and the cross-target cook comparison are no longer CI
+  jobs. They run on a developer's machine with `bay probe` and
+  `bay determinism`, each reporting three outcomes, so a probe the suite
+  survives and a target the host could not run are named rather than passed.
+  README's numbers come from `bay measurements`, and the gate refuses a stale
+  block.
+
+### Removed
+
+- `ci/*.sh`, `tools/` and `tests/consumer`. The consumer build is preflight's
+  consumer check, and the C consumer is the smoke test linked against the
+  installed artifact. The coverage record moves to `ci/coverage/`.
+
+### Fixed
+
+- `-Denable_asserts=true` keeps Recast's and Detour's asserts in ReleaseFast
+  and ReleaseSmall. Zig defines `NDEBUG` for C by itself in those two modes, so
+  the option had no effect there and `assertsEnabled()` reported the asserts
+  gone. The C++ now gets `-UNDEBUG` when the option asks for asserts and
+  `-DNDEBUG` when it does not, in every mode.
+
+## [0.1.1] - 2026-09-04
+
+### Fixed
 
 - The allocator bridge can now tell one of its own blocks from a pointer into
   the middle of one. Every private header carries a tag alongside the length,
@@ -52,7 +93,9 @@ before 1.0 the minor is the breaking one.
   `deinit`; `free` takes exactly the slice `alloc` returned, never a sub-slice
   of it.
 
-## 0.1.0
+## [0.1.0] - 2026-09-03
+
+### Added
 
 First release. Bindings for recastnavigation v1.6.0 — the bake, the staged
 pipeline, the navmesh and its serialised image, queries, the corridor and

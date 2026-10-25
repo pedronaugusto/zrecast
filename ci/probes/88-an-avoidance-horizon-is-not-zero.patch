@@ -5,7 +5,7 @@
 # zero-initialised answer and reports success: an agent that stops steering.
 --- a/ffi/zrecast_internal.h
 +++ b/ffi/zrecast_internal.h
-@@ -889,7 +889,7 @@
+@@ -1006,7 +1006,7 @@
        !IsNonNegativeFinite(params.weight_toi)) {
      return ZRC_ERR_INVALID_ARGUMENT;
    }
@@ -13,3 +13,4 @@
 +  if (false) return ZRC_ERR_INVALID_ARGUMENT;
    if (params.grid_size < 2) return ZRC_ERR_INVALID_ARGUMENT;
    if (params.adaptive_divs < 1 ||
+       params.adaptive_divs > ZRC_AVOIDANCE_MAX_PATTERN_DIVS) {

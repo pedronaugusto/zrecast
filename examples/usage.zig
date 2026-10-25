@@ -1,9 +1,9 @@
 //! The README's Usage section, as a program that has to compile and run.
 //!
-//! `zig build examples` builds and executes this; ci/readme_usage.sh extracts
-//! the marked region into README.md and ci/check-docs.sh refuses to let the
-//! two drift apart. The geometry is a bare ground plane — the smallest input
-//! that bakes, serialises and answers a path query.
+//! The tests build and run this, and the docs check holds README.md's
+//! Usage block to the marked region, so the two cannot drift apart. The
+//! geometry is a bare ground plane — the smallest input that bakes,
+//! serialises and answers a path query.
 
 const std = @import("std");
 const zrecast = @import("zrecast");
@@ -79,8 +79,8 @@ pub fn main(init: std.process.Init) !void {
 
     if (walk.len < 2) return error.NoPath;
     if (path.partial) return error.PartialPath;
-    std.debug.print(
-        "zrecast usage: cooked {d} bytes, walked {d} corners\n",
-        .{ image.bytes.len, walk.len },
-    );
+    var buffer: [128]u8 = undefined;
+    var stdout = std.Io.File.stdout().writer(init.io, &buffer);
+    try stdout.interface.print("zrecast usage: cooked {d} bytes, walked {d} corners\n", .{ image.bytes.len, walk.len });
+    try stdout.interface.flush();
 }

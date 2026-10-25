@@ -8,4 +8,4 @@
 -    ++count_;
    }
  
-   void vertex(const float* pos, unsigned int color) override {
+   void vertex(const float* pos, unsigned int color, const float* uv) override {

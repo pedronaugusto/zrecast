@@ -1,0 +1,27 @@
+{
+  "sources": ["src"],
+  "test_roots": ["src/zrecast.zig"],
+  "shipped": {
+    "ffi": "the C boundary: the library compiles its translation units, and the installed header is ffi/zrecast.h",
+    "libs": "the vendored Recast and Detour, which the library compiles"
+  },
+  "docs": {
+    "zig build docs -- usage": {
+      "source": "examples/usage.zig",
+      "region": "usage",
+      "imports": ["zrecast"]
+    },
+    "zig build measurements": {
+      "command": ["zig", "build", "measurements"]
+    }
+  },
+  "extra_checks": [
+    ["zig", "build", "check-consumer"],
+    ["zig", "build", "check-comments"],
+    ["zig", "build", "check-coverage"],
+    ["zig", "build", "check-ignored"],
+    ["zig", "build", "check-numbers"],
+    ["zig", "build", "check-vendor"]
+  ],
+  "glint_paths": ["src", "examples", "ci", "build.zig"]
+}
