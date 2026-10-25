@@ -2502,6 +2502,19 @@ test "a layer built from a header reads that header back, field for field" {
     try std.testing.expectEqualSlices(u8, areas, back);
     try layer.cons(0, back);
     try std.testing.expectEqualSlices(u8, cons, back);
+
+    // At any alignment: upstream reads the bytes through a header struct, and
+    // a caller's bytes may sit at an odd address.
+    const odd = try gpa.alignedAlloc(u8, .@"2", bytes.bytes.len + 1);
+    defer gpa.free(odd);
+    @memcpy(odd[1..], bytes.bytes);
+    const moved = try zrecast.TileCacheLayer.initFromBytes(&codec, null, .init(odd[1..]));
+    defer moved.deinit();
+    try std.testing.expectEqual(header, try moved.header());
+    try zrecast.swapTileCacheHeaderEndian(odd[1..]);
+    try std.testing.expect(!std.mem.eql(u8, bytes.bytes, odd[1..]));
+    try zrecast.swapTileCacheHeaderEndian(odd[1..]);
+    try std.testing.expectEqualSlices(u8, bytes.bytes, odd[1..]);
 }
 
 test "bytes that are not a compressed layer never reach the tile cache" {
@@ -4194,6 +4207,15 @@ test "a tile's state saves and restores the flags a query can see" {
     // And the untouched blob still restores, so the two rejections above are
     // about what was changed rather than about the blob at large.
     try world.mesh.restoreTileState(tile, .init(saved));
+    try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref));
+
+    // At any alignment: upstream writes and reads the blob as structs, and a
+    // caller's bytes may sit at an odd address.
+    const odd = try gpa.alignedAlloc(u8, .@"2", size + 1);
+    defer gpa.free(odd);
+    try world.mesh.storeTileState(tile, odd[1..]);
+    try std.testing.expectEqualSlices(u8, saved, odd[1..]);
+    try world.mesh.restoreTileState(tile, .init(odd[1..]));
     try std.testing.expectEqual(marked_flag, try world.mesh.polyFlags(ref));
 }
 

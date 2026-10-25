@@ -995,9 +995,15 @@ ZrcResult zrcTileCacheHeaderSwapEndian(void* data, size_t size) {
   if (data == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
   if (size > static_cast<size_t>(0x7fffffff)) return ZRC_ERR_INVALID_ARGUMENT;
   if (size < sizeof(dtTileCacheLayerHeader)) return ZRC_ERR_BAD_FORMAT;
-  const bool swapped = dtTileCacheHeaderSwapEndian(static_cast<unsigned char*>(data),
-                                                    static_cast<int>(size));
+  // Upstream swaps the header through a dtTileCacheLayerHeader*, and the
+  // caller's buffer may be a byte slice with no particular alignment, so it
+  // swaps an aligned copy that is then copied back.
+  dtTileCacheLayerHeader header;
+  memcpy(&header, data, sizeof(header));
+  const bool swapped = dtTileCacheHeaderSwapEndian(reinterpret_cast<unsigned char*>(&header),
+                                                    static_cast<int>(sizeof(header)));
   if (!swapped) return ZRC_ERR_BAD_FORMAT;
+  memcpy(data, &header, sizeof(header));
   return ZRC_OK;
 }
 
@@ -1027,15 +1033,23 @@ ZrcResult zrcTileCacheLayerDecompress(const ZrcTileCacheCompressor* compressor,
   ZrcTileCacheLayer* handle =
       new (block) ZrcTileCacheLayer{nullptr, zrc::HostTileCacheAlloc(allocator)};
 
+  // dtDecompressTileCacheLayer reads the bytes through a
+  // dtTileCacheLayerHeader* (DetourTileCacheBuilder.cpp:2177), and the
+  // caller's buffer may be a byte slice with no particular alignment, so it
+  // reads an aligned copy. It keeps no pointer into them: the header is
+  // copied into the layer and the grids are decompressed into it (2199-2214).
+  unsigned char* aligned = static_cast<unsigned char*>(zrc::Alloc(size, DT_ALLOC_TEMP));
+  if (aligned == nullptr) {
+    zrc::Delete(handle);
+    return ZRC_ERR_OUT_OF_MEMORY;
+  }
+  memcpy(aligned, data, size);
+
   zrc::HostCompressor comp(*compressor);
   dtTileCacheLayer* layer = nullptr;
-  // dtDecompressTileCacheLayer only reads through `compressed`
-  // (DetourTileCacheBuilder.cpp:2163-2219); its declared parameter is
-  // non-const regardless, so this reaches the same well-defined situation
-  // zrcNavMeshRestoreTileState documents for its own const_cast.
   const dtStatus status = dtDecompressTileCacheLayer(
-      &handle->allocator, &comp,
-      static_cast<unsigned char*>(const_cast<void*>(data)), static_cast<int>(size), &layer);
+      &handle->allocator, &comp, aligned, static_cast<int>(size), &layer);
+  zrc::Free(aligned);
   if (dtStatusFailed(status)) {
     zrc::Delete(handle);
     return zrc::ResultFromStatus(status);

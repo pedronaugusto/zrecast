@@ -95,6 +95,13 @@ not express, so a port has the reason and not only the diff.
 
 ### Fixed
 
+- Tile state, a compressed layer and a layer header are read and written at
+  any alignment. `storeTileState`, `restoreTileState`,
+  `TileCacheLayer.initFromBytes` and `swapTileCacheHeaderEndian` handed the
+  caller's pointer to upstream, which reads it as a struct, so bytes at an odd
+  address were a misaligned read or write: undefined behaviour, and a fault on
+  targets that trap on one. Each now goes through an aligned copy, as the
+  navmesh image already did.
 - A count the C boundary reports is checked in every build. It was
   `@intCast`, which is undefined behaviour in ReleaseFast and ReleaseSmall
   for a value that does not fit.

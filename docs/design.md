@@ -1195,6 +1195,17 @@ codec as an `int`. `dtDecompressTileCacheLayer` repeats the same subtraction
 (`DetourTileCacheBuilder.cpp:2223-2226`). All three lengths are checked at the
 boundary before upstream sees the bytes.
 
+**Upstream reads a caller's bytes as structs.** `dtDecompressTileCacheLayer`
+reads its input through a `dtTileCacheLayerHeader*`
+(`DetourTileCacheBuilder.cpp:2177`), `dtTileCacheHeaderSwapEndian` swaps one in
+place (`DetourTileCacheBuilder.cpp:2226`), and `storeTileState` and
+`restoreTileState` write and read a `dtTileState` and a `dtPolyState` array
+(`DetourNavMesh.cpp:1397`, `DetourNavMesh.cpp:1429-1430`).
+A caller's buffer is bytes with no particular alignment, and at an odd address
+each of those is a misaligned access. Worked around by handing upstream an
+aligned copy: a block from the allocator seam for the three that take a whole
+buffer, a local header for the swap.
+
 **`buildNavMeshTile` bounds a tile index with `>` where the file uses `>=`
 everywhere else.** `if (idx > (unsigned int)m_params.maxTiles)`
 (`DetourTileCache.cpp:662-663`) admits one `dtCompressedTile` past the

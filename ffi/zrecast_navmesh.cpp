@@ -1596,8 +1596,14 @@ ZrcResult zrcNavMeshStoreTileState(const ZrcNavMesh* navmesh, ZrcTileRef ref,
   if (size < static_cast<size_t>(state_size)) return ZRC_ERR_BUFFER_TOO_SMALL;
   if (size > static_cast<size_t>(state_size)) return ZRC_ERR_INVALID_ARGUMENT;
 
-  const dtStatus status = navmesh->impl->storeTileState(
-      tile, static_cast<unsigned char*>(data), state_size);
+  // Upstream writes the blob as a dtTileState and a dtPolyState array, and the
+  // caller's buffer may be a byte slice with no particular alignment, so it
+  // writes an aligned block that is then copied out.
+  unsigned char* aligned = static_cast<unsigned char*>(zrc::Alloc(size, DT_ALLOC_TEMP));
+  if (aligned == nullptr) return ZRC_ERR_OUT_OF_MEMORY;
+  const dtStatus status = navmesh->impl->storeTileState(tile, aligned, state_size);
+  if (dtStatusSucceed(status)) memcpy(data, aligned, size);
+  zrc::Free(aligned);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
   return ZRC_OK;
 }
@@ -1624,8 +1630,14 @@ ZrcResult zrcNavMeshRestoreTileState(ZrcNavMesh* navmesh, ZrcTileRef ref,
   // only the accessor used to reach it here is const-qualified. Stripping
   // that qualifier back off is therefore well defined.
   dtMeshTile* mutable_tile = const_cast<dtMeshTile*>(tile);
-  const dtStatus status = navmesh->impl->restoreTileState(
-      mutable_tile, static_cast<const unsigned char*>(data), state_size);
+  // Upstream reads the blob as a dtTileState and a dtPolyState array, and the
+  // caller's buffer may be a byte slice with no particular alignment, so it
+  // reads an aligned copy.
+  unsigned char* aligned = static_cast<unsigned char*>(zrc::Alloc(size, DT_ALLOC_TEMP));
+  if (aligned == nullptr) return ZRC_ERR_OUT_OF_MEMORY;
+  memcpy(aligned, data, size);
+  const dtStatus status = navmesh->impl->restoreTileState(mutable_tile, aligned, state_size);
+  zrc::Free(aligned);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
   return ZRC_OK;
 }

@@ -2087,7 +2087,7 @@ ZRC_API ZrcResult zrcNavMeshTileStateSize(const ZrcNavMesh* navmesh,
 /// polygon count it takes from the live tile rather than from the blob, so a
 /// blob and a tile that disagree are only caught by insisting the two lengths
 /// match. Too small is ZRC_ERR_BUFFER_TOO_SMALL, too large is
-/// ZRC_ERR_INVALID_ARGUMENT.
+/// ZRC_ERR_INVALID_ARGUMENT. `data` may have any alignment.
 ZRC_API ZrcResult zrcNavMeshStoreTileState(const ZrcNavMesh* navmesh,
                                            ZrcTileRef ref, void* data,
                                            size_t size);
@@ -2097,6 +2097,7 @@ ZRC_API ZrcResult zrcNavMeshStoreTileState(const ZrcNavMesh* navmesh,
 /// The blob carries the tile reference it was taken from, and restoring it onto
 /// any other tile is ZRC_ERR_INVALID_ARGUMENT. A tile removed and re-added gets
 /// a new salt, so its old state no longer applies — which is the point.
+/// `data` may have any alignment.
 ZRC_API ZrcResult zrcNavMeshRestoreTileState(ZrcNavMesh* navmesh, ZrcTileRef ref,
                                              const void* data, size_t size);
 
@@ -3525,14 +3526,15 @@ ZRC_API ZrcResult zrcTileCacheLayerBuild(
 /// For a host reading an asset cooked on a machine of the other byte order.
 /// Upstream takes a length and discards it before dereferencing the header;
 /// the length is checked here. Returns ZRC_ERR_BAD_FORMAT for bytes that are
-/// not a layer header in either order.
+/// not a layer header in either order. `data` may have any alignment.
 ZRC_API ZrcResult zrcTileCacheHeaderSwapEndian(void* data, size_t size);
 
 /// One decompressed layer: the three grids, plus the regions once they are
 /// built.
 typedef struct ZrcTileCacheLayer ZrcTileCacheLayer;
 
-/// Decompresses a layer, through the same codec that produced it.
+/// Decompresses a layer, through the same codec that produced it. `data` may
+/// have any alignment.
 ZRC_API ZrcResult zrcTileCacheLayerDecompress(
     const ZrcTileCacheCompressor* compressor,
     const ZrcTileCacheAllocator* allocator, const void* data, size_t size,
