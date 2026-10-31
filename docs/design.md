@@ -113,6 +113,23 @@ cost of that workaround is stated there. Run the bake somewhere an allocation
 failure is fatal anyway, which is where a cook already lives. The runtime half
 behaves far better, and that is the half a game links.
 
+A free of a block the bridge did not issue, a sub-slice of one or a block
+from another allocator, never reaches the backing allocator: the header's tag
+tells it apart. A Debug or ReleaseSafe build stops on it, naming it, since it
+is the caller's bug; a ReleaseFast or ReleaseSmall build leaves the block
+alone, so it leaks and the heap stays intact. `tests/foreign_free.zig` holds
+both, out of process.
+
+### Assertions
+
+`setAssertHandler` routes Recast's and Detour's internal assertions to a
+host's handler, and it is process-wide for the same reason `setAllocator` is:
+`rcAssertFailSetCustom` and `dtAssertFailSetCustom` take a bare function
+pointer. One install replaces the handler for every caller in the process,
+and the handler runs on whichever thread fails the assertion. In a build that
+compiled the asserts out it is recorded and never called
+(`assertsEnabled`).
+
 ## Binding conventions
 
 An entry point operating on an object is named object-first

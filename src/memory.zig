@@ -100,18 +100,32 @@ fn deallocate(user: ?*anyopaque, block: ?*anyopaque) callconv(.c) void {
     const gpa = current(user orelse return);
     const payload: [*]u8 = @ptrCast(block orelse return); // aegis: no-danger: a block is a byte pointer; its header is checked below before it is trusted
 
-    const header: *const Header = @ptrCast(@alignCast(payload - @sizeOf(Header))); // aegis: no-danger: the header sits right below the payload, in a prefix that keeps it aligned
     // Only the pointer `allocate` returned can be freed. A pointer into the
     // middle of a block — a sub-slice of a serialised image, classically —
     // has payload where the header should be, so freeing on that basis would
-    // hand the backing allocator a base and a length it never issued. A block
-    // that fails the tag is left alone instead: it leaks, an allocator that
-    // tracks leaks reports it, and the heap the rest of the process runs on
-    // stays intact.
-    if (header.tag != header_tag) return;
+    // hand the backing allocator a base and a length it never issued.
+    const header = headerOf(payload) orelse return foreign();
     const base = payload - prefix_size;
     gpa.rawFree(base[0..header.total_len], alignment, @returnAddress());
 }
+
+/// The header `allocate` wrote ahead of `payload`, or null when the tag says
+/// `payload` is not a pointer `allocate` returned.
+fn headerOf(payload: [*]u8) ?*const Header {
+    const header: *const Header = @ptrCast(@alignCast(payload - @sizeOf(Header))); // aegis: no-danger: the header sits right below the payload, in a prefix that keeps it aligned
+    return if (header.tag == header_tag) header else null;
+}
+
+/// A free of a block the bridge did not issue is the caller's bug. A safe
+/// build stops on it, naming it; a fast or small build leaves the block
+/// alone, so it leaks and the heap the rest of the process runs on stays
+/// intact. `tests/foreign_free.zig` holds both.
+fn foreign() void {
+    if (std.debug.runtime_safety) aegis.assert.never(foreign_free_message);
+}
+
+/// What a safe build stops with on a foreign free.
+const foreign_free_message = "zrecast: a block was freed that the installed allocator did not issue (a sub-slice of one, or a block from another allocator)";
 
 /// The allocator upstream is currently pointed at, kept alive for as long as it
 /// is installed. `user` in the C struct points at this. Upstream's hook is
@@ -179,10 +193,10 @@ pub fn alloc(size: usize, hint: AllocHint, failure: *err.Failure) err.Error![]u8
 /// `block` must be the slice `alloc` returned and not a sub-slice of it: with
 /// a Zig allocator installed, the bridge keeps a private header immediately
 /// ahead of each block, and only the pointer `alloc` handed back sits where
-/// that header can be found. The bridge refuses a pointer it did not issue
-/// rather than free it, so the cost of that mistake is a leaked block — but
-/// upstream's own malloc, in use when `setAllocator` was never called, has no
-/// such guard.
+/// that header can be found. The bridge never frees a pointer it did not
+/// issue: a Debug or ReleaseSafe build stops on it, and a ReleaseFast or
+/// ReleaseSmall build leaks the block. Upstream's own malloc, in use when
+/// `setAllocator` was never called, has no such guard.
 ///
 /// A serialised navmesh image does not come back through here: those arrive
 /// as `navmesh.Serialized`, which owns its slice and releases it in `deinit`.
@@ -296,8 +310,16 @@ test "the bridge refuses a pointer it did not hand out" {
     // Zeroed payload, so the shifted read below cannot find the tag by luck.
     @memset(bytes[0..size], 0);
 
-    deallocate(@ptrCast(&installed), bytes + 8);
-    try std.testing.expectEqual(@as(usize, 0), recorder.frees);
+    // The tag tells the two apart. What a free of the shifted pointer then
+    // does depends on the build: a safe one stops, which tests/foreign_free.zig
+    // holds out of process; a fast or small one leaves the backing allocator
+    // untouched, which this holds.
+    try std.testing.expect(headerOf(bytes + 8) == null);
+    try std.testing.expect(headerOf(bytes) != null);
+    if (!std.debug.runtime_safety) {
+        deallocate(@ptrCast(&installed), bytes + 8);
+        try std.testing.expectEqual(@as(usize, 0), recorder.frees);
+    }
 
     // The pointer `allocate` returned still frees, and frees the whole block.
     deallocate(@ptrCast(&installed), block);

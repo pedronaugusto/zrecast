@@ -288,6 +288,32 @@ pub fn dev(b: *std.Build, tools: type) void {
         check_step.dependOn(&c_smoke.step);
     }
 
+    // A foreign free through the allocator seam, out of process: it stops a
+    // safe build with the bridge's message and leaves a fast or small one
+    // running with the heap intact (tests/foreign_free.zig).
+    {
+        const foreign_free = b.addExecutable(.{
+            .name = "zrecast-foreign-free",
+            .root_module = b.createModule(.{
+                .root_source_file = p.path("tests/foreign_free.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{.{ .name = "zrecast", .module = package.module("zrecast") }},
+            }),
+        });
+        const run = b.addRunArtifact(foreign_free);
+        // The mode's runtime safety is std.debug.runtime_safety, which the
+        // bridge reads; 86 is the program's `stopped`.
+        if (optimize.runtimeSafety()) {
+            run.addCheck(.{ .expect_stderr_match = "did not issue" });
+            run.expectExitCode(86);
+        } else {
+            run.expectExitCode(0);
+        }
+        test_step.dependOn(&run.step);
+        check_step.dependOn(&foreign_free.step);
+    }
+
     // The configurations no arm above links: the shared library, which is
     // what proves the export list, and the asserts flipped under the
     // sanitizer.

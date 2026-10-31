@@ -135,6 +135,9 @@ upstream is in the tree.
   OBJ and binary dumps through four I/O hooks.
 - Allocation through any `std.mem.Allocator` with `setAllocator`. It is
   process-wide, because upstream's two allocator hooks are.
+- Recast's and Detour's internal asserts routed to a host's handler with
+  `setAssertHandler`. It is process-wide too, for the same reason: one
+  install replaces the handler for every caller in the process.
 - A cook is the same bytes on every target sharing a C library:
   `-ffp-contract=off`, a polynomial cosine for the slope limit, and Zig vector
   math tested bit-identical to upstream's. A frame's crowd steering calls the C
