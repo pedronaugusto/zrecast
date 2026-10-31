@@ -40,10 +40,8 @@ const PolyRef = @import("query.zig").PolyRef;
 /// never asks whether that slot is live.
 pub const AgentRef = c.AgentRef;
 
-/// Names one submitted search in a `PathQueue`. `path_request_none` is never
-/// a live request.
+/// Names one submitted search in a `PathQueue`.
 pub const PathRequestRef = c.PathRequestRef;
-pub const path_request_none = c.path_request_none;
 
 pub const CrowdAgentState = c.CrowdAgentState;
 pub const CrowdTargetState = c.CrowdTargetState;
@@ -95,7 +93,7 @@ pub const UpdateFlags = struct {
 /// with no recorder still fills the two optimiser points, and a recorder with
 /// no agent named collects nothing.
 pub const CrowdAgentDebug = struct {
-    agent: AgentRef = 0,
+    agent: ?AgentRef = null,
     samples: ?AvoidanceDebug = null,
     /// Filled by `Crowd.update`: the segment the visibility optimiser tried.
     /// Left at the previous update's values when the agent did not optimise.
@@ -169,7 +167,7 @@ pub const Crowd = struct {
         params: CrowdAgentParams,
         failure: *err.Failure,
     ) err.Error!AgentRef {
-        var ref: AgentRef = 0;
+        var ref: AgentRef = undefined;
         try err.check(failure, .crowd_add_agent, c.zrcCrowdAddAgent(self.handle, &position, &params, &ref));
         return ref;
     }
@@ -225,12 +223,12 @@ pub const Crowd = struct {
         return c.reported(usize, count);
     }
 
-    /// The reference of the agent in slot `index`, or 0 when the slot is free.
-    pub fn agentRefAt(self: Crowd, index: u32, failure: *err.Failure) err.Error!AgentRef {
+    /// The reference of the agent in slot `index`, or null when the slot is free.
+    pub fn agentRefAt(self: Crowd, index: u32, failure: *err.Failure) err.Error!?AgentRef {
         const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .crowd_agent_ref_at, error.InvalidArgument);
-        var ref: AgentRef = 0;
+        var ref: c.Maybe(AgentRef) = .none;
         try err.check(failure, .crowd_agent_ref_at, c.zrcCrowdAgentRefAt(self.handle, i, &ref));
-        return ref;
+        return ref.get();
     }
 
     /// Copies corners of the agent's local path into `out`, starting at
@@ -359,7 +357,7 @@ pub const Crowd = struct {
     /// record and written with what was recorded.
     pub fn updateDebug(self: Crowd, dt: f32, debug: *CrowdAgentDebug, failure: *err.Failure) err.Error!void {
         var raw = c.CrowdAgentDebug{
-            .agent = debug.agent,
+            .agent = c.Maybe(AgentRef).of(debug.agent),
             .samples = if (debug.samples) |d| d.handle else null,
             .opt_start = debug.opt_start,
             .opt_end = debug.opt_end,
@@ -803,9 +801,9 @@ pub const PathCorridor = struct {
     }
 
     /// Empties the corridor and puts it at `position` inside `poly`, which may
-    /// be 0 for a corridor whose agent is not on the navmesh.
-    pub fn reset(self: PathCorridor, poly: PolyRef, position: [3]f32, failure: *err.Failure) err.Error!void {
-        try err.check(failure, .path_corridor_reset, c.zrcPathCorridorReset(self.handle, poly, &position));
+    /// be null for a corridor whose agent is not on the navmesh.
+    pub fn reset(self: PathCorridor, poly: ?PolyRef, position: [3]f32, failure: *err.Failure) err.Error!void {
+        try err.check(failure, .path_corridor_reset, c.zrcPathCorridorReset(self.handle, c.Maybe(PolyRef).of(poly), &position));
     }
 
     /// Replaces the corridor and its target. `path` must hold between 1 and
@@ -1120,10 +1118,10 @@ pub const LocalBoundary = struct {
     }
 
     /// Re-collects the walls within `range` of `position`, starting from
-    /// `poly`. Keeps the eight nearest. `poly` of 0 resets it instead.
+    /// `poly`. Keeps the eight nearest. A null `poly` resets it instead.
     pub fn update(
         self: LocalBoundary,
-        poly: PolyRef,
+        poly: ?PolyRef,
         position: [3]f32,
         range: f32,
         query: NavMeshQuery,
@@ -1132,7 +1130,7 @@ pub const LocalBoundary = struct {
     ) err.Error!void {
         try err.check(failure, .local_boundary_update, c.zrcLocalBoundaryUpdate(
             self.handle,
-            poly,
+            c.Maybe(PolyRef).of(poly),
             &position,
             range,
             query.handle,
@@ -1237,8 +1235,8 @@ fn PathQueueOf(comptime access: c.Access) type {
             try err.check(failure, .path_queue_update, c.zrcPathQueueUpdate(self.handle, iters));
         }
 
-        /// Submits a search. The result is `path_request_none` when every slot is
-        /// taken, which is not an error: it is how a host learns to try again.
+        /// Submits a search. The result is null when every slot is taken, which
+        /// is not an error: it is how a host learns to try again.
         ///
         /// `filter` is copied for the request's lifetime. Upstream keeps the
         /// caller's pointer and reads through it on every later update.
@@ -1250,8 +1248,8 @@ fn PathQueueOf(comptime access: c.Access) type {
             end_position: [3]f32,
             filter: QueryFilter,
             failure: *err.Failure,
-        ) err.Error!PathRequestRef {
-            var ref: PathRequestRef = path_request_none;
+        ) err.Error!?PathRequestRef {
+            var ref: c.Maybe(PathRequestRef) = .none;
             try err.check(failure, .path_queue_request, c.zrcPathQueueRequest(
                 self.handle,
                 start_poly,
@@ -1261,7 +1259,7 @@ fn PathQueueOf(comptime access: c.Access) type {
                 filter.handle,
                 &ref,
             ));
-            return ref;
+            return ref.get();
         }
 
         /// Where a request has got to. An unknown reference is `.unknown` rather

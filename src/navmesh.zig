@@ -140,7 +140,7 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// `image` stays the caller's and may be freed immediately.
         pub fn addTile(self: Self, image: Image, failure: *err.Failure) err.Error!TileRef {
             const bytes = image.readForParse();
-            var ref: TileRef = 0;
+            var ref: TileRef = undefined;
             try err.check(failure, .nav_mesh_add_tile, c.zrcNavMeshAddTile(self.handle, bytes.ptr, bytes.len, &ref));
             return ref;
         }
@@ -150,16 +150,16 @@ fn NavMeshOf(comptime access: c.Access) type {
             try err.check(failure, .nav_mesh_remove_tile, c.zrcNavMeshRemoveTile(self.handle, ref));
         }
 
-        /// The tile at a grid position, or 0 when the slot is empty — a fact about
-        /// the world rather than an error.
+        /// The tile at a grid position, or null when the slot is empty — a fact
+        /// about the world rather than an error.
         pub fn tileRefAt(
             self: Self,
             tile_x: i32,
             tile_z: i32,
             tile_layer: i32,
             failure: *err.Failure,
-        ) err.Error!TileRef {
-            var ref: TileRef = 0;
+        ) err.Error!?TileRef {
+            var ref: c.Maybe(TileRef) = .none;
             try err.check(failure, .nav_mesh_tile_ref_at, c.zrcNavMeshTileRefAt(
                 self.handle,
                 tile_x,
@@ -167,7 +167,7 @@ fn NavMeshOf(comptime access: c.Access) type {
                 tile_layer,
                 &ref,
             ));
-            return ref;
+            return ref.get();
         }
 
         /// Tiles currently resident.
@@ -175,7 +175,7 @@ fn NavMeshOf(comptime access: c.Access) type {
             return c.reported(u32, c.zrcNavMeshTileCount(self.handle));
         }
 
-        /// The tile in slot `index`, or 0 when the slot is empty.
+        /// The tile in slot `index`, or null when the slot is empty.
         ///
         /// Slots are the navmesh's own storage, `maxTiles` of them; walking them is
         /// how a host enumerates what is resident without knowing where to look.
@@ -204,11 +204,11 @@ fn NavMeshOf(comptime access: c.Access) type {
             return c.reported(usize, count);
         }
 
-        pub fn tileRefAtIndex(self: Self, index: u32, failure: *err.Failure) err.Error!TileRef {
+        pub fn tileRefAtIndex(self: Self, index: u32, failure: *err.Failure) err.Error!?TileRef {
             const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .nav_mesh_tile_ref_at_index, error.InvalidArgument);
-            var ref: TileRef = 0;
+            var ref: c.Maybe(TileRef) = .none;
             try err.check(failure, .nav_mesh_tile_ref_at_index, c.zrcNavMeshTileRefAtIndex(self.handle, i, &ref));
-            return ref;
+            return ref.get();
         }
 
         /// Tiles this navmesh was sized to hold.
@@ -276,19 +276,19 @@ fn NavMeshOf(comptime access: c.Access) type {
         ///
         /// `prev_ref` is the polygon the path arrives from, and decides which
         /// endpoint is reported first: pass the polygon immediately before the
-        /// connection in the corridor. Anything else — including 0 — reports them
+        /// connection in the corridor. Anything else — including null — reports them
         /// reversed, because arriving from anywhere that is not endpoint A's
         /// landing polygon means arriving from endpoint B.
         pub fn offMeshConnectionEndPoints(
             self: Self,
-            prev_ref: c.PolyRef,
+            prev_ref: ?c.PolyRef,
             poly_ref: c.PolyRef,
             failure: *err.Failure,
         ) err.Error![2][3]f32 {
             var result: [2][3]f32 = undefined;
             try err.check(failure, .nav_mesh_off_mesh_connection_end_points, c.zrcNavMeshOffMeshConnectionEndPoints(
                 self.handle,
-                prev_ref,
+                c.Maybe(c.PolyRef).of(prev_ref),
                 poly_ref,
                 &result[0],
                 &result[1],
@@ -357,7 +357,7 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// are ground, the rest belong to off-mesh connections.
         pub fn tilePolyRef(self: Self, ref: TileRef, index: u32, failure: *err.Failure) err.Error!c.PolyRef {
             const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .nav_mesh_tile_poly_ref, error.InvalidArgument);
-            var out: c.PolyRef = 0;
+            var out: c.PolyRef = undefined;
             try err.check(failure, .nav_mesh_tile_poly_ref, c.zrcNavMeshTilePolyRef(self.handle, ref, i, &out));
             return out;
         }

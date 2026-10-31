@@ -145,6 +145,14 @@ corridors), so upstream's documentation stays usable as this package's.
 - Optionals mean what they say: a nullable pointer parameter is `?`, a
   reference that can be "none" is `?PolyRef`, never a magic zero at the
   surface.
+- Each kind of reference is its own type, `aegis.id.NonZero` over the
+  header's integer: `PolyRef`, `TileRef`, `CompressedTileRef`, `ObstacleRef`,
+  `AgentRef` and `PathRequestRef`. A tile reference cannot be passed where a
+  polygon one is wanted, no reference is 0, and each is the same bytes as the
+  header's, which `src/abi_test.zig` holds. A buffer or field the boundary
+  may fill with "none" (a straight path's end corner, a search's start
+  parent, a corridor that is empty) holds `Maybe(PolyRef)`, the same bytes,
+  read with `get()` as `?PolyRef`.
 - Flags are named option structs (`StraightPathOptions`), never bare `u32`s.
 - Bytes the package parses arrive as `Image`, `aegis.input.Untrusted`: a
   navmesh, a tile, a tile's stored state, a tile-cache layer.

@@ -131,6 +131,14 @@ fn ScalarIdentity(comptime T: type) type {
     };
 }
 
+/// Whether `T` stands for a C enum, whose underlying type C leaves to the
+/// implementation. A reference (an aegis id, or the `Maybe` slot that may hold
+/// none) is an enum on the Zig side only to keep it apart from other integers:
+/// its header twin is a fixed-width typedef, and its signedness is compared.
+fn isCEnum(comptime T: type) bool {
+    return ScalarIdentity(T) != T and !(@typeInfo(T) == .@"enum" and @hasDecl(T, "Representation"));
+}
+
 /// A `*const fn`/`?*const fn` unwrapped to the fn type, or null when the
 /// type is not a function pointer. translate-c makes every C function
 /// pointer optional; both sides unwrap the same way.
@@ -164,7 +172,7 @@ fn sameScalar(comptime what: []const u8, comptime Ours: type, comptime Theirs: t
     // to the implementation (clang and gcc pick unsigned when no enumerator
     // is negative, MSVC uses `int`). Skipping it is sound only while every
     // enumerator is non-negative, which `checkEnumValues` holds.
-    const across_enum = ScalarIdentity(Ours) != Ours or ScalarIdentity(Theirs) != Theirs;
+    const across_enum = isCEnum(Ours) or isCEnum(Theirs);
     if (!across_enum and oi == .int and ti == .int and oi.int.signedness != ti.int.signedness) {
         return what ++ " is " ++ @tagName(oi.int.signedness) ++ " on the Zig side but " ++
             @tagName(ti.int.signedness) ++ " in the C header";
@@ -365,7 +373,8 @@ fn sweepType(comptime Header: type, comptime name: []const u8, comptime Ours: ty
         },
         // A handle: the header's is opaque too, and has no layout to compare.
         .@"opaque" => return if (@typeInfo(Theirs) == .@"opaque") null else what ++ " is opaque in src/c.zig but not in the C header",
-        .@"enum" => |e| {
+        // A reference: the header's integer typedef, compared as a scalar.
+        .@"enum" => |e| if (@hasDecl(Ours, "aegis_scalar")) return sameScalar(what, Ours, Theirs) else {
             const prefix = enumPrefix(name) orelse
                 return what ++ " has no row in enum_prefixes, so its enumerators cannot be paired with the header's constants";
             n.enumerators += e.field_names.len;

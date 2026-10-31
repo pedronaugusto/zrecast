@@ -28,6 +28,19 @@ fn expectRefusal(expected: zrecast.Error, failure: *zrecast.Failure, result: any
     failure.reset();
 }
 
+/// A reference no Zig caller can spell: the raw value C may still hand the
+/// boundary, 0 or a salt that names nothing, made by hand so a test can prove
+/// the boundary refuses it.
+fn forge(comptime Ref: type, raw: Ref.Representation) Ref {
+    return @fromBackingInt(raw);
+}
+
+/// `ref`, as the boundary wrote it, is one its type admits: not 0, which a
+/// buffer C fills could hold whatever the Zig type says.
+fn expectAdmitted(ref: anytype) !void {
+    _ = try @TypeOf(ref).fromRaw(@backingInt(ref));
+}
+
 //=============================================================================
 // Fixture bindings (tests/fixture.h)
 //=============================================================================
@@ -637,8 +650,7 @@ test "a navmesh survives a round trip through bytes" {
     // "outside the grid" for the only tile it holds.
     for ([_]zrecast.NavMesh{ built, loaded }) |mesh| {
         try std.testing.expectEqual(@as(u32, 1), mesh.tileCount());
-        const ref = try mesh.tileRefAt(0, 0, 0, &failure);
-        try std.testing.expect(ref != 0);
+        const ref = (try mesh.tileRefAt(0, 0, 0, &failure)).?;
         const tile_bounds = try mesh.tileBounds(ref, &failure);
         const mesh_bounds = try mesh.bounds(&failure);
         for (tile_bounds[0], mesh_bounds[0]) |x, y| try std.testing.expectEqual(x, y);
@@ -1401,8 +1413,7 @@ test "a tiled bake fills some tiles and leaves the rest empty, without failing" 
     // every reference it hands back resolves.
     var found: u32 = 0;
     for (0..world.mesh.maxTiles()) |slot| {
-        const ref = try world.mesh.tileRefAtIndex(@intCast(slot), &failure);
-        if (ref == 0) continue;
+        const ref = try world.mesh.tileRefAtIndex(@intCast(slot), &failure) orelse continue;
         found += 1;
         const tile_bounds = try world.mesh.tileBounds(ref, &failure);
         for (0..3) |i| try std.testing.expect(tile_bounds[0][i] <= tile_bounds[1][i]);
@@ -1476,9 +1487,7 @@ fn tileOf(world: TiledWorld, point: [3]f32) !zrecast.TileRef {
     const z: i32 = @intFromFloat(
         @floor((point[2] - world.grid.origin[2]) / world.grid.tile_world_size),
     );
-    const ref = try world.mesh.tileRefAt(x, z, 0, &failure);
-    try std.testing.expect(ref != 0);
-    return ref;
+    return (try world.mesh.tileRefAt(x, z, 0, &failure)).?;
 }
 
 test "a tile can be found, measured, removed, and its reference then refused" {
@@ -1828,7 +1837,7 @@ test "a hand-built mesh with no flags is a navmesh no query can cross" {
     defer filter.deinit();
     const half = [3]f32{ 2, 4, 2 };
     const found = try flagged_query.findNearestPoly(fixture.start, half, filter, &failure);
-    try std.testing.expect(found.ref != 0);
+    try std.testing.expect(found.ref != null);
 
     // The same geometry, with the flags Recast left alone.
     const bare = try stagedCook(gpa, config, geometry);
@@ -2965,7 +2974,7 @@ test "bytes that are not a compressed layer never reach the tile cache" {
     // A reference naming a slot no obstacle occupies is not there, rather
     // than a struct read out of a free slot.
     const free_slot = try world.cache.obstacleRefAt(@intCast(params.max_obstacles - 1), &failure);
-    try std.testing.expectEqual(@as(zrecast.ObstacleRef, 0), free_slot);
+    try std.testing.expectEqual(@as(?zrecast.ObstacleRef, null), free_slot);
 
     // An emptied slot is never reported as empty through a reference:
     // upstream turns the salt over in the same statement that sets the state,
@@ -3005,8 +3014,7 @@ const LayerSeeds = struct {
         const slots: u32 = @intCast(seeds.params.max_tiles);
         var slot: u32 = 0;
         while (slot < slots and seeds.count < seeds.layers.len) : (slot += 1) {
-            const ref = try world.cache.tileRefAt(slot, &failure);
-            if (ref == 0) continue;
+            const ref = try world.cache.tileRefAt(slot, &failure) orelse continue;
             const bytes = try world.cache.removeTileTakingData(ref, &failure);
             defer bytes.deinit();
             seeds.layers[seeds.count] = try keep(bytes.bytes);
@@ -3193,17 +3201,16 @@ test "a reference naming a free slot is refused rather than dereferenced" {
     const world = try TiledWorld.init();
     defer world.deinit();
 
-    var refs: [2]zrecast.TileRef = .{ 0, 0 };
+    var refs: [2]zrecast.TileRef = undefined;
     var slots: [2]u32 = .{ 0, 0 };
     var found: usize = 0;
     var free_slot: ?u32 = null;
     for (0..world.mesh.maxTiles()) |i| {
         const slot: u32 = @intCast(i);
-        const ref = try world.mesh.tileRefAtIndex(slot, &failure);
-        if (ref == 0) {
+        const ref = try world.mesh.tileRefAtIndex(slot, &failure) orelse {
             if (free_slot == null) free_slot = slot;
             continue;
-        }
+        };
         if (found < 2) {
             refs[found] = ref;
             slots[found] = slot;
@@ -3215,14 +3222,16 @@ test "a reference naming a free slot is refused rather than dereferenced" {
     // unsigned arithmetic cannot wrap into a reference naming something else.
     try std.testing.expect(free_slot != null and free_slot.? > slots[0]);
 
-    const span = refs[1] - refs[0];
+    // aegis: design: a test forging a reference from two real ones, to prove the boundary refuses it
+    const span = refs[1].raw() - refs[0].raw();
     const slot_step = span / (slots[1] - slots[0]);
     try std.testing.expect(slot_step > 0);
     try std.testing.expectEqual(span, slot_step * (slots[1] - slots[0]));
 
     // Same salt as the two resident references, an index that has never held a
     // tile: everything getTileByRef looks at, and nothing it does not.
-    const forged = refs[0] +% slot_step *% (free_slot.? -% slots[0]);
+    // aegis: design: the forged reference, the two real ones' salt at a slot never filled
+    const forged = forge(zrecast.TileRef, refs[0].raw() +% slot_step *% (free_slot.? -% slots[0]));
     try std.testing.expect(forged != refs[0] and forged != refs[1]);
 
     const before = world.mesh.tileCount();
@@ -3368,11 +3377,11 @@ test "a path across the wall has to round its end" {
     try std.testing.expectEqual(from.ref.?, corridor[0]);
     try std.testing.expectEqual(to.ref.?, corridor[path.len - 1]);
     // No reference in a corridor may be zero.
-    for (corridor[0..path.len]) |ref| try std.testing.expect(ref != 0);
+    for (corridor[0..path.len]) |ref| try expectAdmitted(ref);
 
     var corners: [64][3]f32 = undefined;
     var flags: [64]u8 = undefined;
-    var refs: [64]zrecast.PolyRef = undefined;
+    var refs: [64]zrecast.Maybe(zrecast.PolyRef) = undefined;
     const straight = try world.query.findStraightPath(
         from.point,
         to.point,
@@ -3452,7 +3461,7 @@ test "a corridor buffer that is too small reports partial, not overflow" {
     const from = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     const to = try world.query.findNearestPoly(fixture.goal, search_extents, world.filter, &failure);
 
-    var single: [1]zrecast.PolyRef = .{0};
+    var single: [1]zrecast.PolyRef = undefined;
     const path = try world.query.findPath(
         from.ref.?,
         to.ref.?,
@@ -3721,9 +3730,10 @@ test "a slice, a path request and a crowd keep their own copy of a filter" {
     const queue = try zrecast.PathQueue.init(world.mesh, 256, 2048, &failure);
     defer queue.deinit();
     const queued = try zrecast.QueryFilter.initDefault(&failure);
-    const ref = try queue.request(from.ref.?, to.ref.?, from.point, to.point, queued, &failure);
+    const requested = try queue.request(from.ref.?, to.ref.?, from.point, to.point, queued, &failure);
     queued.deinit();
-    try std.testing.expect(ref != zrecast.path_request_none);
+    try std.testing.expect(requested != null);
+    const ref = requested.?;
     rounds = 0;
     while (rounds < 1000) : (rounds += 1) {
         try queue.update(64, &failure);
@@ -3775,7 +3785,7 @@ test "queries reject the arguments that would fault inside Detour" {
 
     // A zero reference is "no polygon" and cannot start a search.
     try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.query.findPath(
-        0,
+        forge(zrecast.PolyRef, 0),
         to.ref.?,
         from.point,
         to.point,
@@ -3815,7 +3825,7 @@ test "queries reject the arguments that would fault inside Detour" {
     try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.query.findStraightPath(
         from.point,
         to.point,
-        &.{ from.ref.?, 0 },
+        &.{ from.ref.?, forge(zrecast.PolyRef, 0) },
         .{},
         &corners,
         null,
@@ -3865,7 +3875,7 @@ test "a stale polygon reference from another navmesh is refused" {
     try std.testing.expect(from.ref != null);
 
     // A reference with a plausible index but a salt that belongs to nothing.
-    const bogus: zrecast.PolyRef = from.ref.? ^ 0x8000_0000;
+    const bogus = forge(zrecast.PolyRef, from.ref.?.raw() ^ 0x8000_0000);
     var corridor: [16]zrecast.PolyRef = undefined;
     try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.query.findPath(
         bogus,
@@ -4123,10 +4133,10 @@ test "the polygon accessors refuse a reference they cannot resolve" {
 
     // Zero is "no polygon" everywhere else in the API, and is not a query that
     // failed.
-    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyArea(0, &failure));
-    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyFlags(0, &failure));
-    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.setPolyArea(0, 1, &failure));
-    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.setPolyFlags(0, 1, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyArea(forge(zrecast.PolyRef, 0), &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyFlags(forge(zrecast.PolyRef, 0), &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.setPolyArea(forge(zrecast.PolyRef, 0), 1, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.setPolyFlags(forge(zrecast.PolyRef, 0), 1, &failure));
 
     // An area id Detour would silently truncate into its six-bit field.
     try expectRefusal(
@@ -4141,7 +4151,7 @@ test "the polygon accessors refuse a reference they cannot resolve" {
     );
 
     // A plausible index carrying a salt that belongs to nothing.
-    const bogus: zrecast.PolyRef = ref ^ 0x8000_0000;
+    const bogus = forge(zrecast.PolyRef, ref.raw() ^ 0x8000_0000);
     try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyArea(bogus, &failure));
     try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.setPolyFlags(bogus, 1, &failure));
 }
@@ -4444,8 +4454,8 @@ test "a connection reads back as it was authored" {
     );
     var link_ref: ?zrecast.PolyRef = null;
     var ground_ref: ?zrecast.PolyRef = null;
-    var before_link: zrecast.PolyRef = 0;
-    var previous: zrecast.PolyRef = 0;
+    var before_link: ?zrecast.PolyRef = null;
+    var previous: ?zrecast.PolyRef = null;
     for (corridor[0..path.len]) |ref| {
         switch (try world.mesh.polyType(ref, &failure)) {
             .offmesh_connection => {
@@ -4458,7 +4468,7 @@ test "a connection reads back as it was authored" {
     }
     try std.testing.expect(link_ref != null);
     try std.testing.expect(ground_ref != null);
-    try std.testing.expect(before_link != 0);
+    try std.testing.expect(before_link != null);
 
     // An off-mesh polygon is two vertices and no detail sub-mesh. The detail
     // array is sized for ground polygons only, so reading one for this polygon
@@ -4497,12 +4507,12 @@ test "a connection reads back as it was authored" {
     // Zero is not a neutral previous polygon: it is "arrived from somewhere
     // that is not endpoint A", so the pair comes back reversed. Asserting that
     // is what keeps the header's rule from being a sentence nothing checks.
-    const reversed = try world.mesh.offMeshConnectionEndPoints(0, link_ref.?, &failure);
+    const reversed = try world.mesh.offMeshConnectionEndPoints(null, link_ref.?, &failure);
     try std.testing.expectEqual(ends[0], reversed[1]);
     try std.testing.expectEqual(ends[1], reversed[0]);
 
     // The tile carries the opaque id it was built with.
-    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
     try std.testing.expectEqual(@as(u32, 0xC0FFEE), try world.mesh.tileUserId(tile, &failure));
 
     // Refusals. A ground polygon is not a connection, and zero is not a
@@ -4515,18 +4525,18 @@ test "a connection reads back as it was authored" {
     try expectRefusal(
         zrecast.Error.InvalidArgument,
         &failure,
-        world.mesh.offMeshConnection(0, &failure),
+        world.mesh.offMeshConnection(forge(zrecast.PolyRef, 0), &failure),
     );
     try expectRefusal(
         zrecast.Error.InvalidArgument,
         &failure,
-        world.mesh.offMeshConnectionEndPoints(0, 0, &failure),
+        world.mesh.offMeshConnectionEndPoints(null, forge(zrecast.PolyRef, 0), &failure),
     );
-    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyType(0, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyType(forge(zrecast.PolyRef, 0), &failure));
     try expectRefusal(
         zrecast.Error.InvalidArgument,
         &failure,
-        world.mesh.tileUserId(0, &failure),
+        world.mesh.tileUserId(forge(zrecast.TileRef, 0), &failure),
     );
 }
 
@@ -4818,7 +4828,7 @@ test "a tile's state saves and restores the flags a query can see" {
     const world = try World.init();
     defer world.deinit();
 
-    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
     const near = try world.query.findNearestPoly(fixture.start, search_extents, world.filter, &failure);
     try std.testing.expect(near.ref != null);
     const ref = near.ref.?;
@@ -4871,11 +4881,11 @@ test "a tile's state saves and restores the flags a query can see" {
     );
 
     // A reference to no tile at all.
-    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.tileStateSize(0, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.tileStateSize(forge(zrecast.TileRef, 0), &failure));
     try expectRefusal(
         zrecast.Error.InvalidArgument,
         &failure,
-        world.mesh.storeTileState(0, saved, &failure),
+        world.mesh.storeTileState(forge(zrecast.TileRef, 0), saved, &failure),
     );
 
     // The blob carries a magic and a version of its own, distinct from the
@@ -4925,8 +4935,8 @@ test "state from one tile does not restore onto another" {
     defer world.deinit();
     try std.testing.expect(world.mesh.tileCount() >= 2);
 
-    const first = try world.mesh.tileRefAtIndex(0, &failure);
-    const second = try world.mesh.tileRefAtIndex(1, &failure);
+    const first = (try world.mesh.tileRefAtIndex(0, &failure)).?;
+    const second = (try world.mesh.tileRefAtIndex(1, &failure)).?;
 
     const size = try world.mesh.tileStateSize(first, &failure);
     const saved = try gpa.alloc(u8, size);
@@ -4960,7 +4970,7 @@ const StateSeed = struct {
         defer zrecast.resetAllocator();
         const world = try World.init();
         defer world.deinit();
-        const tile = try world.mesh.tileRefAtIndex(0, &failure);
+        const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
         const state = try std.testing.allocator.alloc(u8, try world.mesh.tileStateSize(tile, &failure));
         defer std.testing.allocator.free(state);
         try world.mesh.storeTileState(tile, state, &failure);
@@ -4986,7 +4996,7 @@ fn anyState(seed: *const StateSeed, case: *shakedown.Case) !void {
     const bytes = try caseBytes(case, &.{seed.state});
     const mesh = try zrecast.NavMesh.initFromBytes(.init(seed.image), &failure);
     defer mesh.deinit();
-    const tile = try mesh.tileRefAtIndex(0, &failure);
+    const tile = (try mesh.tileRefAtIndex(0, &failure)).?;
 
     mesh.restoreTileState(tile, .init(bytes), &failure) catch return;
     try std.testing.expectEqual(try mesh.tileStateSize(tile, &failure), bytes.len);
@@ -5038,7 +5048,7 @@ test "a polygon read back is the polygon a query found" {
 
     // The point the query snapped to has to lie inside the corners the
     // accessor reports, or the vertex indices name the wrong polygon.
-    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
     var corners: [c.verts_per_polygon][3]f32 = undefined;
     var lo = [2]f32{ std.math.floatMax(f32), std.math.floatMax(f32) };
     var hi = [2]f32{ -std.math.floatMax(f32), -std.math.floatMax(f32) };
@@ -5094,7 +5104,7 @@ test "the links read back are the links a path walked" {
     // Consecutive polygons of a corridor are, by construction, linked. Walking
     // the chain the accessors report has to find each step, or the link array
     // being read is not the one the pathfinder used.
-    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
     const link_capacity: u32 = @intCast((try world.mesh.tileInfo(tile, &failure)).max_link_count);
     for (corridor[0 .. path.len - 1], corridor[1..path.len]) |from, to| {
         const info = try world.mesh.polyInfo(from, &failure);
@@ -5124,7 +5134,7 @@ test "a tile read back is the tile the bake placed" {
     var total_polys: i32 = 0;
     var index: u32 = 0;
     while (index < world.mesh.tileCount()) : (index += 1) {
-        const ref = try world.mesh.tileRefAtIndex(index, &failure);
+        const ref = (try world.mesh.tileRefAtIndex(index, &failure)).?;
         const info = try world.mesh.tileInfo(ref, &failure);
 
         // The bounds two ways.
@@ -5176,7 +5186,7 @@ test "the detail mesh read back covers every polygon exactly once" {
     const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
     defer mesh.deinit();
 
-    const tile = try mesh.tileRefAtIndex(0, &failure);
+    const tile = (try mesh.tileRefAtIndex(0, &failure)).?;
     const info = try mesh.tileInfo(tile, &failure);
 
     // The sub-meshes tile against the detail triangle array with no gaps and no
@@ -5206,7 +5216,7 @@ test "a range outside an array is an error rather than a short read" {
 
     const world = try World.init();
     defer world.deinit();
-    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
     const info = try world.mesh.tileInfo(tile, &failure);
 
     var one: [1][3]f32 = undefined;
@@ -5265,7 +5275,7 @@ test "a range outside an array is an error rather than a short read" {
     var index: u32 = 0;
     while (index < @as(u32, @intCast(info.poly_count))) : (index += 1) {
         const ref = try world.mesh.tilePolyRef(tile, index, &failure);
-        try std.testing.expect(ref != 0);
+        try expectAdmitted(ref);
         // The reference really names that polygon, and not merely some
         // polygon: its area is what the accessor keyed by the same index says.
         _ = try world.mesh.polyInfo(ref, &failure);
@@ -5276,8 +5286,8 @@ test "a range outside an array is an error rather than a short read" {
         world.mesh.tilePolyRef(tile, @intCast(info.poly_count), &failure),
     );
 
-    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.tileInfo(0, &failure));
-    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyInfo(0, &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.tileInfo(forge(zrecast.TileRef, 0), &failure));
+    try expectRefusal(zrecast.Error.InvalidArgument, &failure, world.mesh.polyInfo(forge(zrecast.PolyRef, 0), &failure));
 }
 
 test "a tile built without a bounding-volume tree answers the same questions" {
@@ -5294,8 +5304,8 @@ test "a tile built without a bounding-volume tree answers the same questions" {
     const without = try zrecast.NavMesh.initFromPolyMesh(poly, .{ .skip_bv_tree = true }, &failure);
     defer without.deinit();
 
-    const with_info = try with.tileInfo(try with.tileRefAtIndex(0, &failure), &failure);
-    const without_info = try without.tileInfo(try without.tileRefAtIndex(0, &failure), &failure);
+    const with_info = try with.tileInfo((try with.tileRefAtIndex(0, &failure)).?, &failure);
+    const without_info = try without.tileInfo((try without.tileRefAtIndex(0, &failure)).?, &failure);
     try std.testing.expect(with_info.bv_node_count > 0);
     try std.testing.expectEqual(@as(i32, 0), without_info.bv_node_count);
 
@@ -5754,7 +5764,7 @@ fn polygonCorners(
 ) ![]const [3]f32 {
     var failure: zrecast.Failure = .{};
     const info = try mesh.polyInfo(ref, &failure);
-    const tile = try mesh.tileRefAtIndex(0, &failure);
+    const tile = (try mesh.tileRefAtIndex(0, &failure)).?;
     for (0..info.vert_count) |k| {
         try mesh.tileVerts(tile, info.verts[k], out[k .. k + 1], &failure);
     }
@@ -6018,7 +6028,7 @@ test "a bounding-volume node overlaps the leaves beneath it" {
     const world = try World.init();
     defer world.deinit();
 
-    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
     const info = try world.mesh.tileInfo(tile, &failure);
     try std.testing.expect(info.bv_node_count > 0);
 
@@ -6065,7 +6075,7 @@ test "a tile overlaps itself and not a tile across the world" {
     defer world.deinit();
     try std.testing.expect(world.mesh.tileCount() >= 2);
 
-    const first = try world.mesh.tileBounds(try world.mesh.tileRefAtIndex(0, &failure), &failure);
+    const first = try world.mesh.tileBounds((try world.mesh.tileRefAtIndex(0, &failure)).?, &failure);
     try std.testing.expect(try geom.overlapBounds(first[0], first[1], first[0], first[1], &failure));
 
     // The fixture's island sits at (40, 40) with the ground plane around the
@@ -6074,10 +6084,10 @@ test "a tile overlaps itself and not a tile across the world" {
     var disjoint = false;
     var i: u32 = 0;
     while (i < world.mesh.tileCount()) : (i += 1) {
-        const a = try world.mesh.tileBounds(try world.mesh.tileRefAtIndex(i, &failure), &failure);
+        const a = try world.mesh.tileBounds((try world.mesh.tileRefAtIndex(i, &failure)).?, &failure);
         var j: u32 = 0;
         while (j < world.mesh.tileCount()) : (j += 1) {
-            const b = try world.mesh.tileBounds(try world.mesh.tileRefAtIndex(j, &failure), &failure);
+            const b = try world.mesh.tileBounds((try world.mesh.tileRefAtIndex(j, &failure)).?, &failure);
             if (!try geom.overlapBounds(a[0], a[1], b[0], b[1], &failure)) disjoint = true;
         }
     }
@@ -6247,7 +6257,7 @@ test "the vertices at the layout's offset are the vertices the accessor reports"
 
     const loaded = try zrecast.NavMesh.initFromBytes(.init(image.bytes), &failure);
     defer loaded.deinit();
-    const tile = try loaded.tileRefAtIndex(0, &failure);
+    const tile = (try loaded.tileRefAtIndex(0, &failure)).?;
     const info = try loaded.tileInfo(tile, &failure);
 
     const layout = try zrecast.tileLayout(.init(image.bytes), &failure);
@@ -6507,7 +6517,7 @@ test "a search that would clear the pool under a slice is refused" {
     // comment says every const method is safe alongside a slice; these are the
     // five for which that is false.
     var refs: [16]zrecast.PolyRef = undefined;
-    var parents: [16]zrecast.PolyRef = undefined;
+    var parents: [16]zrecast.Maybe(zrecast.PolyRef) = undefined;
     var costs: [16]f32 = undefined;
     var path: [16]zrecast.PolyRef = undefined;
     try expectRefusal(error.SearchInProgress, &failure, world.query.findPath(
@@ -6745,7 +6755,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
 
     fixed_random_state = 12345;
     const first = try world.query.findRandomPoint(world.filter, fixed_random, &failure);
-    try std.testing.expect(first.ref != 0);
+    try expectAdmitted(first.ref);
 
     // On the navmesh, checked through a different entry point entirely.
     const snapped = try world.query.findNearestPoly(first.point, .{ 1, 1, 1 }, world.filter, &failure);
@@ -6784,7 +6794,7 @@ test "a random point is on the navmesh, and the same numbers give the same point
         fixed_random,
         &failure,
     );
-    try std.testing.expect(around.ref != 0);
+    try expectAdmitted(around.ref);
     const on_poly = try world.query.closestPointOnPoly(around.ref, around.point, &failure);
     for (around.point, on_poly.point) |want, got| {
         try std.testing.expectApproxEqAbs(want, got, 1e-3);
@@ -6812,7 +6822,7 @@ test "every polygon a box returns overlaps the box" {
 
     const box_min = zrecast.vec.sub(center, extents);
     const box_max = zrecast.vec.add(center, extents);
-    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
     for (refs[0..found.len]) |ref| {
         // Reached by a different route: the polygon's own corners, read out of
         // the tile, must have bounds that meet the box Detour was given.
@@ -6970,7 +6980,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
     const start = near.ref.?;
 
     var refs: [128]zrecast.PolyRef = undefined;
-    var parents: [128]zrecast.PolyRef = undefined;
+    var parents: [128]zrecast.Maybe(zrecast.PolyRef) = undefined;
     var costs: [128]f32 = undefined;
     const reached = try world.query.findPolysAroundCircle(
         start,
@@ -6987,18 +6997,18 @@ test "the polygons around a circle form a tree the corridor walks back up" {
 
     // The search starts where it was told to, at no cost, with no parent.
     try std.testing.expectEqual(start, refs[0]);
-    try std.testing.expectEqual(@as(zrecast.PolyRef, 0), parents[0]);
+    try std.testing.expectEqual(@as(?zrecast.PolyRef, null), parents[0].get());
     try std.testing.expectEqual(@as(f32, 0), costs[0]);
 
     for (refs[0..reached.len], parents[0..reached.len], costs[0..reached.len], 0..) |ref, parent, cost, i| {
-        try std.testing.expect(ref != 0);
+        try expectAdmitted(ref);
         try std.testing.expect(cost >= 0);
         if (i == 0) continue;
         // Every other polygon was reached through one already in the list, so
         // the parents really do form a tree rooted at the start.
         var found_parent = false;
         for (refs[0..reached.len]) |candidate| {
-            if (candidate == parent) found_parent = true;
+            if (parent.get() == candidate) found_parent = true;
         }
         try std.testing.expect(found_parent);
     }
@@ -7013,7 +7023,7 @@ test "the polygons around a circle form a tree the corridor walks back up" {
     try std.testing.expectEqual(start, corridor[0]);
     try std.testing.expectEqual(target, corridor[path.len - 1]);
 
-    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
     const link_capacity: u32 = @intCast((try world.mesh.tileInfo(tile, &failure)).max_link_count);
     for (corridor[0 .. path.len - 1], corridor[1..path.len]) |from, to| {
         const info = try world.mesh.polyInfo(from, &failure);
@@ -7070,7 +7080,7 @@ test "the distance to a wall is the distance to the segments the wall is made of
     const ref = near.ref.?;
 
     var verts: [16][2]zrecast.Vec3 = undefined;
-    var neighbours: [16]zrecast.PolyRef = undefined;
+    var neighbours: [16]zrecast.Maybe(zrecast.PolyRef) = undefined;
     const walls = try world.query.polyWallSegments(ref, world.filter, &verts, &neighbours, &failure);
     try std.testing.expect(walls.len > 0);
     try std.testing.expect(!walls.truncated);
@@ -7083,7 +7093,7 @@ test "the distance to a wall is the distance to the segments the wall is made of
     var nearest_segment: f32 = std.math.floatMax(f32);
     for (verts[0..walls.len], neighbours[0..walls.len]) |segment, neighbour| {
         // A segment with a neighbour is not a wall; only the unlinked ones are.
-        if (neighbour != 0) continue;
+        if (neighbour != .none) continue;
         const d = try zrecast.geom.distancePointToSegment2D(near.point, segment[0], segment[1], &failure);
         nearest_segment = @min(nearest_segment, @sqrt(d.dist_sqr));
     }
@@ -7245,7 +7255,7 @@ test "a polygon reference splits into the fields packed into it" {
     const world = try World.init();
     defer world.deinit();
 
-    const tile = try world.mesh.tileRefAtIndex(0, &failure);
+    const tile = (try world.mesh.tileRefAtIndex(0, &failure)).?;
     const info = try world.mesh.tileInfo(tile, &failure);
 
     // Every polygon of the tile, split and rebuilt.
@@ -7255,7 +7265,7 @@ test "a polygon reference splits into the fields packed into it" {
         const parts = try zrecast.decodePolyRef(world.mesh, ref, &failure);
         try std.testing.expectEqual(index, parts.poly);
         const rebuilt = try zrecast.encodePolyRef(world.mesh, parts.salt, parts.tile, parts.poly, &failure);
-        try std.testing.expectEqual(ref, rebuilt);
+        try std.testing.expectEqual(@as(?zrecast.PolyRef, ref), rebuilt);
         try std.testing.expect(try world.query.isValidPolyRef(ref, null, &failure));
     }
 
@@ -7484,7 +7494,7 @@ test "an agent reference outlives its slot only until the slot is reused" {
 
     const first = try crowd.addAgent(fixture.start, params, &failure);
     const first_ever = first;
-    try std.testing.expect(first != 0);
+    try expectAdmitted(first);
     try std.testing.expectEqual(@as(u32, 1), try crowd.activeAgentCount(&failure));
     try std.testing.expectEqual(
         zrecast.CrowdAgentState.walking,
@@ -7505,8 +7515,8 @@ test "an agent reference outlives its slot only until the slot is reused" {
     try expectRefusal(zrecast.Error.NotFound, &failure, crowd.setAgentParams(first, params, &failure));
 
     // The slot is the same one, which is what makes the serial load-bearing.
-    try std.testing.expectEqual(second, try crowd.agentRefAt(0, &failure));
-    try std.testing.expectEqual(@as(zrecast.AgentRef, 0), try crowd.agentRefAt(1, &failure));
+    try std.testing.expectEqual(@as(?zrecast.AgentRef, second), try crowd.agentRefAt(0, &failure));
+    try std.testing.expectEqual(@as(?zrecast.AgentRef, null), try crowd.agentRefAt(1, &failure));
     try expectRefusal(zrecast.Error.InvalidArgument, &failure, crowd.agentRefAt(4, &failure));
 
     // Re-initialising purges upstream, so every reference minted before it
@@ -7678,7 +7688,7 @@ test "two agents on the same spot separate, and neither crosses the wall" {
     try expectRefusal(
         zrecast.Error.InvalidArgument,
         &failure,
-        crowd.requestMoveTarget(a_ref, 0, goal.point, &failure),
+        crowd.requestMoveTarget(a_ref, forge(zrecast.PolyRef, 0), goal.point, &failure),
     );
 
     var a = try crowd.agent(a_ref, &failure);
@@ -7725,9 +7735,9 @@ test "two agents on the same spot separate, and neither crosses the wall" {
 
     const corridor = try crowd.agentCorridor(a_ref, &failure);
     try std.testing.expect(corridor.path_count > 0);
-    try std.testing.expect(corridor.first_poly != 0);
+    try std.testing.expect(corridor.first_poly != .none);
     const under = try world.query.findNearestPoly(a.position, search_extents, world.filter, &failure);
-    try std.testing.expectEqual(under.ref.?, corridor.first_poly);
+    try std.testing.expectEqual(under.ref, corridor.first_poly.get());
 
     // The boundary was collected, so its centre is no longer the sentinel an
     // untouched one carries.
@@ -8356,7 +8366,7 @@ test "every Detour container draws into a Zig renderer" {
 
     // A reference naming no resident polygon draws nothing: upstream's own
     // silence, not an error.
-    try draw.navMeshPoly(mesh, 0xffffffff, zrecast.rgba(255, 255, 255, 128), &failure);
+    try draw.navMeshPoly(mesh, forge(zrecast.PolyRef, 0xffffffff), zrecast.rgba(255, 255, 255, 128), &failure);
     try std.testing.expectEqual(@as(u32, 0), recorder.total());
     recorder.reset();
 

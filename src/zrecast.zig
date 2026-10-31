@@ -131,6 +131,7 @@ pub const detailTriEdgeFlags = navmesh_mod.detailTriEdgeFlags;
 
 // Runtime.
 pub const PolyRef = query_mod.PolyRef;
+pub const Maybe = query_mod.Maybe;
 pub const QueryFilter = query_mod.QueryFilter;
 pub const QueryFilterDesc = query_mod.QueryFilterDesc;
 pub const NavMeshQuery = query_mod.NavMeshQuery;
@@ -231,7 +232,6 @@ pub const layerPortal = tilecache_mod.layerPortal;
 // Crowds, and the five pieces they steer with.
 pub const AgentRef = crowd_mod.AgentRef;
 pub const PathRequestRef = crowd_mod.PathRequestRef;
-pub const path_request_none = crowd_mod.path_request_none;
 pub const CrowdAgentState = crowd_mod.CrowdAgentState;
 pub const CrowdTargetState = crowd_mod.CrowdTargetState;
 pub const CrowdAgentParams = crowd_mod.CrowdAgentParams;
@@ -1510,5 +1510,21 @@ test "a borrowed handle is read-only" {
     }
     inline for (.{ NavMesh, NavMeshQuery, ProximityGrid, PathQueue }) |Owned| {
         try std.testing.expect(!@typeInfo(@FieldType(Owned, "handle")).pointer.attrs.@"const");
+    }
+}
+
+test "each kind of reference is its own type, none of them 0" {
+    const kinds = .{ PolyRef, TileRef, CompressedTileRef, ObstacleRef, AgentRef, PathRequestRef };
+    inline for (kinds, 0..) |Ref, i| {
+        try std.testing.expectError(error.InvalidId, Ref.fromRaw(0));
+        try std.testing.expectEqual(@sizeOf(Ref.Representation), @sizeOf(Ref));
+        inline for (kinds, 0..) |Other, j| {
+            if (i != j) try std.testing.expect(Ref != Other);
+        }
+        // The slot that may hold none is the same bytes, and says which.
+        try std.testing.expectEqual(@sizeOf(Ref), @sizeOf(Maybe(Ref)));
+        try std.testing.expectEqual(@as(?Ref, null), Maybe(Ref).of(null).get());
+        const one = try Ref.fromRaw(1);
+        try std.testing.expectEqual(@as(?Ref, one), Maybe(Ref).of(one).get());
     }
 }

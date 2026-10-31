@@ -10,6 +10,22 @@ not express, so a port has the reason and not only the diff.
 
 ### Breaking
 
+- `PolyRef`, `TileRef`, `CompressedTileRef`, `ObstacleRef`, `AgentRef` and
+  `PathRequestRef` are distinct `aegis.id.NonZero` types, the same bytes as
+  before. As bare integers any of them could be passed for another, a tile
+  reference to a polygon query, and 0, "none", could be passed where a
+  reference was required. A slot that answers "none" returns an optional:
+  `NavMesh.tileRefAt` and `tileRefAtIndex`, `TileCache.tileAt`, `tileRefAt`
+  and `obstacleRefAt`, `Crowd.agentRefAt`, `PathQueue.request` (null where
+  it returned `path_request_none`, which is gone) and `encodePolyRef`. One
+  that takes "none" takes an optional: `offMeshConnectionEndPoints`'s
+  `prev_ref`, `PathCorridor.reset`, `LocalBoundary.update` and
+  `CrowdAgentDebug.agent`. A buffer or field the boundary may fill with
+  "none" holds `Maybe(PolyRef)`, read with `get()`: `findStraightPath`'s
+  `out_refs`, the searches' `out_parents`, `polyWallSegments`' `out_refs`,
+  `TileInfo.next_tile`, `PathCorridorInfo.first_poly` and `last_poly`,
+  `CrowdAgent.target_ref`, `CrowdCorner.poly` and the off-mesh animation's
+  `poly`.
 - Every call that can fail takes a `*zrecast.Failure` as its last argument,
   and a refusal pushes a `zrecast.Frame` on it: the `zrecast.Call` that
   refused and the result. An error alone said what went wrong but not which

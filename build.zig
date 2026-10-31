@@ -414,6 +414,8 @@ fn benchImports(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.l
     for (upstream_includes) |path| baseline.addIncludePath(p.path(path));
     baseline.addCSourceFile(.{ .file = p.path("bench/baseline.cpp"), .flags = compileFlags(b, target, true, optimize == .debug) });
     baseline.linkLibrary(package.artifact("zrecast"));
+    // Its polygon references are the binding's type, the same four bytes.
+    baseline.addImport("zrecast", package.module("zrecast"));
     return b.allocator.dupe(std.Build.Module.Import, &.{
         .{ .name = "zrecast", .module = package.module("zrecast") },
         .{ .name = "baseline", .module = baseline },

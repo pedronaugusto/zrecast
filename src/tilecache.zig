@@ -306,7 +306,7 @@ pub const TileCache = struct {
     /// and `error.TileOccupied` when a layer already sits at that position.
     pub fn addTile(self: TileCache, layer: Image, failure: *err.Failure) err.Error!CompressedTileRef {
         const data = layer.readForParse();
-        var ref: CompressedTileRef = 0;
+        var ref: CompressedTileRef = undefined;
         try err.check(failure, .tile_cache_add_tile, c.zrcTileCacheAddTile(self.handle, data.ptr, data.len, &ref));
         return ref;
     }
@@ -332,12 +332,12 @@ pub const TileCache = struct {
         return out;
     }
 
-    /// The layer at (`tile_x`, `tile_y`, `tile_layer`), or 0 in the result
-    /// when that position is empty — a legitimate answer, not an error.
-    pub fn tileAt(self: TileCache, tile_x: i32, tile_y: i32, tile_layer: i32, failure: *err.Failure) err.Error!CompressedTileRef {
-        var ref: CompressedTileRef = 0;
+    /// The layer at (`tile_x`, `tile_y`, `tile_layer`), or null when that
+    /// position is empty — a legitimate answer, not an error.
+    pub fn tileAt(self: TileCache, tile_x: i32, tile_y: i32, tile_layer: i32, failure: *err.Failure) err.Error!?CompressedTileRef {
+        var ref: c.Maybe(CompressedTileRef) = .none;
         try err.check(failure, .tile_cache_tile_at, c.zrcTileCacheTileAt(self.handle, tile_x, tile_y, tile_layer, &ref));
-        return ref;
+        return ref.get();
     }
 
     /// Every layer stacked at (`tile_x`, `tile_y`), lowest first, copied
@@ -354,14 +354,14 @@ pub const TileCache = struct {
         return c.reported(usize, found);
     }
 
-    /// The reference of the slot at `index`, or 0 when it is free. Slots
+    /// The reference of the slot at `index`, or null when it is free. Slots
     /// run from 0 to `params().max_tiles - 1`; upstream's own accessor
     /// bounds nothing, so the index is checked here.
-    pub fn tileRefAt(self: TileCache, index: u32, failure: *err.Failure) err.Error!CompressedTileRef {
+    pub fn tileRefAt(self: TileCache, index: u32, failure: *err.Failure) err.Error!?CompressedTileRef {
         const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .tile_cache_tile_ref_at, error.InvalidArgument);
-        var ref: CompressedTileRef = 0;
+        var ref: c.Maybe(CompressedTileRef) = .none;
         try err.check(failure, .tile_cache_tile_ref_at, c.zrcTileCacheTileRefAt(self.handle, i, &ref));
-        return ref;
+        return ref.get();
     }
 
     pub fn obstacleInfo(self: TileCache, ref: ObstacleRef, failure: *err.Failure) err.Error!ObstacleInfo {
@@ -370,14 +370,14 @@ pub const TileCache = struct {
         return out;
     }
 
-    /// The reference of the obstacle slot at `index`, or 0 when it is
+    /// The reference of the obstacle slot at `index`, or null when it is
     /// free. Upstream's own accessor bounds nothing; the index is checked
     /// here.
-    pub fn obstacleRefAt(self: TileCache, index: u32, failure: *err.Failure) err.Error!ObstacleRef {
+    pub fn obstacleRefAt(self: TileCache, index: u32, failure: *err.Failure) err.Error!?ObstacleRef {
         const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .tile_cache_obstacle_ref_at, error.InvalidArgument);
-        var ref: ObstacleRef = 0;
+        var ref: c.Maybe(ObstacleRef) = .none;
         try err.check(failure, .tile_cache_obstacle_ref_at, c.zrcTileCacheObstacleRefAt(self.handle, i, &ref));
-        return ref;
+        return ref.get();
     }
 
     /// A vertical cylinder standing on its base. Queued, not applied: it
@@ -397,7 +397,7 @@ pub const TileCache = struct {
         height: f32,
         failure: *err.Failure,
     ) err.Error!ObstacleRef {
-        var ref: ObstacleRef = 0;
+        var ref: ObstacleRef = undefined;
         try err.check(failure, .tile_cache_add_cylinder_obstacle, c.zrcTileCacheAddCylinderObstacle(self.handle, &position, radius, height, &ref));
         return ref;
     }
@@ -405,7 +405,7 @@ pub const TileCache = struct {
     /// An axis-aligned box. Same queueing and same limits as
     /// `addCylinderObstacle`.
     pub fn addBoxObstacle(self: TileCache, bmin: [3]f32, bmax: [3]f32, failure: *err.Failure) err.Error!ObstacleRef {
-        var ref: ObstacleRef = 0;
+        var ref: ObstacleRef = undefined;
         try err.check(failure, .tile_cache_add_box_obstacle, c.zrcTileCacheAddBoxObstacle(self.handle, &bmin, &bmax, &ref));
         return ref;
     }
@@ -418,7 +418,7 @@ pub const TileCache = struct {
         y_radians: f32,
         failure: *err.Failure,
     ) err.Error!ObstacleRef {
-        var ref: ObstacleRef = 0;
+        var ref: ObstacleRef = undefined;
         try err.check(failure, .tile_cache_add_oriented_box_obstacle, c.zrcTileCacheAddOrientedBoxObstacle(
             self.handle,
             &center,

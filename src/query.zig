@@ -13,9 +13,13 @@ const NavMesh = @import("navmesh.zig").NavMesh;
 const BorrowedNavMesh = @import("navmesh.zig").BorrowedNavMesh;
 const Vec3 = @import("vec.zig").Vec3;
 
-/// Identifies one polygon of one navmesh. Zero means "no polygon", which is
-/// modelled as `null` everywhere it can occur.
+/// Identifies one polygon of one navmesh, never 0. "No polygon" is `null`
+/// where one value can be it, and `Maybe(PolyRef)`'s `.none` in a buffer the
+/// boundary fills.
 pub const PolyRef = c.PolyRef;
+
+/// A buffer slot that may hold "none" in place of a reference.
+pub const Maybe = c.Maybe;
 
 /// The costs and flags a `QueryFilter` is made from.
 pub const QueryFilterDesc = c.QueryFilterDesc;
@@ -432,7 +436,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             filter: QueryFilter,
             failure: *err.Failure,
         ) err.Error!NearestPoly {
-            var ref: PolyRef = 0;
+            var ref: Maybe(PolyRef) = .none;
             var point: [3]f32 = undefined;
             var over_poly: c.Bool = c.c_false;
             try err.check(failure, .find_nearest_poly, c.zrcFindNearestPoly(
@@ -445,7 +449,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 &over_poly,
             ));
             return .{
-                .ref = if (ref == 0) null else ref,
+                .ref = ref.get(),
                 .point = point,
                 .over_poly = over_poly != c.c_false,
             };
@@ -487,7 +491,9 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         /// String-pulls a corridor into the corners to walk.
         ///
         /// `out_points` receives one `[3]f32` per corner. `out_flags` and
-        /// `out_refs`, when given, must be at least as long as `out_points`.
+        /// `out_refs`, when given, must be at least as long as `out_points`; each
+        /// holds the polygon entered at its corner, and the end corner's is
+        /// `.none`.
         pub fn findStraightPath(
             self: Self,
             start_pos: [3]f32,
@@ -496,7 +502,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             options: StraightPathOptions,
             out_points: [][3]f32,
             out_flags: ?[]u8,
-            out_refs: ?[]PolyRef,
+            out_refs: ?[]Maybe(PolyRef),
             failure: *err.Failure,
         ) err.Error!PathResult {
             const path_count = aegis.int.cast(i32, path.len) catch
@@ -606,7 +612,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 &end_pos,
                 filter.handle,
                 options.toC(),
-                prev_ref orelse 0,
+                Maybe(PolyRef).of(prev_ref),
                 &raw_hit,
                 if (out_path) |path| path.ptr else null,
                 capacity,
@@ -735,7 +741,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             failure: *err.Failure,
         ) err.Error!RandomPoint {
             const source = random.toC();
-            var ref: PolyRef = 0;
+            var ref: PolyRef = undefined;
             var point: Vec3 = undefined;
             try err.check(failure, .find_random_point, c.zrcFindRandomPoint(self.handle, filter.handle, &source, &ref, &point));
             return .{ .ref = ref, .point = point };
@@ -759,7 +765,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             failure: *err.Failure,
         ) err.Error!RandomPoint {
             const source = random.toC();
-            var ref: PolyRef = 0;
+            var ref: PolyRef = undefined;
             var point: Vec3 = undefined;
             try err.check(failure, .find_random_point_around_circle, c.zrcFindRandomPointAroundCircle(
                 self.handle,
@@ -847,8 +853,8 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
 
         /// Every polygon reachable from `start_ref` within `radius` of `center`,
         /// as a Dijkstra search over the surface rather than a route to it.
-        /// `out_parents` gives the polygon each was reached through, which is
-        /// what makes the result a tree rather than a set; `out_costs` gives the
+        /// `out_parents` gives the polygon each was reached through, `.none` for
+        /// the start, which is what makes the result a tree rather than a set; `out_costs` gives the
         /// cost to reach each. See `ReachedPolys` for the shared-capacity rule.
         pub fn findPolysAroundCircle(
             self: Self,
@@ -857,7 +863,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             radius: f32,
             filter: QueryFilter,
             out_refs: []PolyRef,
-            out_parents: []PolyRef,
+            out_parents: []Maybe(PolyRef),
             out_costs: []f32,
             failure: *err.Failure,
         ) err.Error!ReachedPolys {
@@ -889,7 +895,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             verts: []const Vec3,
             filter: QueryFilter,
             out_refs: []PolyRef,
-            out_parents: []PolyRef,
+            out_parents: []Maybe(PolyRef),
             out_costs: []f32,
             failure: *err.Failure,
         ) err.Error!ReachedPolys {
@@ -953,7 +959,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             radius: f32,
             filter: QueryFilter,
             out_refs: []PolyRef,
-            out_parents: []PolyRef,
+            out_parents: []Maybe(PolyRef),
             failure: *err.Failure,
         ) err.Error!ReachedPolys {
             if (out_parents.len != 0 and out_parents.len != out_refs.len)
@@ -979,14 +985,14 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
 
         /// The segments of `ref`'s boundary an agent under `filter` cannot cross.
         /// `out_verts` takes two points per segment; `out_refs`, when given,
-        /// receives the polygon on the far side of each, or 0 where there is
-        /// none.
+        /// receives the polygon on the far side of each, or `.none` where there
+        /// is none.
         pub fn polyWallSegments(
             self: Self,
             ref: PolyRef,
             filter: QueryFilter,
             out_verts: [][2]Vec3,
-            out_refs: []PolyRef,
+            out_refs: []Maybe(PolyRef),
             failure: *err.Failure,
         ) err.Error!WallSegments {
             if (out_refs.len != 0 and out_refs.len != out_verts.len)
@@ -1122,10 +1128,11 @@ pub fn decodePolyRef(navmesh: NavMesh, ref: PolyRef, failure: *err.Failure) err.
 /// Packs the three fields back into a reference. `error.InvalidArgument`
 /// when any of them is too wide for the navmesh's own bit layout, which
 /// upstream instead truncates silently.
-pub fn encodePolyRef(navmesh: NavMesh, salt: u32, tile: u32, poly: u32, failure: *err.Failure) err.Error!PolyRef {
-    var ref: PolyRef = 0;
+/// Null when the three fields pack to 0, which names no polygon.
+pub fn encodePolyRef(navmesh: NavMesh, salt: u32, tile: u32, poly: u32, failure: *err.Failure) err.Error!?PolyRef {
+    var ref: Maybe(PolyRef) = .none;
     try err.check(failure, .encode_poly_ref, c.zrcEncodePolyRef(navmesh.handle, salt, tile, poly, &ref));
-    return ref;
+    return ref.get();
 }
 
 test "the default filter admits everything at neutral cost" {
@@ -1190,5 +1197,5 @@ test "findNode on a query that has run no search is null rather than an error" {
     const world = try EmptyWorld.init(&failure);
     defer world.deinit();
 
-    try std.testing.expectEqual(@as(?Node, null), try world.query.findNode(1, 0, &failure));
+    try std.testing.expectEqual(@as(?Node, null), try world.query.findNode(try PolyRef.fromRaw(1), 0, &failure));
 }

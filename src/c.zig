@@ -104,11 +104,37 @@ pub const node_open: u32 = 0x01;
 pub const node_closed: u32 = 0x02;
 pub const node_parent_detached: u32 = 0x04;
 
-/// A polygon reference. Zero means "no polygon".
-pub const PolyRef = u32;
+/// A polygon reference: one polygon of one tile of one navmesh, never 0. A
+/// slot the header lets hold 0 for "no polygon" is a `Maybe(PolyRef)`.
+pub const PolyRef = aegis.id.NonZero(opaque {}, u32);
 
-/// A tile reference. Zero means "no tile".
-pub const TileRef = u32;
+/// A tile reference, never 0. A slot that may hold "no tile" is a
+/// `Maybe(TileRef)`.
+pub const TileRef = aegis.id.NonZero(opaque {}, u32);
+
+/// A slot the header lets hold 0 for "none" in place of a `Ref`: the same
+/// bytes as `Ref`, read back as `?Ref` by `get`.
+pub fn Maybe(comptime Ref: type) type {
+    return enum(Ref.Representation) {
+        none = 0,
+        _,
+
+        const Self = @This();
+        /// The integer the slot is held in, which is `Ref`'s.
+        pub const Representation = Ref.Representation;
+
+        /// `ref`'s slot, or `.none` for null.
+        pub fn of(ref: ?Ref) Self {
+            const r = ref orelse return .none;
+            return @fromBackingInt(@backingInt(r));
+        }
+
+        /// The reference the slot holds, or null for none.
+        pub fn get(self: Self) ?Ref {
+            return Ref.fromRaw(@backingInt(self)) catch null;
+        }
+    };
+}
 
 /// Bounds on a tile's place in the grid; mirrors ZRC_MAX_TILE_COORD and
 /// ZRC_MAX_TILE_LAYER.
@@ -160,13 +186,13 @@ pub const tilecache_version: i32 = 1;
 /// rest.
 pub const max_touched_tiles = 8;
 
-/// Names one compressed layer in a tile cache. Salt-protected the same way a
-/// `TileRef` is.
-pub const CompressedTileRef = u32;
+/// Names one compressed layer in a tile cache, never 0. Salt-protected the
+/// same way a `TileRef` is.
+pub const CompressedTileRef = aegis.id.NonZero(opaque {}, u32);
 
-/// Names one obstacle. Salt-protected, and the salt turns over when the
-/// deferred removal completes rather than when it is requested.
-pub const ObstacleRef = u32;
+/// Names one obstacle, never 0. Salt-protected, and the salt turns over when
+/// the deferred removal completes rather than when it is requested.
+pub const ObstacleRef = aegis.id.NonZero(opaque {}, u32);
 
 /// The area id a tile-cache layer gives unwalkable surface, and the one it
 /// gives walkable surface.
@@ -522,7 +548,7 @@ pub const TileInfo = extern struct {
     flags: u32,
     salt: u32,
     links_free_list: u32,
-    next_tile: TileRef,
+    next_tile: Maybe(TileRef),
 };
 
 /// One polygon, copied out of the tile that holds it.
@@ -1693,7 +1719,7 @@ pub extern fn zrcNavMeshTileRefAt(
     tile_x: i32,
     tile_z: i32,
     tile_layer: i32,
-    out_ref: *TileRef,
+    out_ref: *Maybe(TileRef),
 ) Result;
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileRefsAt(
@@ -1711,7 +1737,7 @@ pub extern fn zrcNavMeshTileCount(navmesh: ?*const NavMesh) i32;
 pub extern fn zrcNavMeshTileRefAtIndex(
     navmesh: ?*const NavMesh,
     index: i32,
-    out_ref: *TileRef,
+    out_ref: *Maybe(TileRef),
 ) Result;
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshMaxTiles(navmesh: ?*const NavMesh) i32;
@@ -1745,7 +1771,7 @@ pub extern fn zrcNavMeshGetPolyType(navmesh: ?*const NavMesh, ref: PolyRef, out_
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshOffMeshConnectionEndPoints(
     navmesh: ?*const NavMesh,
-    prev_ref: PolyRef,
+    prev_ref: Maybe(PolyRef),
     poly_ref: PolyRef,
     out_start: *[3]f32,
     out_end: *[3]f32,
@@ -1990,7 +2016,7 @@ pub extern fn zrcFindNearestPoly(
     center: *const [3]f32,
     half_extents: *const [3]f32,
     filter: *const QueryFilter,
-    out_ref: *PolyRef,
+    out_ref: *Maybe(PolyRef),
     out_point: ?*[3]f32,
     out_over_poly: ?*Bool,
 ) Result;
@@ -2021,7 +2047,7 @@ pub extern fn zrcFindStraightPath(
     max_points: i32,
     out_flags: ?[*]u8,
     max_flags: i32,
-    out_refs: ?[*]PolyRef,
+    out_refs: ?[*]Maybe(PolyRef),
     max_refs: i32,
     out_count: *i32,
     out_partial: ?*Bool,
@@ -2049,7 +2075,7 @@ pub extern fn zrcRaycast(
     end_pos: *const [3]f32,
     filter: *const QueryFilter,
     options: u32,
-    prev_ref: PolyRef,
+    prev_ref: Maybe(PolyRef),
     out_hit: *RaycastHit,
     out_path: ?[*]PolyRef,
     max_path: i32,
@@ -2188,7 +2214,7 @@ pub extern fn zrcFindPolysAroundCircle(
     radius: f32,
     filter: *const QueryFilter,
     out_refs: ?[*]PolyRef,
-    out_parents: ?[*]PolyRef,
+    out_parents: ?[*]Maybe(PolyRef),
     out_costs: ?[*]f32,
     max_result: i32,
     out_count: *i32,
@@ -2202,7 +2228,7 @@ pub extern fn zrcFindPolysAroundShape(
     vert_count: i32,
     filter: *const QueryFilter,
     out_refs: ?[*]PolyRef,
-    out_parents: ?[*]PolyRef,
+    out_parents: ?[*]Maybe(PolyRef),
     out_costs: ?[*]f32,
     max_result: i32,
     out_count: *i32,
@@ -2225,7 +2251,7 @@ pub extern fn zrcFindLocalNeighbourhood(
     radius: f32,
     filter: *const QueryFilter,
     out_refs: [*]PolyRef,
-    out_parents: ?[*]PolyRef,
+    out_parents: ?[*]Maybe(PolyRef),
     max_result: i32,
     out_count: *i32,
     out_truncated: ?*Bool,
@@ -2241,7 +2267,7 @@ pub extern fn zrcPolyWallSegments(
     ref: PolyRef,
     filter: *const QueryFilter,
     out_verts: [*]f32,
-    out_refs: ?[*]PolyRef,
+    out_refs: ?[*]Maybe(PolyRef),
     max_segments: i32,
     out_count: *i32,
     out_truncated: ?*Bool,
@@ -2295,7 +2321,7 @@ pub extern fn zrcEncodePolyRef(
     salt: u32,
     tile: u32,
     poly: u32,
-    out_ref: *PolyRef,
+    out_ref: *Maybe(PolyRef),
 ) Result;
 
 //=============================================================================
@@ -2421,7 +2447,7 @@ pub extern fn zrcTileCacheTileAt(
     tile_x: i32,
     tile_y: i32,
     tile_layer: i32,
-    out_ref: *CompressedTileRef,
+    out_ref: *Maybe(CompressedTileRef),
 ) Result;
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheTilesAt(
@@ -2436,7 +2462,7 @@ pub extern fn zrcTileCacheTilesAt(
 pub extern fn zrcTileCacheTileRefAt(
     cache: *const TileCache,
     index: i32,
-    out_ref: *CompressedTileRef,
+    out_ref: *Maybe(CompressedTileRef),
 ) Result;
 
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
@@ -2449,7 +2475,7 @@ pub extern fn zrcTileCacheObstacleInfo(
 pub extern fn zrcTileCacheObstacleRefAt(
     cache: *const TileCache,
     index: i32,
-    out_ref: *ObstacleRef,
+    out_ref: *Maybe(ObstacleRef),
 ) Result;
 
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
@@ -2701,8 +2727,8 @@ pub const crowd_optimize_topo: u8 = 16;
 pub const PathCorridorInfo = extern struct {
     position: [3]f32,
     target: [3]f32,
-    first_poly: PolyRef,
-    last_poly: PolyRef,
+    first_poly: Maybe(PolyRef),
+    last_poly: Maybe(PolyRef),
     path_count: i32,
 };
 
@@ -2721,8 +2747,8 @@ pub const AvoidanceParams = extern struct {
     adaptive_depth: u8,
 };
 
-/// A reference to one agent in a crowd. 0 is never a live agent.
-pub const AgentRef = u64;
+/// A reference to one agent in a crowd, never 0: 0 is never a live agent.
+pub const AgentRef = aegis.id.NonZero(opaque {}, u64);
 
 /// What kind of surface an agent is on.
 pub const CrowdAgentState = enum(c_int) {
@@ -2769,7 +2795,7 @@ pub const CrowdAgent = extern struct {
     avoided_velocity: [3]f32,
     displacement: [3]f32,
     desired_speed: f32,
-    target_ref: PolyRef,
+    target_ref: Maybe(PolyRef),
     target_position: [3]f32,
     target_replan: Bool,
     target_replan_time: f32,
@@ -2784,7 +2810,7 @@ pub const CrowdCorner = extern struct {
     position: [3]f32,
     /// A bitwise or of the straightpath_* flags.
     flags: u8,
-    poly: PolyRef,
+    poly: Maybe(PolyRef),
 };
 
 /// One neighbour an agent is steering around.
@@ -2800,7 +2826,7 @@ pub const CrowdAgentAnimation = extern struct {
     init_position: [3]f32,
     start_position: [3]f32,
     end_position: [3]f32,
-    poly: PolyRef,
+    poly: Maybe(PolyRef),
     t: f32,
     t_max: f32,
 };
@@ -2808,7 +2834,7 @@ pub const CrowdAgentAnimation = extern struct {
 /// What one update recorded about one agent, in and out.
 pub const CrowdAgentDebug = extern struct {
     /// In: the agent to record. 0 records nothing.
-    agent: AgentRef,
+    agent: Maybe(AgentRef),
     /// In: where the avoidance sampler's candidate velocities land, or NULL.
     /// Borrowed for the call only.
     samples: ?*AvoidanceDebug,
@@ -2878,7 +2904,7 @@ pub extern fn zrcCrowdActiveAgents(
     out_count: *i32,
 ) Result;
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
-pub extern fn zrcCrowdAgentRefAt(crowd: *const Crowd, index: i32, out_ref: *AgentRef) Result;
+pub extern fn zrcCrowdAgentRefAt(crowd: *const Crowd, index: i32, out_ref: *Maybe(AgentRef)) Result;
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentCorners(
     crowd: *const Crowd,
@@ -3154,7 +3180,7 @@ pub extern fn zrcPathCorridorDestroy(corridor: ?*PathCorridor) void;
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorReset(
     corridor: *PathCorridor,
-    poly: PolyRef,
+    poly: Maybe(PolyRef),
     position: *const [3]f32,
 ) Result;
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
@@ -3289,7 +3315,7 @@ pub extern fn zrcLocalBoundaryReset(boundary: *LocalBoundary) Result;
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLocalBoundaryUpdate(
     boundary: *LocalBoundary,
-    poly: PolyRef,
+    poly: Maybe(PolyRef),
     position: *const [3]f32,
     range: f32,
     query: *NavMeshQuery,
@@ -3318,9 +3344,10 @@ pub extern fn zrcLocalBoundarySegments(
 // The path queue
 //=============================================================================
 
-/// A submitted search. 0 (`path_request_none`) is never a live request.
-pub const PathRequestRef = u32;
-pub const path_request_none: PathRequestRef = 0;
+/// A submitted search, never 0: 0 (`path_request_none`, `Maybe`'s `.none`)
+/// is never a live request.
+pub const PathRequestRef = aegis.id.NonZero(opaque {}, u32);
+pub const path_request_none: u32 = 0;
 
 /// Where one request has got to.
 pub const PathRequestState = enum(c_int) {
@@ -3349,7 +3376,7 @@ pub extern fn zrcPathQueueRequest(
     start_position: *const [3]f32,
     end_position: *const [3]f32,
     filter: *const QueryFilter,
-    out_ref: *PathRequestRef,
+    out_ref: *Maybe(PathRequestRef),
 ) Result;
 // aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathQueueRequestStatus(
