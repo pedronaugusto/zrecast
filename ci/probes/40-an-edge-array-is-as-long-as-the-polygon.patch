@@ -2,11 +2,11 @@
 --- a/src/geom.zig
 +++ b/src/geom.zig
 @@ -78,7 +78,7 @@
-     out_edge_t: []f32,
+     failure: *err.Failure,
  ) Error!bool {
-     const vert_count = aegis.int.cast(i32, verts.len) catch return Error.InvalidArgument;
+     const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .distance_point_to_poly_edges, error.InvalidArgument);
 -    if (out_edge_dist_sqr.len < verts.len or out_edge_t.len < verts.len) {
 +    if (out_edge_dist_sqr.len < 0 or out_edge_t.len < 0) {
-         return Error.InvalidArgument;
+         return err.refuse(failure, .distance_point_to_poly_edges, error.InvalidArgument);
      }
      var inside: zc.Bool = zc.c_false;

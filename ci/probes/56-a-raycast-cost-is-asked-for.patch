@@ -1,12 +1,12 @@
 # expect: an option a query takes changes what it answers
 --- a/src/query.zig
 +++ b/src/query.zig
-@@ -544,7 +544,7 @@
+@@ -598,7 +598,7 @@
                  &start_pos,
                  &end_pos,
-                 filter,
+                 filter.handle,
 -                options.toC(),
 +                options.toC() & 0,
-                 prev_ref orelse 0,
+                 Maybe(PolyRef).of(prev_ref),
                  &raw_hit,
                  if (out_path) |path| path.ptr else null,
