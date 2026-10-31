@@ -138,10 +138,13 @@ upstream is in the tree.
 - Recast's and Detour's internal asserts routed to a host's handler with
   `setAssertHandler`. It is process-wide too, for the same reason: one
   install replaces the handler for every caller in the process.
-- A cook is the same bytes on every target sharing a C library:
-  `-ffp-contract=off`, a polynomial cosine for the slope limit, and Zig vector
-  math tested bit-identical to upstream's. A frame's crowd steering calls the C
-  library's `cosf` and `sinf`, so it is not.
+- A cook is the same bytes when one target cooks it twice, which the suite
+  asserts on every run. Across targets sharing a C library it is built to be
+  the same bytes too (`-ffp-contract=off`, a polynomial cosine for the slope
+  limit, Zig vector math tested bit-identical to upstream's), and `bay
+  determinism` compares them, but on Zig 0.17 that is NOT ESTABLISHED: the
+  comparison last ran for 0.1.0, on Zig 0.16. A frame's crowd steering calls
+  the C library's `cosf` and `sinf`, so it is not reproducible across targets.
 
 | File | What it holds |
 |---|---|

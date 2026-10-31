@@ -567,7 +567,10 @@ guarantees is scoped to what it measures, in three rings.
 - **Two targets sharing a C library are the same bytes.** `bay determinism`
   cooks on both architectures of musl and glibc and fails if a pair sharing a
   library disagrees. With contraction pinned and no libm in the bake,
-  architecture is not allowed to move a byte.
+  architecture is not allowed to move a byte. On Zig 0.17 this ring is NOT
+  ESTABLISHED: the comparison last ran for 0.1.0 (2026-09-03), on Zig 0.16,
+  and has not run since the move, since it needs Linux containers of both
+  architectures.
 - **Two different C libraries are compared, not promised.** Upstream sorts BV
   items, contour holes and diagonals with `qsort`, ties fall to the
   implementation, and any order the ties land in is a valid navmesh;
@@ -724,8 +727,9 @@ divergence `bay check-vendor` exists to refuse. Any order the ties land in
 is a valid navmesh; what varies between C libraries is which valid one comes
 out. So the determinism claim is scoped to match: one target cooking twice
 gets the same bytes, asserted by the suite on every target that runs it;
-targets sharing a C library get the same bytes, gated by `bay determinism`
-across architectures; targets with different C libraries are compared and
+targets sharing a C library get the same bytes, checked by `bay determinism`
+across architectures (NOT ESTABLISHED on Zig 0.17; see
+[Cook determinism](#cook-determinism)); targets with different C libraries are compared and
 reported there, not gated. A host that ships cooked navmeshes should cook on
 one platform, or key its asset cache by cook platform — the same position
 every engine consuming upstream from C++ is in.
