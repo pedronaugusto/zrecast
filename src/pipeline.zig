@@ -874,7 +874,7 @@ pub fn setCon(span: c.CompactSpan, direction: u2, neighbor: u32) c.CompactSpan {
 /// rather than only 0..3.
 pub fn dirOffsetX(direction: i32) i32 {
     const offset = [4]i32{ -1, 0, 1, 0 };
-    return offset[@as(usize, @intCast(direction & 0x03))];
+    return offset[@as(u2, @truncate(@as(u32, @bitCast(direction))))];
 }
 
 /// The z step a cell takes moving in `direction`. Mirrors upstream's
@@ -883,7 +883,7 @@ pub fn dirOffsetX(direction: i32) i32 {
 /// despite the Y in its name.
 pub fn dirOffsetY(direction: i32) i32 {
     const offset = [4]i32{ 0, 1, 0, -1 };
-    return offset[@as(usize, @intCast(direction & 0x03))];
+    return offset[@as(u2, @truncate(@as(u32, @bitCast(direction))))];
 }
 
 /// The direction that steps by (`offset_x`, `offset_z`) — one of the four
@@ -900,9 +900,10 @@ pub fn dirForOffset(offset_x: i32, offset_z: i32, failure: *err.Failure) err.Err
         return err.refuse(failure, .dir_for_offset, error.InvalidArgument);
     }
     const dirs = [5]i32{ 3, 0, -1, 2, 1 };
-    const idx = ((offset_z + 1) << 1) + offset_x;
-    if (idx < 0 or idx >= dirs.len) return err.refuse(failure, .dir_for_offset, error.InvalidArgument);
-    return dirs[@intCast(idx)];
+    const idx = aegis.int.cast(usize, ((offset_z + 1) << 1) + offset_x) catch
+        return err.refuse(failure, .dir_for_offset, error.InvalidArgument);
+    if (idx >= dirs.len) return err.refuse(failure, .dir_for_offset, error.InvalidArgument);
+    return dirs[idx];
 }
 
 test "getCon and setCon round-trip through the packed connection field" {

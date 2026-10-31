@@ -457,19 +457,28 @@ test "ABI: src/c.zig agrees with ffi/zrecast.h, and binds all of it" {
     if (ours.drift) |d| @compileError("zrecast ABI drift: " ++ d);
     if (theirs.drift) |d| @compileError("zrecast ABI drift: " ++ d);
 
-    // The counted surface of zrecast 0.1.1. Floors, not equalities, for all
-    // but functions: the reverse sweep fails on an unbound function, so
-    // `functions == theirs` pins completeness exactly.
-    try std.testing.expect(ours.counts.types >= 98);
-    try std.testing.expect(ours.counts.fields >= 686);
-    try std.testing.expect(ours.counts.enumerators >= 84);
-    try std.testing.expect(ours.counts.constants >= 63);
-    try std.testing.expect(theirs.functions >= 383);
+    // The counted surface, as floors, not equalities, for all but functions:
+    // the reverse sweep fails on an unbound function, so `functions ==
+    // theirs` pins completeness exactly. A floor that fails names the
+    // version it failed at.
+    try atLeast("types", ours.counts.types, 98);
+    try atLeast("fields", ours.counts.fields, 686);
+    try atLeast("enumerators", ours.counts.enumerators, 84);
+    try atLeast("constants", ours.counts.constants, 63);
+    try atLeast("functions", theirs.functions, 383);
     try std.testing.expectEqual(ours.counts.functions, theirs.functions);
     // The two hazard shapes. The boundary has neither, so the package ships
     // no forwarding shim; a change that adds one fails here.
     try std.testing.expectEqual(@as(usize, 0), ours.counts.late_float_fns);
     try std.testing.expectEqual(@as(usize, 0), ours.counts.aggregate_return_fns);
+}
+
+/// Fails, naming the package version build.zig.zon gives, when one count of
+/// the bound surface is below its floor.
+fn atLeast(comptime what: []const u8, got: usize, floor: usize) !void {
+    if (got >= floor) return;
+    std.log.err("zrecast {s} binds {d} {s}, below the floor of {d}", .{ @import("zrecast_options").package_version, got, what, floor });
+    return error.SurfaceShrank;
 }
 
 fn expectDrift(comptime drift: Drift, comptime says: []const u8) !void {
