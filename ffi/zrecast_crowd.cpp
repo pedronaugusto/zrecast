@@ -1,18 +1,14 @@
 //===----------------------------------------------------------------------===//
 // zrecast — crowds: many agents steering around each other and the world,
-// and the proximity grid, path queue and query object a crowd borrows out
-// while it does it.
+// and the proximity grid, path queue and query object a crowd lends out.
 //
-// Upstream identifies an agent by a pool slot it silently reuses: removeAgent
-// only clears a flag, addAgent hands the lowest free slot to whoever asks
-// next, and every setter bounds-checks the index without ever asking whether
-// the slot is live. Every entry point below resolves a ZrcAgentRef through
-// the slot/serial scheme zrecast_internal.h defines instead, so a stale
-// reference is ZRC_ERR_NOT_FOUND rather than someone else's agent.
-// zrcCrowdAddAgent and zrcCrowdSetAgentParams are the only paths a
-// ZrcCrowdAgentParams reaches dtCrowd through, and both refuse the two
-// unbounded index fields upstream never checks (DetourCrowd.cpp:534 and
-// 1293, among fourteen call sites) before it does.
+// Upstream identifies an agent by a pool slot it silently reuses, and its
+// setters never ask whether the slot is live. Every entry point below
+// resolves a ZrcAgentRef through the slot/serial scheme zrecast_internal.h
+// defines, so a stale reference is ZRC_ERR_NOT_FOUND, not someone else's
+// agent. zrcCrowdAddAgent and zrcCrowdSetAgentParams, the only paths a
+// ZrcCrowdAgentParams reaches dtCrowd through, refuse the two unbounded index
+// fields upstream never checks (DetourCrowd.cpp:534, 1293 and twelve more).
 //===----------------------------------------------------------------------===//
 
 #include "zrecast_internal.h"
@@ -188,25 +184,15 @@ ZrcResult BuildCrowdSubHandles(ZrcCrowd* crowd) {
   return ZRC_OK;
 }
 
-/// Runs dtCrowd::init and then the bookkeeping this package layers on top of
-/// it: the per-slot serial array and the three borrowed wrappers. Shared by
-/// zrcCrowdCreate and zrcCrowdInit, which differ only in whether a fresh
-/// ZrcCrowd needs allocating first.
-///
-/// A failure at any step after upstream's own init succeeds leaves `crowd`
-/// with zero capacity and no wrappers rather than a half-built one: the next
-/// call to touch the crowd sees a consistently empty handle, not a handle
-/// whose serial array or wrappers might or might not exist.
+/// Runs dtCrowd::init, then sets up the per-slot serial array and the three
+/// borrowed wrappers. Shared by zrcCrowdCreate and zrcCrowdInit. A failure
+/// after upstream's init succeeds leaves `crowd` with zero capacity and no
+/// wrappers, never half-built.
 ZrcResult InitCrowdImpl(ZrcCrowd* crowd, const ZrcNavMesh* navmesh,
                         int32_t max_agents, float max_agent_radius) {
-  // dtCrowd::init takes nav as dtNavMesh* despite never mutating it: it only
-  // forwards the pointer to dtPathQueue::init and dtNavMeshQuery::init
-  // (DetourCrowd.cpp:426, 458), and the second of those declares it const
-  // (DetourNavMeshQuery.h:175) — the first just forwards it again, to its own
-  // internal dtNavMeshQuery::init (DetourPathQueue.cpp:60), still unmutated.
-  // navmesh->impl already carries that mutable pointer type through a const
-  // ZrcNavMesh*, since a pointer field's own constness never propagates to
-  // what it points at, so no cast is needed to hand it over.
+  // dtCrowd::init takes a mutable dtNavMesh* but only forwards it
+  // (DetourCrowd.cpp:426, 458). navmesh->impl already has that type through a
+  // const ZrcNavMesh*, so no cast is needed.
   if (!crowd->impl->init(max_agents, max_agent_radius, navmesh->impl)) {
     return ZRC_ERR_OUT_OF_MEMORY;
   }
@@ -351,16 +337,9 @@ ZrcResult zrcCrowdRemoveAgent(ZrcCrowd* crowd, ZrcAgentRef ref) {
   // Retired here whatever happens: the host's reference stops resolving now.
   crowd->serial[slot] = 0;
 
-  // An agent part way across an off-mesh connection is not handed back to
-  // upstream yet. dtCrowd::removeAgent clears the agent's active flag and
-  // touches nothing else, while the traversal lives in a parallel array
-  // dtCrowd::update walks by raw pool slot, consulting only its own active
-  // flag (DetourCrowd.cpp:572-578, 1411-1447). addAgent then hands the lowest
-  // free slot to the next caller, who resumes the dead agent's traversal: its
-  // position overwritten by a lerp between coordinates it has never been near.
-  //
-  // Leaving the slot occupied until the traversal finishes closes that without
-  // reaching into dtCrowd. The agent stops seeking, upstream finishes carrying
+  // An agent mid-crossing keeps its slot until the crossing ends.
+  // See docs/design.md, Known upstream behaviour: dtCrowd::removeAgent.
+  // Here the agent stops seeking, upstream finishes carrying
   // it across, and zrcCrowdUpdate hands the slot back below. The cost is a
   // slot that stays busy for the rest of the crossing, which zrcCrowdAddAgent
   // documents.

@@ -3,18 +3,15 @@
 //! Upstream's `DebugUtils` decides what a heightfield, a region, a contour set
 //! or a navmesh looks like as points, lines, triangles and quads, and hands
 //! each primitive to a renderer the host supplies. `DebugDraw` is that
-//! renderer: a table of hooks, either filled in by hand or derived from a Zig
-//! type's methods by `DebugDraw.of`, so a renderer is a Zig struct rather than
-//! a C callback table a caller has to spell out.
+//! renderer: a table of hooks, filled in by hand or derived from a Zig type's
+//! methods by `DebugDraw.of`.
 //!
-//! Every draw call is a method on the renderer, because the renderer is what
-//! upstream takes first and what the primitives are emitted into. None of them
-//! allocates, and none changes the container it is drawing.
+//! Every draw call is a method on the renderer. None of them allocates, and
+//! none changes the container it is drawing.
 //!
 //! `FileIO` is the same shape for bytes: four hooks, and no file is opened or
 //! named here. `dumpPolyMeshToObj` and its siblings write through it;
-//! `readContourSet` and `readCompactHeightfield` build a container back out of
-//! what one of them wrote.
+//! `readContourSet` and `readCompactHeightfield` read back what they wrote.
 
 const aegis = @import("aegis");
 const c = @import("c.zig");
@@ -121,15 +118,10 @@ pub const NavMeshDrawOptions = struct {
 
 /// The renderer every draw call emits into.
 ///
-/// Every hook but `area_to_col` is required: upstream declares all of them
-/// pure, and which one a draw call reaches depends on the shape it is drawing,
-/// so a partly filled table would work on some containers and fail on others.
-/// `area_to_col` left `null` selects upstream's own area colour table.
-///
-/// `of` is how a Zig renderer arrives: it reads the methods off a pointer's
-/// type at compile time and fills the table, so nothing about C appears in the
-/// renderer itself. Filling the fields by hand is still available for a host
-/// that already has C hooks to point at.
+/// Every hook but `area_to_col` is required: which one a draw call reaches
+/// depends on the shape it draws. `area_to_col` left `null` selects upstream's
+/// own area colour table. `of` fills the table from a Zig renderer's methods;
+/// filling the fields by hand serves a host that already has C hooks.
 pub const DebugDraw = struct {
     user: ?*anyopaque = null,
     depth_mask: ?*const fn (user: ?*anyopaque, state: c.Bool) callconv(.c) void = null,
@@ -184,22 +176,12 @@ pub const DebugDraw = struct {
         };
     }
 
-    /// Builds the table from `renderer`, a pointer to a Zig value whose type
-    /// declares the drawing methods.
-    ///
-    /// Required: `depthMask(bool)`, `texture(bool)`, `begin(Primitive, f32)`,
-    /// `vertex(Vec3, u32)` and `end()`. A type that omits one of these is a
-    /// compile error naming it.
-    ///
-    /// Optional, each with a default that discards what the renderer does not
-    /// ask for: `vertexXyz(f32, f32, f32, u32)` splits the position back out,
-    /// `vertexUv(Vec3, u32, [2]f32)` and `vertexXyzUv(f32, f32, f32, u32,
-    /// f32, f32)` carry texture coordinates, and `areaToCol(u32) u32` replaces
-    /// upstream's area colours. Left undeclared, the three vertex forms fall
-    /// through to `vertex` and the colours stay upstream's.
-    ///
-    /// `renderer` is borrowed: the table points at it, and both must outlive
-    /// every draw call made through it.
+    /// Builds the table from `renderer`, a borrowed pointer that must outlive
+    /// every draw call. Its type declares `depthMask(bool)`, `texture(bool)`,
+    /// `begin(Primitive, f32)`, `vertex(Vec3, u32)` and `end()`, or fails to
+    /// compile. Optional, defaulting to `vertex` and upstream's colours:
+    /// `vertexXyz(f32, f32, f32, u32)`, `vertexUv(Vec3, u32, [2]f32)`,
+    /// `vertexXyzUv(f32, f32, f32, u32, f32, f32)` and `areaToCol(u32) u32`.
     pub fn of(renderer: anytype) DebugDraw {
         const Ptr = @TypeOf(renderer);
         const info = @typeInfo(Ptr);
@@ -884,11 +866,10 @@ pub const DebugDraw = struct {
 
 /// One recorded run of primitives, replayable into any renderer.
 ///
-/// Upstream's `duDisplayList` records a single run: `begin` discards whatever
-/// the list already held, so a list carries the last run submitted to it and
-/// nothing earlier. Its vertex arrays come from C++'s `new[]` rather than from
-/// the allocator `setAllocator` installs — upstream's own code, and not
-/// reachable from here.
+/// `begin` discards whatever the list already held, so a list carries the
+/// last run submitted to it and nothing earlier. Its vertex arrays bypass
+/// `setAllocator`.
+/// See docs/design.md, Known upstream behaviour: `duDisplayList`.
 pub const DisplayList = struct {
     handle: *c.DisplayList,
 

@@ -187,18 +187,12 @@ const float kMaxIntAsFloat = 2147483520.0f;
 using zrc::kMaxAxisCells;
 using zrc::kMaxWalkableRadiusCells;
 
-/// Converts a float to an int without overflowing.
+/// Converts a float to an int, saturating instead of overflowing.
 ///
-/// Every quantity derived below is a caller-supplied world length divided by a
-/// caller-supplied cell size, and a float-to-int conversion whose value does
-/// not fit the destination is undefined behaviour — not a wrap. So "does not
-/// fit" is one bad configuration away rather than a theoretical concern, and
-/// Zig's C sanitizer traps it (__ubsan_handle_float_cast_overflow) precisely
-/// because it is real.
-///
-/// Saturating instead is safe in every use here: each result is a voxel count
-/// or a voxel area, and a saturated one makes Recast produce an empty or
-/// rejected build, which is the honest answer to an absurd configuration.
+/// A caller's world length over a caller's cell size can exceed INT_MAX, and
+/// that conversion is undefined behaviour (UBSan's float_cast_overflow). Each
+/// result is a voxel count or area, so a saturated one yields an empty or
+/// rejected build: the honest answer to an absurd configuration.
 int SaturateToInt(float v) {
   // Also catches NaN, which every caller has already excluded, but this is the
   // function that must not be wrong.
@@ -261,14 +255,10 @@ ZrcResult FillAgentConfig(const ZrcBakeConfig& config, rcConfig* out,
     return ZRC_ERR_INVALID_ARGUMENT;
   }
 
-  // The agent dimensions are rejected rather than clamped when they leave the
-  // range Recast's own storage can represent, because clamping would silently
-  // bake a mesh for a different agent than the caller asked for.
-  //
-  // Each bound is upstream's, not invented here: span extents are 13-bit
-  // (RC_SPAN_MAX_HEIGHT), and rcErodeWalkableArea computes its threshold as
-  // `(unsigned char)(radius * 2)` — which both overflows an int for a large
-  // radius and wraps in a byte well before that.
+  // Agent dimensions Recast's storage cannot represent are refused, not
+  // clamped, since clamping would bake for a different agent. Span extents are
+  // 13-bit (RC_SPAN_MAX_HEIGHT); the erosion radius bound is upstream's too.
+  // See docs/design.md, Known upstream behaviour: rcErodeWalkableArea.
   if (cfg.walkableHeight > RC_SPAN_MAX_HEIGHT ||
       cfg.walkableClimb > RC_SPAN_MAX_HEIGHT) {
     ctx.note(
@@ -296,10 +286,8 @@ using zrc::MarkWalkableTriangles;
 /// The voxel grid rcCalcGridSize would compute, bounded before it computes it.
 ///
 /// rcCalcGridSize is `(int)((bmax - bmin) / cs + 0.5f)` (Recast.cpp:302-303),
-/// and that conversion is undefined — not merely wrong — once the quotient
-/// exceeds INT_MAX, which a large world and a small cell_size reach easily.
-/// Doing the arithmetic in double means the check happens where it is still
-/// safe, so every caller of rcCalcGridSize goes through here first.
+/// undefined once the quotient exceeds INT_MAX. The check runs in double,
+/// where it is still safe; every caller of rcCalcGridSize goes through here.
 ZrcResult CheckGridExtent(const float* bmin, const float* bmax, float cs,
                           BakeContext& ctx) {
   switch (zrc::CheckGridExtentFit(bmin, bmax, cs)) {
@@ -330,15 +318,10 @@ ZrcResult CheckVerticalExtent(const rcConfig& cfg, BakeContext& ctx) {
 
 /// Runs heightfield -> filters -> compact heightfield -> erode -> regions ->
 /// contours -> polygon mesh -> detail mesh over an already-filled `cfg`.
-///
-/// `config` supplies the fields `cfg` does not carry: the filter toggles, the
-/// partition choice, and the world-unit scale the resulting handle's agent
-/// dimensions are reported in. `authoring` may be NULL; when given, its
-/// volumes are marked into the compact heightfield and its area-to-flag table
-/// decides `poly->flags`. `empty_is_ok` is the one place a whole-world bake
-/// and a tile bake disagree: zero polygons is ZRC_ERR_EMPTY_RESULT for the
-/// former and ZRC_OK with `*out` left NULL for the latter. On any other
-/// failure `*out` is left NULL.
+/// `config` adds the filter toggles, partition and world-unit scale;
+/// `authoring` (may be NULL) adds area volumes and the area-to-flag table.
+/// Zero polygons is ZRC_ERR_EMPTY_RESULT, or ZRC_OK with `*out` NULL when
+/// `empty_is_ok` (a tile bake). Any failure leaves `*out` NULL.
 ZrcResult RunBakePipeline(const rcConfig& cfg, const ZrcBakeConfig& config,
                           const ZrcTriMesh& mesh,
                           const ZrcAreaAuthoring* authoring, BakeContext& ctx,
@@ -402,13 +385,9 @@ ZrcResult RunBakePipeline(const rcConfig& cfg, const ZrcBakeConfig& config,
   }
 
   //---------------------------------------------------------------------------
-  // Authored volumes: colour the walkable surface with area ids, in array
-  // order, so a later volume overwrites an earlier one where they overlap.
-  //
-  // Applied here because the surface has already been eroded by the agent
-  // radius, so a volume colours only surface an agent could actually stand
-  // on, and because it runs before the surface is cut into regions, so a
-  // region never spans two areas.
+  // Authored volumes, in array order, so a later one overwrites an earlier
+  // one. Applied after erosion, so only standable surface is coloured, and
+  // before regions, so no region spans two areas.
   //---------------------------------------------------------------------------
 
   if (authoring != nullptr) {
@@ -498,14 +477,10 @@ ZrcResult RunBakePipeline(const rcConfig& cfg, const ZrcBakeConfig& config,
   }
 
   //---------------------------------------------------------------------------
-  // Flags. Recast leaves them zero; the default Detour filter admits a polygon
-  // only if it shares a bit with include_flags, so a zero-flag mesh is
-  // invisible to every query. With no area-to-flag table every walkable
-  // polygon gets ZRC_POLY_FLAG_WALKABLE, which is what makes the result usable
-  // without a second, undocumented step. With one, each polygon's flags come
-  // from its area id; the table has ZRC_MAX_AREAS entries and `areas[i]` is
-  // read as an index into it, so an id past the table falls back to 0 rather
-  // than reading out of bounds.
+  // Flags. Recast leaves them zero, and the default filter admits no zero-flag
+  // polygon. Without a table every walkable polygon gets
+  // ZRC_POLY_FLAG_WALKABLE; with one, flags come from the area id, and an id
+  // past the table's ZRC_MAX_AREAS entries reads as 0.
   //---------------------------------------------------------------------------
 
   rcPolyMesh* poly = pmesh.get();
@@ -799,11 +774,9 @@ ZrcResult zrcPolyMeshBakeTile(const ZrcBakeConfig* config,
 
   const float tile_edge = static_cast<float>(cfg.tileSize) * cfg.cs;
 
-  // The grid and the bake carry the tile edge separately, and nothing else
-  // compares them. zrcTileGridCompute derived tile_world_size from the config
-  // it was given, and zrcNavMeshCreateTiled lays the navmesh out on that
-  // value; baking with a different tile_size or cell_size cooks tiles at one
-  // spacing under a navmesh addressing them at another, and every later call
+  // Nothing else compares the grid's tile edge with the bake's. A different
+  // tile_size or cell_size cooks tiles at one spacing under a navmesh
+  // addressing them at another, and every later call
   // succeeds. Both sides evaluate the same product of the same two config
   // fields, so they agree bit for bit when they agree at all and a tolerance
   // would only let a drift through.

@@ -7,13 +7,11 @@
 //! host-supplied codec into the bytes a `TileCache` stores; `TileCache` then
 //! keeps one compressed layer per tile, rebuilding a tile through Detour
 //! whenever an obstacle over it appears or goes away. `TileCacheLayer`,
-//! `TileCacheContourSet` and `TileCachePolyMesh` are the same three stages a
-//! tile cache drives internally, exposed for a tool that wants to see a
-//! rebuild without running one.
+//! `TileCacheContourSet` and `TileCachePolyMesh` are those internal stages,
+//! exposed for a tool that wants to see a rebuild without running one.
 //!
-//! No compression codec ships with this package and none is assumed: a host
-//! supplies one through `Compressor`, and the bytes a cook produces are
-//! whatever that codec writes.
+//! No compression codec ships with this package: a host supplies one through
+//! `Compressor`, and the bytes a cook produces are whatever that codec writes.
 
 const std = @import("std");
 const aegis = @import("aegis");
@@ -42,12 +40,8 @@ pub const ObstacleRef = c.ObstacleRef;
 //===----------------------------------------------------------------------===//
 
 /// Converts `context` for one C call, using `storage` to hold the widened
-/// struct for the duration of that call. `null` in is `null` out.
-///
-/// A private copy of `pipeline.zig`'s own helper of the same name:
-/// `BuildContext.toC` is public and safe to call from here, but the helper
-/// wrapping it is private to that file, and this is the only entry point in
-/// the tile-cache surface that takes a context.
+/// struct for the duration of that call. `null` in is `null` out. A private
+/// copy of `pipeline.zig`'s helper of the same name, which is private there.
 fn toCContext(context: ?*const BuildContext, storage: *c.BuildContext) ?*const c.BuildContext {
     const ctx = context orelse return null;
     storage.* = ctx.toC();
@@ -66,12 +60,9 @@ pub const HeightfieldLayerSet = struct {
 
     /// Cuts `field` into layers, each an unobstructed sheet of walkable
     /// surface. `border_size` is the unnavigable ring in cells a tiled
-    /// build carries, and `walkable_height` is in cells.
-    ///
-    /// Upstream stops at 63 overlapping platforms and fails the whole build
-    /// when a field has more, naming the reason in the log — pass a build
-    /// context and check it when this returns `error.BakeFailed` and the
-    /// geometry has many stacked floors.
+    /// build carries, and `walkable_height` is in cells. More than 63
+    /// overlapping platforms fails the whole build with `error.BakeFailed`,
+    /// the reason in the context's log.
     /// [Limit: 0 <= border_size <= 255, 0 <= walkable_height <= ZRC_SPAN_MAX_HEIGHT]
     pub fn init(
         context: ?*const BuildContext,
@@ -150,10 +141,9 @@ pub const TileCacheParams = c.TileCacheParams;
 /// The compression codec a host supplies for every compressed layer a tile
 /// cache stores.
 ///
-/// Upstream calls these while rebuilding a tile, inside `TileCache.update`
-/// and `buildTileCacheLayer`; a hook that returns anything but `.ok` aborts
-/// the operation that called it. No codec ships with this package: the
-/// bytes a cook produces are whatever the installed codec writes.
+/// Called while rebuilding a tile, inside `TileCache.update` and
+/// `buildTileCacheLayer`; a hook that returns anything but `.ok` aborts the
+/// operation that called it.
 pub const Compressor = struct {
     user: ?*anyopaque = null,
     /// An upper bound on what `compress` may write for a buffer this size.
@@ -230,11 +220,9 @@ pub const TileCacheBuildParams = c.TileCacheBuildParams;
 /// Called once per tile rebuild, after the polygons exist and before the
 /// tile is built.
 ///
-/// `process` left `null` leaves every polygon's flags at 0, which no
-/// nonzero query filter admits — a navmesh that is silently unreachable
-/// rather than one that fails outright. The areas a callback sees are not
-/// zeroed: they carry the ids a cook wrote into the layer, so a callback
-/// that only wants flags can read `params.areas` to decide them.
+/// `process` left `null` leaves every polygon's flags at 0, which no nonzero
+/// query filter admits. The areas it sees carry the ids a cook wrote into the
+/// layer, so a callback can read `params.areas` to decide the flags.
 pub const MeshProcess = struct {
     user: ?*anyopaque = null,
     process: ?*const fn (user: ?*anyopaque, params: *TileCacheBuildParams) callconv(.c) c.Result = null,
@@ -296,14 +284,12 @@ pub const TileCache = struct {
         return out;
     }
 
-    /// Adds one compressed layer, produced by `buildTileCacheLayer`. The
-    /// bytes are copied, so `layer` stays the caller's and may be freed
-    /// immediately. They are decompressed once, through the cache's codec,
-    /// and held to what `buildTileCacheLayer` requires of a header and its
-    /// connections.
-    ///
-    /// `error.BadFormat` for bytes that do not decompress into such a layer,
-    /// and `error.TileOccupied` when a layer already sits at that position.
+    /// Adds one compressed layer, produced by `buildTileCacheLayer`. The bytes
+    /// are copied, so `layer` may be freed immediately; they are decompressed
+    /// once, through the cache's codec, and held to what `buildTileCacheLayer`
+    /// requires of a header and its connections. `error.BadFormat` for bytes that
+    /// do not decompress into such a layer, and `error.TileOccupied` when a layer
+    /// already sits at that position.
     pub fn addTile(self: TileCache, layer: Image, failure: *err.Failure) err.Error!CompressedTileRef {
         const data = layer.readForParse();
         var ref: CompressedTileRef = undefined;
@@ -381,15 +367,11 @@ pub const TileCache = struct {
     }
 
     /// A vertical cylinder standing on its base. Queued, not applied: it
-    /// appears in the navmesh once `update` has rebuilt every tile it
-    /// touches.
+    /// appears in the navmesh once `update` has rebuilt every tile it touches.
     ///
-    /// `error.BufferTooSmall` when the cylinder overlaps more than
-    /// `c.max_touched_tiles` tiles — upstream carves such an obstacle into
-    /// the first eight and leaves the rest untouched without saying so,
-    /// a hole in the navmesh nothing else reports; splitting it into
-    /// several obstacles is the fix. `error.NavMeshFull` when every
-    /// obstacle slot is taken.
+    /// `error.BufferTooSmall` when it overlaps more than `c.max_touched_tiles`
+    /// tiles, so split it; `error.NavMeshFull` when every obstacle slot is taken.
+    /// See docs/design.md, Known upstream behaviour: `dtTileCache::queryTiles`.
     pub fn addCylinderObstacle(
         self: TileCache,
         position: [3]f32,
@@ -483,14 +465,10 @@ pub const TileCacheLayerHeader = c.TileCacheLayerHeader;
 
 /// Compresses one layer into the bytes `TileCache.addTile` takes.
 ///
-/// `heights`, `areas` and `cons` must each be exactly
-/// `header.width * header.height` bytes — the three arrays
-/// `HeightfieldLayerSet.heights` and its siblings report for one layer. The
-/// C side is handed three bare pointers it cannot relate to the header's
-/// dimensions, so the match is checked here; nothing else in this package
-/// checks it. No cell of `cons` may claim a connection off the grid, which
-/// upstream's contour walk would follow out of the layer; a layer Recast
-/// built never does.
+/// `heights`, `areas` and `cons` must each be exactly `header.width *
+/// header.height` bytes, checked here: the C side gets three bare pointers.
+/// No cell of `cons` may claim a connection off the grid.
+/// See docs/design.md, Known upstream behaviour: `walkContour`.
 pub fn buildTileCacheLayer(
     compressor: *const Compressor,
     header: TileCacheLayerHeader,

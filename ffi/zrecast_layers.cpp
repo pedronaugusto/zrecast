@@ -55,13 +55,10 @@ ZrcResult zrcHeightfieldLayerSetCreate(const ZrcBuildContext* context,
       ValidateHeightfieldLayerSetCreateArgs(border_size, walkable_height);
   if (args_ok != ZRC_OK) return args_ok;
 
-  // RecastLayers.cpp:497-498 computes lw = chf.width - borderSize*2 and
-  // lh = chf.height - borderSize*2 in plain int, with no bound of their own.
-  // A border at least half of either extent drives both negative; every
-  // write loop below is bounded by lw/lh so nothing is written out of
-  // bounds, but the gridSize allocation at RecastLayers.cpp:527 takes their
-  // product, and a doubly-negative pair multiplies back to a positive,
-  // nonsensical grid size rather than failing.
+  // A border at least half of either extent makes the layer grid's dimensions
+  // negative (RecastLayers.cpp:497-498) and their product a positive,
+  // meaningless allocation size.
+  // See docs/design.md, Known upstream behaviour: rcBuildHeightfieldLayers.
   if (border_size * 2 >= field->impl->width ||
       border_size * 2 >= field->impl->height) {
     return ZRC_ERR_INVALID_ARGUMENT;
@@ -74,14 +71,11 @@ ZrcResult zrcHeightfieldLayerSetCreate(const ZrcBuildContext* context,
   if (!rcBuildHeightfieldLayers(&ctx, *field->impl, border_size,
                                 walkable_height, *impl)) {
     zrc::RcFree(impl);
-    // rcBuildHeightfieldLayers mixes allocation failure across seven
-    // separate rcAlloc calls (RecastLayers.cpp:116-128, 236-239, 512-549)
-    // with region-id overflow (RecastLayers.cpp:212-216) and the
-    // 63-overlapping-platform layer overflow the header names
-    // (RecastLayers.cpp:303-308, 372-377, 456-461).
-    // zrcCompactHeightfieldBuildRegions in ffi/zrecast_stages.cpp maps the
-    // same kind of mixed false, from rcBuildRegions and its siblings, to
-    // ZRC_ERR_BAKE_FAILED without separating the causes; this follows it.
+    // rcBuildHeightfieldLayers returns one false for allocation failure
+    // (RecastLayers.cpp:116-128, 236-239, 512-549), region-id overflow
+    // (:212-216) and layer overflow past 63 overlapping platforms (:303-308,
+    // 372-377, 456-461). Like zrcCompactHeightfieldBuildRegions in
+    // ffi/zrecast_stages.cpp, this maps all of them to ZRC_ERR_BAKE_FAILED.
     return ZRC_ERR_BAKE_FAILED;
   }
 

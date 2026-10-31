@@ -1,20 +1,22 @@
-//! Refuses comment blocks that have stopped being documentation: a block
-//! longer than its cap, or a comment line in the narrative register. The cap
-//! is set per kind of comment. A `///` block above a declaration in the
-//! public header is the reference documentation for that entry point, and a
-//! `//` block inside an implementation names upstream defects by file and
-//! line; each cap catches an essay, not a thorough contract. Only the
-//! package's own sources: the vendored tree is upstream's to comment.
+//! Refuses comment blocks that have stopped being reference documentation:
+//! a block longer than its cap, or a comment line in the narrative register.
+//! Length per block, not density. Only the package's own sources: the
+//! vendored tree is upstream's to comment.
 const std = @import("std");
 const aegis = @import("aegis");
 const Io = std.Io;
 
-/// `///` or `//!` lines above one declaration.
-const max_doc = 40;
-/// `//` commentary inside an implementation.
-const max_code = 30;
-/// The block at the top of a file, or one headed by a `//===` banner.
-const max_banner = 42;
+/// Comment lines directly above one declaration.
+const max_declaration = 6;
+/// The block at the top of a file, or one headed by a `//===` banner, which
+/// heads a whole section and holds the conventions covering everything below.
+const max_header = 14;
+/// A `///` block in the public C header is the API reference a C host reads,
+/// so it holds the contract only: what the call does, ownership and ranges,
+/// every error, threading, lifetime. Rationale goes to docs/design.md.
+const max_public_doc = 16;
+/// The package's public C header.
+const public_header = "ffi/zrecast.h";
 /// The largest source file read.
 const max_file_bytes = 1 << 20;
 
@@ -80,25 +82,37 @@ fn check(a: std.mem.Allocator, name: []const u8, text: []const u8, findings: *st
     while (lines.next()) |raw| {
         number += 1;
         const line = std.mem.trim(u8, raw, " \t\r");
-        if (std.mem.startsWith(u8, line, "//")) {
+        if (isComment(line)) {
             if (run == 0) {
                 start = number;
                 banner = false;
-                doc = std.mem.startsWith(u8, line, "///") or std.mem.startsWith(u8, line, "//!");
+                doc = std.mem.startsWith(u8, line, "///");
             }
-            if (std.mem.startsWith(u8, std.mem.trimEnd(u8, raw, "\r"), "//===")) banner = true;
+            if (std.mem.startsWith(u8, line, "//===")) banner = true;
             run += 1;
             if (narrativePhrase(line)) |phrase| try findings.print(a, "{s}:{d}: narrative register (\"{s}\")\n", .{ name, number, phrase });
             continue;
         }
         if (run > 0) {
-            const cap: usize = if ((first and start <= 3) or banner) max_banner else if (doc) max_doc else max_code;
+            const cap = capOf(name, (first and start <= 3) or banner, doc);
             if (run > cap) try findings.print(a, "{s}:{d}: {d} comment lines in one block (max {d})\n", .{ name, start, run, cap });
         }
         first = false;
         run = 0;
     }
-    if (run > max_code) try findings.print(a, "{s}:{d}: {d} trailing comment lines\n", .{ name, start, run });
+    if (run > max_declaration) try findings.print(a, "{s}:{d}: {d} trailing comment lines\n", .{ name, start, run });
+}
+
+/// The cap of a block in `name`: a header's, a public doc block's, or a
+/// declaration's.
+fn capOf(name: []const u8, header: bool, doc: bool) usize {
+    if (header) return max_header;
+    if (doc and std.mem.eql(u8, name, public_header)) return max_public_doc;
+    return max_declaration;
+}
+
+fn isComment(line: []const u8) bool {
+    return std.mem.startsWith(u8, line, "//") or std.mem.startsWith(u8, line, "/*") or std.mem.startsWith(u8, line, "*");
 }
 
 /// The first narrative phrase in a comment line, or null.
@@ -123,28 +137,32 @@ fn block(comptime banner: []const u8, comptime prefix: []const u8, comptime coun
     return comptime text ++ "const x = 1;\n";
 }
 
-test "each kind of comment has its own cap" {
+test "a declaration's block and a header each have their cap" {
     const a = std.testing.allocator;
     var findings: std.ArrayList(u8) = .empty;
     defer findings.deinit(a);
-    try check(a, "f.zig", comptime block("", "///", max_doc), &findings);
-    try check(a, "f.zig", comptime block("", "//", max_code), &findings);
+    try check(a, "f.zig", comptime block("", "///", max_declaration), &findings);
+    try check(a, "f.zig", comptime block("//====\n", "//", max_header - 1), &findings);
     try std.testing.expectEqual(@as(usize, 0), findings.items.len);
-    try check(a, "f.zig", comptime block("", "///", max_doc + 1), &findings);
-    try std.testing.expectEqualStrings("f.zig:2: 41 comment lines in one block (max 40)\n", findings.items);
+    try check(a, "f.zig", comptime block("", "//", max_declaration + 1), &findings);
+    try std.testing.expectEqualStrings("f.zig:2: 7 comment lines in one block (max 6)\n", findings.items);
     findings.clearRetainingCapacity();
-    try check(a, "f.zig", comptime block("", "//", max_code + 1), &findings);
-    try std.testing.expectEqualStrings("f.zig:2: 31 comment lines in one block (max 30)\n", findings.items);
+    try check(a, "f.zig", comptime block("//====\n", "//", max_header), &findings);
+    try std.testing.expectEqualStrings("f.zig:2: 15 comment lines in one block (max 14)\n", findings.items);
 }
 
-test "a banner heads a section and takes the banner's cap" {
+test "the public header's doc blocks take their own cap, and only those" {
     const a = std.testing.allocator;
     var findings: std.ArrayList(u8) = .empty;
     defer findings.deinit(a);
-    try check(a, "f.zig", comptime block("//===\n", "//", max_banner - 1), &findings);
+    try check(a, public_header, comptime block("", "///", max_public_doc), &findings);
     try std.testing.expectEqual(@as(usize, 0), findings.items.len);
-    try check(a, "f.zig", comptime block("//===\n", "//", max_banner), &findings);
-    try std.testing.expectEqualStrings("f.zig:2: 43 comment lines in one block (max 42)\n", findings.items);
+    try check(a, public_header, comptime block("", "///", max_public_doc + 1), &findings);
+    try std.testing.expectEqualStrings("ffi/zrecast.h:2: 17 comment lines in one block (max 16)\n", findings.items);
+    findings.clearRetainingCapacity();
+    try check(a, public_header, comptime block("", "//", max_declaration + 1), &findings);
+    try check(a, "ffi/other.h", comptime block("", "///", max_declaration + 1), &findings);
+    try std.testing.expectEqualStrings("ffi/zrecast.h:2: 7 comment lines in one block (max 6)\nffi/other.h:2: 7 comment lines in one block (max 6)\n", findings.items);
 }
 
 test "the narrative register is matched on word boundaries" {

@@ -4,29 +4,14 @@
 //! Zig facility from a closed list, ZIG a declaration in `src/`, INTERNAL the
 //! place upstream itself marks the name internal, and UNDEFINED a header line
 //! no vendored source defines. A GAP fails, and has to name the tranche of
-//! work that closes it: a gap nobody has scheduled is a wish, not work.
+//! work that closes it.
 //!
-//! The record, `ci/coverage/unbound_*.txt`, is generated from three inputs and
-//! checked in so a diff of it is reviewable:
-//!
-//!   the harvest          every public name the vendored headers declare,
-//!                        read by the declaration scanner below
-//!   ci/coverage/bindings.tsv   the names that are answered, and how
-//!   `tranche`            which tranche closes each of the rest
-//!
-//! Through bay, from the repository root:
-//!
-//!   bay check-coverage                    the gate
-//!   bay coverage -- --list                the gate, and the open gaps
-//!   bay coverage -- --record              write the record
-//!   bay coverage -- --check-record        the record matches its inputs
-//!   bay coverage -- --names               AREA<TAB>SYMBOL, every public name
-//!   bay coverage -- --classify            the INTERNAL verdicts upstream justifies
-//!   bay coverage -- --summary [AREA]      verdicts per area, and one area's names
-//!   bay coverage -- --audit               lines read that yielded no name
-//!   bay coverage -- --collapsed           symbols covering more than one declaration
-//!
-//! Every order is byte order, so the record is the same file on every host.
+//! The record, `ci/coverage/unbound_*.txt`, is generated from the harvest of
+//! the vendored headers, `ci/coverage/bindings.tsv` and `tranche`, and checked
+//! in so a diff of it is reviewable. Every order is byte order, so the record
+//! is the same file on every host. The modes (`bay coverage -- --list` and
+//! the rest) are listed in docs/design.md; `--classify` prints the INTERNAL
+//! verdicts upstream justifies.
 const std = @import("std");
 const aegis = @import("aegis");
 const Io = std.Io;
@@ -208,25 +193,14 @@ const Named = struct { name: []const u8, ref: []const u8 };
 // The declaration scanner.
 //
 // Every name Recast and Detour declare in a header, by kind: functions, data
-// members, enum constants, static constants and type names. Recast's surface
-// is not mostly functions: dtNavMeshCreateParams has 31 data members a navmesh
-// needs populated, dtStatus's twelve detail bits are `static const unsigned
-// int` rather than an enum, and six enums carry no rc/dt prefix at all.
+// members, enum constants, static constants and type names — dtStatus's
+// detail bits are `static const unsigned int`, and six enums carry no rc/dt
+// prefix. A declaration spanning several lines is joined while parentheses
+// are unbalanced; every brace opens a scope, and only file, class and enum
+// scopes are harvested.
 //
-// A declaration spanning several physical lines is read once, in full: lines
-// are joined while parentheses are unbalanced, so a continuation is never
-// taken for a declaration of its own. Every brace opens a scope, so a
-// function body is a scope too and nothing inside one is read as a
-// declaration. Only file, class and enum scopes are harvested.
-//
-// What it cannot see, so silence is never mistaken for coverage:
-//
-//   - preprocessor macros (rcLikely, RC_SIZE_MAX, the assert macros)
-//   - operator overloads, which have no name a C ABI can carry
-//   - anything declared only in a .cpp, which no host can reach either
-//
-// `--audit` prints every harvestable line that yielded no name; that list is
-// the statement of what the scanner does not understand.
+// Unseen: preprocessor macros, operator overloads, anything declared only in
+// a .cpp. `--audit` prints every harvestable line that yielded no name.
 //===========================================================================
 
 /// One declaration read from a header.

@@ -1,22 +1,17 @@
 //! Mutation probes (`bay probe [filter]`): each patch in ci/probes/ breaks one
 //! invariant on purpose and names the failure that must follow. A probe the
-//! suite survives is a test that tests nothing; a probe that fails for another
-//! reason proves nothing either, so it is a miss too. Run from the repository
-//! root, under bay, against a copy of the tree in .zig-cache/probes/tree: the
-//! sources here are never touched.
+//! suite survives, or one that fails for another reason, is a miss. Run from
+//! the repository root, under bay, against a copy of the tree in
+//! .zig-cache/probes/tree: the sources here are never touched.
 //!
 //! A probe is a unified diff over paths relative to the root (`a/` and `b/`
 //! prefixes), preceded by its header:
 //!
 //!   # expect: <text the failing output must contain>
-//!   # run: zig build <step and options>
-//!
-//! The default run is the suite without the source checks, which are the
-//! gate's: `zig build test -Dci-lint=false`.
+//!   # run: zig build <step and options>   (default: test -Dci-lint=false)
 //!
 //! A hunk's context and removed lines must stand in the file exactly; it
-//! applies where they stand nearest its stated line, and a probe whose lines
-//! stand nowhere is refused as stale rather than applied to something else.
+//! applies where they stand nearest its stated line, or is refused as stale.
 const std = @import("std");
 const aegis = @import("aegis");
 const Io = std.Io;

@@ -177,29 +177,12 @@ fn compileFlags(b: *std.Build, target: std.Build.ResolvedTarget, own: bool, enab
     return std.mem.concat(b.allocator, []const u8, &.{ cxxFlags(target, own), asserts }) catch @panic("out of memory");
 }
 
-/// The C++ flags, for upstream's translation units or for the package's own.
-///
-/// Recast and Detour throw nothing and use no RTTI — there is not a single
-/// `throw`, `try`, `dynamic_cast` or `typeid` in either tree — so both
-/// features are disabled where doing so is reliable. Under the MSVC ABI it is
-/// not: the Microsoft standard library headers these sources pull in assume
-/// exceptions, and disabling them through Clang flags is a known source of
-/// header errors, so the MSVC ABI keeps the defaults.
-///
-/// No -fno-access-control (the FFI layer uses only public upstream API) and no
-/// blanket -fno-sanitize=undefined (the `sanitize_c` option decides).
-///
-/// -ffp-contract=off pins the one liberty clang keeps over IEEE-754
-/// arithmetic: contracting a multiply and an add into a fused multiply-add
-/// wherever the target has one, rounding once where the separate form rounds
-/// twice. AArch64's base instruction set mandates FMA and x86-64's baseline
-/// has none, so an unpinned build is licensed to cook different floats per
-/// architecture. On tests/reference.cpp the pin is load-bearing outright: the
-/// bit-identity test in src/vec.zig compares the Zig arithmetic against what
-/// the header specifies, not against a contracted form of it.
-///
-/// The package's own translation units additionally get -Wall -Wextra; the
-/// vendored ones do not, being upstream's to clean up.
+/// The C++ flags, for upstream's translation units or for the package's own,
+/// which alone get -Wall -Wextra. -ffp-contract=off pins one rounding per
+/// operation on every target, and the MSVC ABI keeps exceptions and RTTI,
+/// whose Clang switches break its standard library headers; docs/design.md,
+/// Build hygiene and Cook determinism, has the reasons. No -fno-access-control
+/// and no blanket -fno-sanitize=undefined (the `sanitize_c` option decides).
 fn cxxFlags(target: std.Build.ResolvedTarget, own: bool) []const []const u8 {
     const msvc = target.result.abi == .msvc;
     if (msvc and own) return &.{ "-std=c++17", "-ffp-contract=off", "-Wall", "-Wextra" };
@@ -255,14 +238,12 @@ pub fn dev(b: *std.Build, tools: type) void {
         check_step.dependOn(&tests.step);
     }
 
-    // The C boundary on its own, with no Zig in the picture: plain C11 that
-    // includes <zrecast.h> through the artifact's installed header, walks
-    // bake, build, serialise, reload and query with a malloc allocator, and
-    // checks every byte came back. Twice: as a consumer links it, and with
-    // the program and the C++ under the sanitizer, since some of the
-    // boundary's paths only C reaches. The sanitized arm takes the library
-    // the sanitized suite arm builds, so the graph holds no further instance
-    // of the package.
+    // The C boundary on its own, with no Zig in the picture: plain C11 through
+    // the installed <zrecast.h>, baking, building, serialising, reloading and
+    // querying with a malloc allocator, and checking every byte came back.
+    // Twice: as a consumer links it, and under the sanitizer with the library
+    // the sanitized suite arm builds, since some of the boundary's paths only C
+    // reaches.
     const library = package.artifact("zrecast");
     for ([_]struct { name: []const u8, sanitize_c: bool }{
         .{ .name = "zrecast-c-smoke", .sanitize_c = false },

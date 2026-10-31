@@ -69,8 +69,7 @@ pub fn distancePointToSegment2D(point: Vec3, p: Vec3, q: Vec3, failure: *err.Fai
 /// the edge starting at `verts[i]`.
 ///
 /// `out_edge_dist_sqr` and `out_edge_t` must each be at least `verts.len`
-/// long, checked here rather than left to the C side: `zrcDistancePointToPolyEdges`
-/// takes bare pointers and cannot tell a short buffer from a long one.
+/// long, checked here: the C side takes bare pointers.
 pub fn distancePointToPolyEdges(
     point: Vec3,
     verts: []const Vec3,
@@ -218,16 +217,12 @@ pub fn randomPointInConvexPoly(verts: []const Vec3, scratch: []f32, s: f32, t: f
     return out;
 }
 
-/// Inflates or shrinks a convex polygon by `offset`, on the xz-plane, into
-/// `out`, and returns how many vertices were written. A negative offset
-/// shrinks; sharp corners are bevelled, so the result can have up to
-/// `2 * verts.len` vertices, and y is carried through from the source vertex
-/// unchanged.
-///
-/// Upstream's own bound refuses to fill the last slot of the buffer it is
-/// given, so `out` must be at least one longer than the result for the call
-/// to succeed. A result that would exactly fill `out` is reported as
-/// `Error.BufferTooSmall` rather than as a short write.
+/// Inflates or shrinks a convex polygon by `offset` on the xz-plane into
+/// `out`, returning how many vertices were written. Negative shrinks; sharp
+/// corners are bevelled, so the result can have up to `2 * verts.len`
+/// vertices, y carried through unchanged. `out` must be one longer than the
+/// result, or `Error.BufferTooSmall`.
+/// See docs/design.md, Known upstream behaviour: `rcOffsetPoly`.
 pub fn offsetPoly(verts: []const Vec3, offset: f32, out: []Vec3, failure: *err.Failure) Error!usize {
     const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .offset_poly, error.InvalidArgument);
     const max_out_verts = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .offset_poly, error.InvalidArgument);

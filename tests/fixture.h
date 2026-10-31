@@ -1,32 +1,16 @@
 //===----------------------------------------------------------------------===//
-// zrecast — synthetic test geometry.
+// zrecast — synthetic test geometry, generated at test time; why this shape is
+// in docs/design.md, The fixture. Test-only: not part of the library or ABI.
 //
-// The package ships no meshes. The tests generate their input programmatically
-// here and bake a navmesh from it at test time, so the suite is self-contained,
-// carries no third-party asset provenance, and can never drift out of sync with
-// the vendored Recast.
-//
-// The shape is chosen so the assertions have something to prove:
-//
-//        +Z
-//         |          . . . . .
+//        +Z          . . . . .
 //         |          .       .   <- island, disconnected from everything
 //         |          . . . . .
-//         |
 //    +----+--------------------+
-//    |    |                    |
 //    |  G |        goal        |
 //    |####|####################|  <- wall, with a gap at its +X end
 //    |    |            [ ]     |  <- pillar
 //    | S  |                    |
 //    +----+--------------------+ --- +X
-//
-// A path from S to the goal cannot go straight: it has to round the end of the
-// wall, which makes the straight-path string-pull produce real corners rather
-// than a two-point line. The island is reachable from nowhere, which is what
-// makes a partial path testable.
-//
-// Test-only. Not part of the zrecast library or its ABI.
 //===----------------------------------------------------------------------===//
 
 #ifndef ZRECAST_TEST_FIXTURE_H_

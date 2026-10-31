@@ -1046,13 +1046,9 @@ test "a navmesh image with a doctored header is rejected" {
 
 test "an image whose polygons lie about their own shape is rejected" {
     var failure: zrecast.Failure = .{};
-    // The header can be entirely self-consistent and the image still unsafe.
-    // dtPoly::vertCount is one byte read straight out of the file, and four
-    // Detour functions copy that many vertices into a fixed
-    // float[DT_VERTS_PER_POLYGON*3] stack array — getPolyHeight,
-    // closestPointOnPoly, moveAlongSurface and raycast. A value of 200 passes
-    // every count check, loads, and then writes vertex coordinates from the
-    // image past the end of that array.
+    // A self-consistent header with one polygon's vertCount set to 200: it
+    // passes every count check and would overrun Detour's fixed stack array.
+    // See docs/design.md, Known upstream behaviour: `dtPoly::vertCount`.
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -1395,15 +1391,10 @@ test "a tiled bake fills some tiles and leaves the rest empty, without failing" 
     const solo_info = try solo.info(&failure);
     const solo_bounds = [2][3]f32{ solo_info.bmin, solo_info.bmax };
     const tiled_bounds = try world.mesh.bounds(&failure);
-    // x and z only: the tile grid is an xz grid, and a tile's y extent comes
-    // from whichever polygons landed in it.
-    //
-    // The minimum corner is exact, and asserting it loosely is what let a
-    // one-cell shift of the tile window pass unnoticed: the grid's origin *is*
-    // the untiled bake's minimum, so a tolerance wider than a cell tests
-    // nothing. The maximum is a different matter — the grid covers whole tiles
-    // and so reaches past the geometry — and only the direction is asserted
-    // there.
+    // x and z only: the tile grid is an xz grid. The minimum corner is exact,
+    // since the grid's origin is the untiled bake's minimum and a tolerance
+    // wider than a cell would miss a one-cell shift of the tile window; the
+    // maximum covers whole tiles past the geometry, so only its direction holds.
     for ([_]usize{ 0, 2 }) |i| {
         try std.testing.expectApproxEqAbs(solo_bounds[0][i], tiled_bounds[0][i], 1e-3);
         try std.testing.expect(tiled_bounds[1][i] >= solo_bounds[1][i] - 0.5);
@@ -3183,17 +3174,10 @@ test "a tile baked from one config into another config's grid is refused" {
 
 test "a reference naming a free slot is refused rather than dereferenced" {
     var failure: zrecast.Failure = .{};
-    // The upstream hazard docs/design.md records. dtNavMesh::getTileByRef checks
-    // the slot index and the salt and stops there, so it returns free slots as
-    // well as occupied ones — and a free slot's header is null, which
-    // removeTile then reads through (DetourNavMesh.cpp:1253). Every slot of a
-    // freshly created navmesh carries salt 1, so a reference that names an
-    // unused slot of one passes both of removeTile's checks.
-    //
-    // Such a reference is built here rather than described: two tiles added in
-    // succession occupy consecutive slots, so the difference between their
-    // references is exactly one slot, and one more step lands on a slot that
-    // was never occupied and still carries the original salt.
+    // A reference to a never-occupied slot of a fresh navmesh, forged one slot
+    // past two consecutive tiles' references: it carries their salt, so it
+    // passes getTileByRef's checks and reaches removeTile's null header.
+    // See docs/design.md, Known upstream behaviour: `dtNavMesh::removeTile`.
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -4666,15 +4650,10 @@ test "an image whose off-mesh header fields disagree is rejected" {
         };
     }
 
-    // Every count above also feeds the layout arithmetic, so patching one in
-    // place leaves an image whose total size no longer matches its header —
-    // and that is what rejects it, not the invariant under test. The cases
-    // below shrink the array to match the count, so the layout still adds up
-    // and the only thing left to notice is the count itself.
-    //
+    // Each case below shrinks its array to match the patched count, so the
+    // layout still adds up and only the count itself can be what rejects it.
     // dtMeshHeader is 100 bytes and every array before the detail meshes has a
-    // stride that is already a multiple of four, so the alignment padding
-    // TileLayoutOf inserts is zero here.
+    // stride that is a multiple of four, so TileLayoutOf inserts no padding here.
     const off_vert_count = 28;
     const off_max_link_count = 32;
     const vert_count = std.mem.readInt(i32, original[off_vert_count..][0..4], .little);
@@ -4695,14 +4674,9 @@ test "an image whose off-mesh header fields disagree is rejected" {
 
         // Filled with a plausible dtPolyDetail — no vertices of its own, one
         // triangle borrowed from the front of the array — so the sub-mesh that
-        // polygon now reads is not rejected for some incidental reason.
-        //
-        // The header's own detailMeshCount check is not what rejects this, and
-        // no mutation of it makes this test fail: an array short of a polygon
-        // is caught downstream by the detail-mesh bounds, and one longer than
-        // the polygons is never read. That check is a well-formedness
-        // assertion, kept because it makes the rejection certain rather than
-        // incidental, and ci/probes carries nothing claiming otherwise.
+        // polygon now reads is not rejected for some incidental reason. The
+        // header's detailMeshCount check is a well-formedness assertion no mutation
+        // here can fail: a short array is caught by the detail-mesh bounds.
         @memset(short[cut..][0..12], 0);
         short[cut + 9] = 1;
         try expectRefusal(zrecast.Error.BadFormat, &failure, zrecast.validate(.init(short), &failure));
@@ -4787,11 +4761,9 @@ test "an image whose off-mesh connection lies about itself is rejected" {
 
     // A BV-tree leaf naming an off-mesh polygon. The tree sits immediately
     // before the connection array, sixteen bytes per node with the polygon
-    // index in the last four. createBVTree only ever emits ground leaves, and
-    // the BV branch of queryPolygonsInTile — unlike its linear one — does not
-    // filter off-mesh polygons out, so a leaf past offMeshBase would let
-    // findNearestPolyInTile resolve a connection's own polygon as the ground
-    // it lands on.
+    // index in the last four; such a leaf would let findNearestPolyInTile
+    // return a connection's own polygon as ground.
+    // See docs/design.md, Known upstream behaviour: `queryPolygonsInTile`.
     const off_bv_node_count = 48;
     const bv_node_count = std.mem.readInt(i32, original[off_bv_node_count..][0..4], .little);
     try std.testing.expect(bv_node_count > 0);
@@ -7357,32 +7329,12 @@ pub const OwnedArc = struct {
 
 test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     var failure: zrecast.Failure = .{};
-    // What makes the OutOfMemory paths more than decorative. The sweep runs the
-    // arc once per allocation, refusing that one, and requires three things
-    // each time: an error rather than a success, the error the API documents,
-    // and every byte taken given back. It is the test
-    // that exercises the multi-step rollback inside zrcNavMeshDeserialize,
-    // where a buffer, a handle and a dtNavMesh are acquired in turn and any of
-    // the three can fail.
-    //
-    // The scope is narrow on purpose, and the cause is upstream's: **neither
-    // Recast nor Detour survives an allocation failure.** Three places, all
-    // unfixable from outside:
-    //
-    //   * `rcVectorBase::push_back` calls `allocate_and_copy`, which returns
-    //     null when `rcAlloc` fails, then runs `construct(data + m_size, value)`
-    //     on it unconditionally (RecastAlloc.h:214) — a placement-new through a
-    //     null pointer. So the bake happens before the sweep.
-    //   * `createBVTree` allocates its item array and indexes it without a
-    //     check (DetourNavMeshBuilder.cpp:175), so `dtCreateNavMeshData` — and
-    //     with it `NavMesh.initFromPolyMesh` — is outside the sweep too.
-    //   * `dtNodePool` and `dtNodeQueue` check their allocations with
-    //     `dtAssert` and then memset the result, which under NDEBUG is the same
-    //     null dereference. So is building a `NavMeshQuery`.
-    //
-    // None of this is silenced; all of it is recorded in docs/design.md. What
-    // remains below is the part zrecast is actually responsible for, and it is
-    // held to the full standard.
+    // An allocation-failure sweep: the arc runs once per allocation, refusing
+    // that one, and each run must return the documented error and give back
+    // every byte, through zrcNavMeshDeserialize's multi-step rollback. The bake,
+    // `NavMesh.initFromPolyMesh` and `NavMeshQuery.init` run before the sweep:
+    // upstream does not survive an allocation failure inside them.
+    // See docs/design.md, Known upstream behaviour: `rcVectorBase::push_back`.
     const gpa = std.testing.allocator;
     zrecast.setAllocator(gpa);
     defer zrecast.resetAllocator();
@@ -7404,15 +7356,10 @@ test "a failure at any allocation zrecast owns is reported and leaks nothing" {
     };
     try std.testing.expect(report.steps > 0);
 
-    // Exactly one refusal may leak, and it is upstream's, pinned here so that a
-    // regression in zrecast's own rollback still shows up as a second one.
-    //
-    // dtNavMesh::init allocates m_tiles and then m_posLookup, and memsets
-    // neither until both have succeeded. When the second fails, the first
-    // cannot be reclaimed: running ~dtNavMesh would read uninitialised tile
-    // flags and free the garbage pointers behind them, so
-    // ffi/zrecast_navmesh.cpp releases the object without its destructor and
-    // accepts the one array. See docs/design.md.
+    // Exactly one refusal may leak, upstream's, pinned so a regression in
+    // zrecast's own rollback shows up as a second: when dtNavMesh::init's second
+    // allocation fails, the first cannot be reclaimed.
+    // See docs/design.md, Known upstream behaviour: `~dtNavMesh`.
     try std.testing.expectEqual(@as(u32, 1), arc.leaks);
 }
 
@@ -7425,13 +7372,10 @@ test "a query that reaches no polygon reports none" {
     const world = try World.init();
     defer world.deinit();
 
-    // The tile's own minimum corner, which is where the defect this guards
-    // against lives: every query box is clamped to the tile's bounds before
-    // being quantised, so a box at or below that corner quantises its minimum
-    // to zero on all three axes — and a bounding-volume node of all zeroes
-    // overlaps exactly that. Upstream reserves one such node past the end of
-    // the tree and walks into it, which made this call answer polygon 0, whose
-    // nearest point is metres outside the half-extents asked for.
+    // The tile's own minimum corner: a query box there quantises to zero on all
+    // three axes, which overlaps the all-zero BV node upstream reserves past the
+    // end of the tree and would answer polygon 0, metres outside the extents.
+    // See docs/design.md, Known upstream behaviour: `dtCreateNavMeshData`.
     const bounds = try world.mesh.bounds(&failure);
     const corner = bounds[0];
     const at_corner = try world.query.findNearestPoly(corner, .{ 0.05, 0.05, 0.05 }, world.filter, &failure);
@@ -7650,11 +7594,10 @@ test "an agent's parameters are checked where upstream indexes unchecked" {
 
 /// Fails when the step from `prev` to `now` passed through the fixture's wall.
 ///
-/// The wall lies along z = 0 from the -x edge to `wall_end_x`. Crossing z = 0
-/// is how an agent reaches the goal, so the claim is about *where* it crosses:
-/// only past the wall's far end is legitimate. A snapshot cannot say that — an
-/// agent that has already rounded the wall is back at a small x on the far
-/// side — so the crossing point is interpolated from the step.
+/// The wall lies along z = 0 from the -x edge to `wall_end_x`, and only a
+/// crossing past its far end is legitimate. A snapshot cannot tell an agent
+/// that rounded the wall from one through it, so the crossing point is
+/// interpolated from the step.
 fn expectNoTunnel(prev: [3]f32, now: [3]f32) !void {
     if ((prev[2] < 0) == (now[2] < 0)) return;
     const dz = now[2] - prev[2];
@@ -7898,13 +7841,9 @@ test "a crowd's borrowed pieces are the ones it is driving" {
 
 /// A renderer that counts instead of drawing.
 ///
-/// The point of the counts is that they are exact: upstream decides how many
-/// primitives a container becomes, so a number here changing means a
-/// re-vendor changed what a host would see on screen, and the suite says so
-/// rather than the next person noticing a different picture.
-///
-/// `runs` also proves the protocol: every `begin` is closed by an `end`, and
-/// no vertex arrives outside a run.
+/// The counts are exact, so a re-vendor that changes what a host would see on
+/// screen changes a number here. `runs` also proves the protocol: every
+/// `begin` is closed by an `end`, and no vertex arrives outside a run.
 pub const DrawRecorder = struct {
     /// One counter per `DebugDrawPrimitive`, indexed by its tag value.
     begins: [4]u32 = .{ 0, 0, 0, 0 },
@@ -8129,11 +8068,8 @@ test "every Recast container draws into a Zig renderer, and the counts hold" {
     const draw = zrecast.DebugDraw.of(&recorder);
 
     // Each count below is what upstream emits for this fixture at the default
-    // configuration. They are asserted exactly, rather than merely required to
-    // be non-zero, because a re-vendor that changes how a container is
-    // tessellated changes what a host sees on screen and nothing else in the
-    // suite would notice. They hold across optimize modes because the cook
-    // they are taken over is byte-identical across them.
+    // configuration, asserted exactly: a re-vendor that changes tessellation
+    // changes what a host sees, and the cook is byte-identical across modes.
     // One quad per span, four vertices each, in a single run. The walkable
     // form draws the same geometry and differs only in the colour it picks.
     try draw.heightfieldSolid(stages.field, &failure);

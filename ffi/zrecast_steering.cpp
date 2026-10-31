@@ -20,12 +20,10 @@ namespace {
 //===----------------------------------------------------------------------===//
 
 /// Ceiling on every count dtObstacleAvoidanceQuery::init and
-/// dtObstacleAvoidanceDebugData::init multiply into an allocation of their
-/// own, with no bound of their own (DetourObstacleAvoidance.cpp:232, 239,
-/// 116-134). On a 32-bit size_t a large count can wrap the product to a
-/// small allocation while the stored count stays large, and every element
-/// accepted after that writes past the buffer it got. 65535 keeps every
-/// such product well inside range on any width of size_t.
+/// dtObstacleAvoidanceDebugData::init multiply into an unbounded allocation
+/// (DetourObstacleAvoidance.cpp:232, 239, 116-134). On a 32-bit size_t a
+/// large count wraps the product to a small buffer that later writes overrun;
+/// 65535 keeps every product in range on any width of size_t.
 const int32_t kMaxAvoidanceCapacity = 65535;
 
 //===----------------------------------------------------------------------===//
@@ -33,15 +31,10 @@ const int32_t kMaxAvoidanceCapacity = 65535;
 //===----------------------------------------------------------------------===//
 
 /// True when a live circle sits exactly at the sampling position.
-///
-/// dtObstacleAvoidanceQuery::prepare takes the vector from `pos` to each
-/// circle and normalises it in place (DetourObstacleAvoidance.cpp:289-290);
-/// dtVnormalize divides by the vector's own length with no zero guard
-/// (DetourCommon.h:263-269), and that length is the full three-axis
-/// distance, not a planar one. Exact coincidence on x, y and z at once is
-/// what zeroes it — a circle merely close, or level with the agent but
-/// offset in x or z, still normalises to a finite direction — so the
-/// squared distance is compared against zero rather than an epsilon.
+/// dtObstacleAvoidanceQuery::prepare normalises the vector from `pos` to each
+/// circle with no zero guard (DetourObstacleAvoidance.cpp:289-290,
+/// DetourCommon.h:263-269). Only an exact three-axis coincidence zeroes it, so
+/// the squared distance is compared against zero, not an epsilon.
 bool AnyCircleAtPosition(dtObstacleAvoidanceQuery& impl, const float* position) {
   const int count = impl.getObstacleCircleCount();
   for (int i = 0; i < count; ++i) {

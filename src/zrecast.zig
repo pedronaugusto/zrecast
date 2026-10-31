@@ -11,35 +11,7 @@
 //! A cook uses the first and serialises the result; a game loads the bytes and
 //! only ever touches the second.
 //!
-//! ```zig
-//! // Cook:
-//! zrecast.setAllocator(gpa);
-//! defer zrecast.resetAllocator();
-//! var failure: zrecast.Failure = .{};
-//!
-//! const poly = try zrecast.PolyMesh.bake(zrecast.defaultConfig(), .{
-//!     .verts = level_verts,
-//!     .tris = level_indices,
-//! }, null, null, &failure);
-//! defer poly.deinit();
-//!
-//! const mesh = try zrecast.NavMesh.initFromPolyMesh(poly, null, &failure);
-//! defer mesh.deinit();
-//!
-//! const image = try mesh.serialize(&failure);
-//! defer image.deinit();
-//!
-//! // Runtime:
-//! const loaded = try zrecast.NavMesh.initFromBytes(.init(image.bytes), &failure);
-//! defer loaded.deinit();
-//!
-//! const query = try zrecast.NavMeshQuery.init(loaded, 2048, &failure);
-//! defer query.deinit();
-//!
-//! const filter = try zrecast.QueryFilter.initDefault(&failure);
-//! defer filter.deinit();
-//! const near = try query.findNearestPoly(pos, .{ 2, 4, 2 }, filter, &failure);
-//! ```
+//! `examples/usage.zig`, the README's Usage section, does both end to end.
 
 const std = @import("std");
 
@@ -398,18 +370,11 @@ test "the C library agrees with the extern declarations in c.zig" {
 
     try std.testing.expectEqual(@as(u32, @sizeOf(c.BakeConfig)), layout.bake_config_size);
     try std.testing.expectEqual(@as(u32, @alignOf(c.BakeConfig)), layout.bake_config_align);
-    // Every field, not a sample, and looked up by NAME rather than by position.
-    //
-    // ZrcBakeConfig is ten consecutive floats followed by seven more 4-byte
-    // fields. Two of them swapping places between the C header and the externs
-    // in c.zig leaves the size, the alignment, and — this is the part that
-    // matters — the whole *sequence* of offsets unchanged, because each side
-    // reports its own declaration order. Only asking "where does the field
-    // called X live on each side" can see it. Every bake would otherwise
-    // quietly use the wrong agent dimensions.
-    //
-    // This list is the field order of ZrcBakeConfig in ffi/zrecast.h, which is
-    // the same order zrcAbiLayout fills its offsets array in.
+    // Every field, looked up by NAME rather than by position: two fields
+    // swapping places between ffi/zrecast.h and c.zig leave the size, the
+    // alignment and the sequence of offsets unchanged, since each side reports
+    // its own declaration order. This list is ZrcBakeConfig's field order in
+    // ffi/zrecast.h, the order zrcAbiLayout fills its offsets array in.
     const bake_field_order = [_][]const u8{
         "cell_size",
         "cell_height",

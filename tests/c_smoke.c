@@ -1860,13 +1860,11 @@ static ZrcResult tilecache_mesh_process(void* user,
 }
 
 /// Cooks one tile of the grid into compressed layers and adds them to
-/// `cache`: builds a heightfield over the tile's bounds plus the border,
-/// rasterizes, filters, builds a compact heightfield, erodes, then cuts it
-/// into layers.
+/// `cache`: heightfield over the tile's bounds plus the border, rasterize,
+/// filter, compact, erode, then layers.
 ///
-/// Mirrors CachedWorld.cookTile in src/integration_test.zig; the arithmetic
-/// here has to match it exactly, or the tiles do not line up and nothing
-/// says so.
+/// Mirrors CachedWorld.cookTile in src/integration_test.zig exactly, or the
+/// tiles do not line up and nothing says so.
 static int32_t tilecache_cook_tile(ZrcTileCache* cache,
                                    const ZrcBakeConfig* config,
                                    const ZrcBuildCells* cells,

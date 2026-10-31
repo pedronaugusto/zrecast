@@ -12,24 +12,17 @@
 
 namespace {
 
-/// The largest polygon count any tile can carry.
-///
-/// dtNavMesh spends 32 bits on a polygon reference, split between tile index,
-/// polygon index and a salt, and refuses to initialise if fewer than 10 bits
-/// are left for the salt. One tile leaves all 22 non-salt bits to the polygon
-/// index, so this is the loosest ceiling a well-formed tile can meet, and it is
-/// the one image validation applies: whether a particular *navmesh* can hold
-/// that many is a second question, answered by ReferenceBitsFit against the
-/// tile count that navmesh was created for.
+/// The largest polygon count any tile can carry: a lone tile leaves all 22
+/// non-salt bits of a 32-bit reference to the polygon index, since
+/// dtNavMesh::init refuses fewer than 10 salt bits. Whether a given navmesh
+/// can hold that many is ReferenceBitsFit's question.
 const int64_t kMaxPolyCount = (int64_t)1 << 22;
 
 /// Whether a tile count and a per-tile polygon count leave Detour enough salt.
-///
-/// dtNavMesh::init computes tileBits and polyBits from the next power of two of
-/// each, takes the salt from what is left of 32, and fails below 10
-/// (DetourNavMesh.cpp:255-261). Recomputing it here turns that into a named
-/// argument error at the door instead of a status from inside a half-built
-/// object.
+/// dtNavMesh::init derives tileBits and polyBits from the next power of two of
+/// each and fails below 10 salt bits (DetourNavMesh.cpp:255-261); recomputing
+/// it here makes that a named argument error instead of a status from inside a
+/// half-built object.
 bool ReferenceBitsFit(int32_t max_tiles, int32_t max_polys) {
   const unsigned int tile_bits =
       dtIlog2(dtNextPow2(static_cast<unsigned int>(max_tiles)));
@@ -54,14 +47,10 @@ int32_t ResidentTiles(const dtNavMesh& mesh) {
   return n;
 }
 
-/// Resolves a tile reference to a *resident* tile, or null.
-///
-/// dtNavMesh::getTileByRef checks the slot index and the salt and stops there,
-/// so it returns free slots as well as occupied ones — and a free slot has a
-/// null header. dtNavMesh::removeTile then dereferences that header without a
-/// test of its own (DetourNavMesh.cpp:1253), which makes a reference to an
-/// unused slot of a freshly created navmesh a null dereference rather than an
-/// error. Every entry point that takes a ZrcTileRef goes through here.
+/// Resolves a tile reference to a *resident* tile, or null. getTileByRef also
+/// returns free slots, whose header is null. Every entry point that takes a
+/// ZrcTileRef goes through here.
+/// See docs/design.md, Known upstream behaviour: dtNavMesh::removeTile.
 const dtMeshTile* ResidentTileByRef(const dtNavMesh& mesh, ZrcTileRef ref) {
   if (ref == 0) return nullptr;
   const dtMeshTile* tile = mesh.getTileByRef(static_cast<dtTileRef>(ref));
@@ -98,29 +87,12 @@ struct TileLayout {
   int64_t total;
 };
 
-/// Brings a dtNavMesh up far enough to hold one tile.
-///
-/// This is `dtNavMesh::init(data, size, flags)` split in two, and the split is
-/// what makes the failure recoverable. That single-call form runs
-/// `init(&params)` and then `addTile`, and reports both failures the same way —
-/// but only the first leaves an object that cannot be destroyed. Doing the two
-/// steps here attributes each failure exactly instead of inferring it from a
-/// status bit that both can set.
-///
-/// On failure `*out_destructible` says whether the caller may run ~dtNavMesh.
-///
-/// It is false in exactly one case: `init(&params)` failing to *allocate*. That
-/// function sets m_maxTiles before allocating the m_tiles array the destructor
-/// walks, and memsets that array only after a second allocation also succeeds,
-/// so an out-of-memory there leaves the destructor either dereferencing null or
-/// reading uninitialised tile flags and calling dtFree on the garbage behind
-/// them (DetourNavMesh.cpp:211, 232-244). Neither is survivable, and neither is
-/// fixable from outside the class; releasing the storage without the destructor
-/// leaks at most the first array.
-///
-/// `init(&params)`'s *other* failure — too few salt bits — happens after both
-/// arrays are live and initialised, so it is destructible like any addTile
-/// failure. Reporting it as though it were not would leak both arrays instead.
+/// Brings a dtNavMesh up far enough to hold one tile: `dtNavMesh::init(data,
+/// size, flags)` split into `init(&params)` and `addTile`, so each failure is
+/// attributed exactly rather than inferred from a shared status bit.
+/// On failure `*out_destructible` says whether the caller may run ~dtNavMesh:
+/// false only when `init(&params)` fails to allocate (DetourNavMesh.cpp:211,
+/// 232-244). See docs/design.md, Known upstream behaviour: ~dtNavMesh.
 dtStatus InitSingleTile(dtNavMesh* mesh, const dtMeshHeader& header,
                         unsigned char* data, int size,
                         bool* out_destructible) {
@@ -245,31 +217,12 @@ T ReadAt(const unsigned char* data, int64_t offset, int index) {
   return value;
 }
 
-/// Neutralises the one bounding-volume node upstream reserves and never fills.
-///
-/// dtCreateNavMeshData sets bvNodeCount to polyCount * 2
-/// (DetourNavMeshBuilder.cpp:507), while the tree createBVTree builds over n
-/// polygons occupies exactly 2n - 1 nodes: subdivide emits one node per call
-/// and either makes a leaf or splits into two children, so there are no unary
-/// nodes and the count is fixed. The last reserved node is therefore always
-/// spare, and dtCreateNavMeshData leaves it as the zeroes it memset the whole
-/// buffer with.
-///
-/// queryPolygonsInTile ends its traversal at `&bvTree[bvNodeCount]` rather
-/// than at the tree (DetourNavMeshQuery.cpp:744), so it reaches that node.
-/// A zeroed node has `i == 0`, which reads as a leaf naming polygon 0, and
-/// bounds of {0,0,0}..{0,0,0}, which dtOverlapQuantBounds reports as
-/// overlapping any query box whose quantised minimum is 0 on all three axes —
-/// that is, any query reaching the tile's own minimum corner, including every
-/// query that falls outside the tile and is clamped to it. Polygon 0 then
-/// comes back as a candidate for a box it is nowhere near. Measured, not
-/// inferred: findNearestPoly at the fixture's minimum corner with 0.05 m
-/// half-extents returned a polygon 9 m away.
-///
-/// Marking the node internal is what makes it unreachable as a result: the
-/// traversal emits a polygon only for a node with a non-negative `i`, and
-/// steps past this one either way. -1 is inside the escape range image
-/// validation already allows.
+/// Neutralises the one bounding-volume node upstream reserves and never fills
+/// (DetourNavMeshBuilder.cpp:507), which queryPolygonsInTile still reads
+/// (DetourNavMeshQuery.cpp:744) as a leaf naming polygon 0. Marking it internal
+/// (`i` = -1, inside the escape range image validation allows) makes the
+/// traversal step past it without emitting a polygon. See docs/design.md,
+/// Known upstream behaviour: dtCreateNavMeshData (the spare BV node).
 void SealBvSentinel(unsigned char* data, const dtMeshHeader& header,
                     const TileLayout& layout) {
   if (header.bvNodeCount <= 0) return;
@@ -281,20 +234,11 @@ void SealBvSentinel(unsigned char* data, const dtMeshHeader& header,
          &node, sizeof(node));
 }
 
-/// Validates every index inside the tile that Detour will dereference.
-///
-/// The header checks alone are not enough, and the gap is not theoretical: a
-/// `dtPoly::vertCount` of 200 in an otherwise untouched image passes every
-/// header check, loads without complaint, and then overruns a fixed
-/// `float verts[DT_VERTS_PER_POLYGON*3]` stack array in four separate Detour
-/// functions — `getPolyHeight` (DetourNavMesh.cpp:687), `closestPointOnPoly`,
-/// `moveAlongSurface` and `raycast` (DetourNavMeshQuery.cpp:549, 2091, 2490).
-/// The overrun is with vertex coordinates taken from the image, past the saved
-/// return address.
-///
-/// So this walks the arrays and bounds every index Detour trusts. It is
-/// O(polyCount + detailTriCount + bvNodeCount) memcpys at load time, against a
-/// mesh that took orders of magnitude longer to bake.
+/// Validates every index inside the tile that Detour will dereference. Header
+/// checks alone pass a `dtPoly::vertCount` of 200, which overruns a fixed
+/// stack array in four Detour functions with coordinates from the image. This
+/// costs O(polyCount + detailTriCount + bvNodeCount) memcpys at load time.
+/// See docs/design.md, Known upstream behaviour: dtPoly::vertCount.
 ZrcResult ValidateTileInterior(const unsigned char* data,
                                const dtMeshHeader& header,
                                const TileLayout& layout,
@@ -304,14 +248,10 @@ ZrcResult ValidateTileInterior(const unsigned char* data,
   const int detail_vert_count = header.detailVertCount;
   const int detail_tri_count = header.detailTriCount;
 
-  // Coordinates first, because a single NaN among them is enough.
-  //
-  // closestPointOnDetailEdges tracks the nearest edge with `if (d < dmin)` and
-  // leaves its pmin/pmax pointers null when nothing ever wins, then calls
-  // dtVlerp on them unconditionally (DetailNavMesh.cpp:673). Every comparison
-  // against a NaN distance is false, so one NaN coordinate anywhere in a
-  // polygon's detail edges is a null dereference on the next closest-point
-  // query. Infinities produce NaN the same way, through inf - inf.
+  // Coordinates first, because a single NaN among them is enough: one NaN or
+  // infinity in a polygon's detail edges makes closestPointOnDetailEdges
+  // dtVlerp null pointers (DetourNavMesh.cpp:673).
+  // See docs/design.md, Known upstream behaviour: closestPointOnDetailEdges.
   for (int i = 0; i < vert_count * 3; ++i) {
     const float v = ReadAt<float>(data, layout.verts, i);
     if (!IsFinite(v) || v < -kMaxCoordinate || v > kMaxCoordinate) {
@@ -329,17 +269,11 @@ ZrcResult ValidateTileInterior(const unsigned char* data,
     const dtPoly poly = ReadAt<dtPoly>(data, layout.polys, i);
     const bool is_offmesh = i >= header.offMeshBase;
 
-    // A polygon below offMeshBase must be ground, one at or above it must be
-    // an off-mesh connection endpoint, and no other value of getType() — a
-    // 2-bit field with two undefined values — is acceptable.
-    //
-    // dtNavMesh::getOffMeshConnectionByRef computes
-    // `idx = ip - tile->header->offMeshBase` with no check that
-    // `ip >= offMeshBase` (DetourNavMesh.cpp:1521): unsigned, so a ground
-    // polygon tagged off-mesh underflows idx to a huge value and the function
-    // returns `&tile->offMeshCons[idx]`, a wild pointer. The only guard
-    // upstream has is dtAssert, which compiles to `(void)sizeof(x)` under
-    // NDEBUG (DetourAssert.h:25-29) — nothing at all in release.
+    // A polygon below offMeshBase must be ground, one at or above it an
+    // off-mesh connection endpoint; no other getType() value (a 2-bit field
+    // with two undefined values) is accepted. getOffMeshConnectionByRef
+    // underflows otherwise (DetourNavMesh.cpp:1521), unguarded in release.
+    // See docs/design.md, Known upstream behaviour: getOffMeshConnectionByRef.
     const unsigned char type = poly.getType();
     if (is_offmesh) {
       if (type != DT_POLYTYPE_OFFMESH_CONNECTION) return ZRC_ERR_BAD_FORMAT;
@@ -362,34 +296,21 @@ ZrcResult ValidateTileInterior(const unsigned char* data,
       if (poly.verts[k] >= vert_count) return ZRC_ERR_BAD_FORMAT;
     }
 
-    // Neighbour entries, which are how a polygon index gets *laundered* into
-    // something nothing bounds again.
-    //
-    // connectIntLinks turns `neis[j]` into a link whose ref is
-    // `base | (neis[j] - 1)` (DetourNavMesh.cpp:549) with no range test. Every
-    // traversal query then follows that link with
-    // `getTileAndPolyByRefUnsafe`, which is unsafe exactly as named: it
-    // indexes `tile->polys` with the decoded value and checks nothing. So a
-    // neighbour index past polyCount is an out-of-bounds dtPoly read whose
-    // vertCount then drives the vertex-gathering loops — the same stack
-    // overrun a doctored vertCount gives, reached the long way round.
-    //
-    // Reasoning that "Detour validates refs" is what missed this: the safe
-    // getTileAndPolyByRef is used on the *caller's* references, and the unsafe
-    // one on references the tile produced for itself.
+    // Neighbour entries, which connectIntLinks turns into link refs with no
+    // range test (DetourNavMesh.cpp:549); traversal then resolves them through
+    // getTileAndPolyByRefUnsafe, which checks nothing. A neighbour past
+    // polyCount is the doctored-vertCount overrun reached the long way round:
+    // the safe accessor only ever sees the caller's references.
+    // See docs/design.md, Known upstream behaviour: dtPoly::neis.
     for (int k = 0; k < poly.vertCount; ++k) {
       const unsigned short nei = poly.neis[k];
       if (nei == 0) continue;  // hard edge
       if ((nei & DT_EXT_LINK) != 0) {
-        // A portal edge to an adjacent tile. A caller that has no neighbouring
-        // tiles refuses these outright; one that does bounds the side code.
-        //
-        // dtCreateNavMeshData writes exactly four of the eight side values —
-        // 4, 2, 0 and 6 for x-, z+, x+ and z-
-        // (DetourNavMeshBuilder.cpp:534-540) — and dtNavMesh::connectExtLinks
-        // matches on `DT_EXT_LINK | side` for those same four
-        // (DetourNavMesh.cpp:312). Any other value describes an edge that can
-        // never link to anything, which is not something a real bake produces.
+        // A portal edge to an adjacent tile: refused outright without
+        // neighbouring tiles, else the side code is bounded to the four values
+        // dtCreateNavMeshData writes (4, 2, 0, 6 for x-, z+, x+, z-;
+        // DetourNavMeshBuilder.cpp:534-540) and connectExtLinks matches
+        // (DetourNavMesh.cpp:312). Any other side can never link.
         if (!admission.allow_portals) return ZRC_ERR_BAD_FORMAT;
         const unsigned short side = nei & 0xff;
         if (side != 0 && side != 2 && side != 4 && side != 6) {
@@ -419,16 +340,11 @@ ZrcResult ValidateTileInterior(const unsigned char* data,
     // this rejects nothing a real bake produces.
     if (pd.triCount < 1) return ZRC_ERR_BAD_FORMAT;
 
-    // Each detail triangle corner is either one of the polygon's own vertices
-    // or an index into detailVerts biased by vertBase. Only the second form can
-    // leave the array.
-    // The fourth byte of a detail triangle packs three 2-bit edge flags. At
-    // least one edge somewhere in the sub-mesh has to be marked as a boundary,
-    // for the same null-pointer reason as above: closestPointOnDetailEdges
-    // instantiated with onlyBoundary = true skips every triangle that has no
-    // boundary bit at all, so a sub-mesh with none leaves pmin/pmax null and
-    // dtVlerp dereferences them. A polygon's detail mesh always has boundary
-    // edges — they are its outline — so this rejects nothing real.
+    // A detail corner is a polygon vertex or an index into detailVerts biased
+    // by vertBase; only the second can leave the array. The fourth byte packs
+    // three 2-bit edge flags, and a sub-mesh with no boundary edge makes the
+    // onlyBoundary closestPointOnDetailEdges dtVlerp null pointers, as above.
+    // A real detail mesh's outline is boundary, so this rejects nothing real.
     const unsigned char kAnyBoundaryEdge =
         (DT_DETAIL_EDGE_BOUNDARY << 0) | (DT_DETAIL_EDGE_BOUNDARY << 2) |
         (DT_DETAIL_EDGE_BOUNDARY << 4);
@@ -453,14 +369,10 @@ ZrcResult ValidateTileInterior(const unsigned char* data,
   }
 
   // The BV tree. queryPolygonsInTile indexes tile->polys by a leaf's `i`
-  // directly (DetourNavMeshQuery.cpp:776), and advances by `-i` for an internal
-  // node, so both directions need a bound. The bound is offMeshBase rather
-  // than polyCount: createBVTree never emits a leaf outside the ground range
-  // (DetourNavMeshBuilder.cpp:195-200), and the BV branch of
-  // queryPolygonsInTile — unlike its linear-scan branch — does not filter
-  // off-mesh polygons out (DetourNavMesh.cpp:808-889), so a doctored leaf
-  // past offMeshBase could make findNearestPolyInTile resolve an off-mesh
-  // connection's own polygon as its landing polygon.
+  // (DetourNavMeshQuery.cpp:776) and advances by `-i` for an internal node, so
+  // both directions need a bound. A leaf is bounded by offMeshBase, not
+  // polyCount, because the BV branch does not filter off-mesh polygons.
+  // See docs/design.md, Known upstream behaviour: queryPolygonsInTile.
   for (int i = 0; i < header.bvNodeCount; ++i) {
     const dtBVNode node = ReadAt<dtBVNode>(data, layout.bvtree, i);
     if (node.i >= 0) {
@@ -485,10 +397,9 @@ ZrcResult ValidateTileInterior(const unsigned char* data,
     const dtOffMeshConnection con =
         ReadAt<dtOffMeshConnection>(data, layout.offmesh, i);
 
-    // The sharpest bound of the three, and it is an equality rather than a
-    // range. dtCreateNavMeshData walks the stored connections and the off-mesh
-    // polygons together, writing `con->poly = offMeshPolyBase + n` from the
-    // same counter that indexes the connection array
+    // An equality, not a range: dtCreateNavMeshData writes
+    // `con->poly = offMeshPolyBase + n` from the counter that indexes the
+    // connection array
     // (DetourNavMeshBuilder.cpp:660-662), so connection i owns polygon
     // offMeshBase + i exactly. Checking that covers the bound, the ordering,
     // and two connections claiming one polygon, in one comparison.
@@ -587,12 +498,8 @@ ZrcResult ValidateTileImageHeader(const void* data, size_t size,
   if (header.offMeshConCount < 0 || header.offMeshConCount > kMaxPolyCount) {
     return ZRC_ERR_BAD_FORMAT;
   }
-  // dtCreateNavMeshData sets offMeshBase to the ground polygon count and
-  // polyCount to offMeshBase plus the stored connection count
-  // (DetourNavMeshBuilder.cpp:493, 502, 506): offMeshBase is where the
-  // off-mesh polygons begin, and the two spans together must exactly cover
-  // polyCount. With no connections this reduces to offMeshBase == polyCount,
-  // the invariant this check replaces.
+  // offMeshBase is where the off-mesh polygons begin, and the two spans must
+  // exactly cover polyCount (DetourNavMeshBuilder.cpp:493, 502, 506).
   //
   // Bounded against polyCount before the addition, not merely against zero: an
   // offMeshBase of INT_MAX would make the sum itself signed overflow, which is
@@ -616,13 +523,11 @@ ZrcResult ValidateTileImageHeader(const void* data, size_t size,
     return ZRC_ERR_BAD_FORMAT;
   }
 
-  // The tile's own place in the grid, bounded from both ends.
-  //
-  // The upper bound is the caller's — a lone tile pins all three to zero, a
-  // tile of a grid may sit anywhere inside it. The lower bound is Detour's:
-  // getNeighbourTilesAt walks to a neighbour with a bare `nx--` or `ny--`
-  // (DetourNavMesh.cpp:1078-1089), so a coordinate at INT_MIN is signed
-  // overflow. ZRC_MAX_TILE_COORD keeps every such step far inside range.
+  // The tile's own place in the grid, bounded from both ends: above by the
+  // caller (a lone tile pins all three to zero), below by Detour's bare
+  // `nx--`/`ny--` neighbour steps, which ZRC_MAX_TILE_COORD keeps in range.
+  // See docs/design.md, Known upstream behaviour:
+  // dtNavMesh::getNeighbourTilesAt.
   if (header.x < 0 || header.x > admission.max_tile_x) return ZRC_ERR_BAD_FORMAT;
   if (header.y < 0 || header.y > admission.max_tile_z) return ZRC_ERR_BAD_FORMAT;
   if (header.layer < 0 || header.layer > admission.max_tile_layer) {
@@ -745,13 +650,10 @@ ZrcResult BuildTileData(const ZrcPolyMesh& mesh, int32_t tile_x, int32_t tile_z,
   params.detailTris = has_detail ? detail.tris : nullptr;
   params.detailTriCount = has_detail ? detail.ntris : 0;
 
-  // Off-mesh connections, unpacked from the caller's array of structs into
-  // the six parallel arrays dtNavMeshCreateParams wants. The buffers are
-  // scratch — dtCreateNavMeshData copies out of them before returning — and
-  // TempBuffer's destructor frees them on every exit path below, including
-  // the allocation and dtCreateNavMeshData failures further down. No
-  // authoring, or authoring with zero connections, leaves every one of these
-  // fields at the zeroed "none" dtNavMeshCreateParams expects.
+  // Off-mesh connections, unpacked into the six parallel arrays
+  // dtNavMeshCreateParams wants. They are scratch (dtCreateNavMeshData copies
+  // out of them), freed by TempBuffer on every exit path. No connections
+  // leaves every field at the zeroed "none" dtNavMeshCreateParams expects.
   const int32_t con_count =
       authoring != nullptr ? authoring->connection_count : 0;
   TempBuffer con_verts_buf(sizeof(float) * 6 * static_cast<size_t>(con_count));
@@ -1331,13 +1233,11 @@ ZrcResult zrcNavMeshCalcTileLoc(const ZrcNavMesh* navmesh, const float* pos,
   }
   if (!zrc::IsFiniteVec3(pos)) return ZRC_ERR_INVALID_ARGUMENT;
 
-  // A finite position is not enough. calcTileLoc divides by the tile size and
-  // casts the quotient to int with no check of its own
-  // (DetourNavMesh.cpp:1063-1067), so a position far enough from the origin —
-  // or a degenerate tile size, which makes the quotient infinite — turns that
-  // conversion into undefined behaviour rather than an out-of-range answer.
-  // The same division here in double is only ever a number, and the tile the
-  // position would occupy has to be one an int can name.
+  // A finite position is not enough: calcTileLoc's unchecked float-to-int
+  // cast (DetourNavMesh.cpp:1063-1067) is undefined for a position far from
+  // the origin or a degenerate tile size. The same division in double is
+  // only ever a number, and its tile must be one an int can name.
+  // See docs/design.md, Known upstream behaviour: dtNavMesh::calcTileLoc.
   const dtNavMeshParams& params = *navmesh->impl->getParams();
   const double at_x = static_cast<double>(pos[0]) - params.orig[0];
   const double at_z = static_cast<double>(pos[2]) - params.orig[2];
@@ -1586,11 +1486,10 @@ ZrcResult zrcNavMeshStoreTileState(const ZrcNavMesh* navmesh, ZrcTileRef ref,
   if (tile == nullptr) return ZRC_ERR_INVALID_ARGUMENT;
 
   const int state_size = navmesh->impl->getTileStateSize(tile);
-  // Exact length, not merely "big enough" as upstream itself requires:
-  // restoreTileState sizes its polygon-state array from the *live tile's*
-  // polyCount, not from anything inside the blob — dtTileState carries no
-  // polygon count of its own — so this is the only thing that would catch a
-  // blob and a tile that have since disagreed. Comparing against `state_size`
+  // Exact length, not merely "big enough" as upstream requires: the only
+  // signal that a blob and a since-replaced tile disagree.
+  // See docs/design.md, Known upstream behaviour: restoreTileState.
+  // Comparing against `state_size`
   // rather than casting the caller's `size` to int also means a `size` past
   // INT_MAX is simply unequal to it rather than a truncating cast.
   if (size < static_cast<size_t>(state_size)) return ZRC_ERR_BUFFER_TOO_SMALL;
@@ -1623,12 +1522,8 @@ ZrcResult zrcNavMeshRestoreTileState(ZrcNavMesh* navmesh, ZrcTileRef ref,
 
   // dtNavMesh::restoreTileState needs a mutable tile, but ResidentTileByRef —
   // the one helper this file uses to resolve a ZrcTileRef, because it is also
-  // the one that rejects a reference to a free slot — is built on the public
-  // getTileByRef, which only has a const-returning overload; the non-const
-  // dtNavMesh::getTile(int) is private (DetourNavMesh.h:617). The tile itself
-  // is not const data, though: the navmesh owns it as mutable storage, and
-  // only the accessor used to reach it here is const-qualified. Stripping
-  // that qualifier back off is therefore well defined.
+  // the one that rejects a free slot — returns const via getTileByRef. The
+  // navmesh owns the tile as mutable storage, so the const_cast is defined.
   dtMeshTile* mutable_tile = const_cast<dtMeshTile*>(tile);
   // Upstream reads the blob as a dtTileState and a dtPolyState array, and the
   // caller's buffer may be a byte slice with no particular alignment, so it
@@ -1759,13 +1654,10 @@ ZrcResult zrcTileLayout(const void* data, size_t size, ZrcTileLayout* out) {
   dtMeshHeader header;
   memcpy(&header, data, sizeof(header));
 
-  // Offsets come from the same arithmetic dtNavMesh::addTile derives them
-  // with; sizes come from the header's own counts directly, not by
-  // differencing offsets, since an empty array's offset equals the one that
-  // follows it.
-  // Checked rather than assumed even though the validation above already
-  // rejects every count that could fail it: the false path writes nothing, so
-  // an unchecked call would copy an uninitialised stack struct to the caller.
+  // Offsets come from dtNavMesh::addTile's own arithmetic; sizes from the
+  // header's counts, since an empty array's offset equals the next one's.
+  // Checked though validation already rejects every failing count: the false
+  // path writes nothing, so an unchecked call would copy uninitialised stack.
   TileLayout layout;
   if (!zrc::TileLayoutOf(header, &layout)) return ZRC_ERR_BAD_FORMAT;
 

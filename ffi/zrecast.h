@@ -1,35 +1,16 @@
 //===----------------------------------------------------------------------===//
 // zrecast — a C ABI over Recast (navmesh baking) and Detour (navmesh queries).
+// This header is the only contract with a consumer: opaque handles, POD
+// structs with fixed layout, a flat result enum, no C++ and no exceptions.
 //
-// This header is the ONLY contract between the C++ implementation and any
-// consumer (the Zig wrapper in ../src, or a plain C host). It is deliberately
-// free of C++: opaque handles, POD structs with fixed layout, and a flat result
-// enum. No exceptions cross this boundary; Recast and Detour throw none.
+// zrcPolyMesh* is bake-time (Recast); zrcNavMesh* / zrcNavMeshQuery* is runtime
+// (Detour). A program that calls no zrcPolyMesh* entry point links no Recast.
 //
-// TWO LIFECYCLES, and the split runs through this header:
-//
-//   Recast is a BAKER. It turns a triangle soup into a polygon mesh, and it
-//   belongs in a tools/cook pipeline: it is slow, allocates heavily, and its
-//   output is an artefact you ship. Everything named zrcPolyMesh* is bake-time.
-//
-//   Detour is the RUNTIME. It loads a baked navmesh and answers queries with no
-//   further baking. Everything named zrcNavMesh* / zrcNavMeshQuery* is runtime.
-//
-// A game only needs the second half, and because each concern is its own
-// translation unit it gets to link only that half: a program that calls no
-// zrcPolyMesh* entry point pulls in none of Recast.
-//
-// Ownership rules, uniformly:
-//   *Bake / *Create /   allocate through the installed allocator and yield a
-//   *Deserialize        handle the caller owns.
-//   *Destroy            accepts NULL and does nothing.
-//   Query accessors     never allocate; returned pointers borrow from the
-//                       handle and die with it.
-//
-// Thread safety: handles are not internally synchronised. A ZrcNavMesh may be
-// shared read-only by several ZrcNavMeshQuery objects, but a single
-// ZrcNavMeshQuery holds a mutable node pool and must not be used from two
-// threads at once — give each thread its own.
+// Ownership: *Bake, *Create and *Deserialize allocate through the installed
+// allocator and yield a handle the caller owns; *Destroy accepts NULL. Query
+// accessors never allocate; returned pointers borrow from the handle and die
+// with it. Threading: handles are not synchronised. A ZrcNavMesh may be shared
+// read-only by several queries; one ZrcNavMeshQuery is one thread's at a time.
 //===----------------------------------------------------------------------===//
 
 #ifndef ZRECAST_H_
@@ -151,19 +132,12 @@ ZRC_API const char* zrcResultName(ZrcResult result);
 //
 // Recast and Detour each route every allocation through one global pair of
 // function pointers (rcAllocSetCustom / dtAllocSetCustom). zrecast installs
-// both from a single ZrcAllocator so a host can account for navigation memory
-// in its own budget.
+// both from a single ZrcAllocator so a host can budget navigation memory.
 //
-// Note the asymmetry inherited from upstream, and note what is NOT here:
-//
-//   * `deallocate` receives only the block pointer — no size. A host allocator
-//     that needs the size back (Zig's std.mem.Allocator does) must record it in
-//     a header of its own. ../src/memory.zig does exactly that.
-//
-//   * `allocate` receives no alignment, because neither rcAlloc nor dtAlloc has
-//     an alignment parameter: both are modelled on malloc. The contract is
-//     therefore malloc's — a returned block must be aligned for any scalar type
-//     the platform has. ZRC_ALLOC_ALIGNMENT below is that guarantee, stated.
+// `deallocate` receives no size: a host allocator that needs it back must
+// record it in a header of its own, as ../src/memory.zig does. `allocate`
+// receives no alignment, since rcAlloc and dtAlloc have none; the contract is
+// malloc's, and ZRC_ALLOC_ALIGNMENT below states it.
 //===----------------------------------------------------------------------===//
 
 /// Minimum alignment every block from ZrcAllocator.allocate must satisfy.
@@ -229,20 +203,14 @@ ZRC_API void zrcFree(void* block);
 //===----------------------------------------------------------------------===//
 // Assertions
 //
-// Recast and Detour each assert their internal invariants through one global
-// hook (rcAssertFailSetCustom, dtAssertFailSetCustom), and with no hook
-// installed a failure reaches assert() and takes the process down without a
-// word to the host. zrecast installs both from a single ZrcAssertHandler.
+// Recast and Detour each assert their invariants through one global hook
+// (rcAssertFailSetCustom, dtAssertFailSetCustom); with none installed a
+// failure reaches assert() and ends the process. zrecast installs both from
+// one ZrcAssertHandler, so neither half is left on a bare abort.
 //
-// Both, in one call, deliberately. The two halves are separate seams upstream,
-// and a host that installed only one would get its own logger for half the
-// library and a bare abort for the other half.
-//
-// The hook exists only in a build that kept the assertions: upstream compiles
-// the whole family out under NDEBUG — the type, the setter and the getter are
-// all inside the #else. zrcAssertsEnabled is the seam that says which build
-// this is, and it is not a formality. With assertions compiled out, `rcAssert`
-// and `dtAssert` expand to `(void)sizeof(x)` and nothing is ever checked.
+// The hook exists only in a build that kept the assertions: under NDEBUG
+// upstream compiles out the type, the setter and the getter, and `rcAssert`
+// and `dtAssert` check nothing. zrcAssertsEnabled says which build this is.
 //===----------------------------------------------------------------------===//
 
 /// Called when an assertion inside Recast or Detour fails.
@@ -590,23 +558,16 @@ ZRC_API ZrcResult zrcPolyMeshBake(const ZrcBakeConfig* config,
 ///
 /// Same pipeline as zrcPolyMeshBake, restricted to the tile at
 /// (`tile_x`, `tile_z`) and padded by the configured border so its contours
-/// meet its neighbours'. `mesh` is the whole world's geometry every time;
-/// rasterisation clips it to the tile.
+/// meet its neighbours'. `mesh` and `authoring` are the whole world's every
+/// time: rasterisation clips to the tile, and a volume crossing a tile edge
+/// marks each side from the same numbers.
 ///
-/// **An empty tile is success, not failure.** Most tiles of a real world hold
-/// no walkable surface, and `*out` is then NULL with ZRC_OK returned. This is
-/// the one place the two bake entry points differ in contract:
-/// zrcPolyMeshBake reports ZRC_ERR_EMPTY_RESULT, because a whole-world bake
-/// that found nothing walkable is a mistake rather than a fact about geography.
-///
-/// `authoring` is the whole world's, same as `mesh`: a volume outside this tile
-/// marks nothing, and a volume crossing a tile edge marks each side from the
-/// same numbers, so the tiles agree without being told about each other.
+/// **An empty tile is success:** `*out` is NULL and ZRC_OK is returned, where
+/// zrcPolyMeshBake reports ZRC_ERR_EMPTY_RESULT.
 ///
 /// `config` must be the one `grid` was computed from: `tile_size * cell_size`
-/// has to equal the grid's `tile_world_size` exactly, or the tiles land at one
-/// spacing under a navmesh addressing them at another and nothing later fails.
-/// A mismatch is ZRC_ERR_INVALID_ARGUMENT.
+/// must equal the grid's `tile_world_size` exactly, or the call returns
+/// ZRC_ERR_INVALID_ARGUMENT.
 ZRC_API ZrcResult zrcPolyMeshBakeTile(const ZrcBakeConfig* config,
                                       const ZrcTriMesh* mesh,
                                       const ZrcTileGrid* grid, int32_t tile_x,
@@ -619,40 +580,16 @@ ZRC_API void zrcPolyMeshDestroy(ZrcPolyMesh* mesh);
 //===----------------------------------------------------------------------===//
 // The staged Recast pipeline
 //
-// zrcPolyMeshBake runs Recast end to end and hands back the result. This is the
-// same pipeline taken apart: each stage is its own entry point, each
-// intermediate container is a handle a host owns, and every stage can be
-// inspected, edited or replaced between one call and the next. It is what a
-// tool needs — a visualiser that draws the heightfield, a cook that marks areas
-// from its own data after erosion, a build that reuses one compact heightfield
-// for several region strategies.
-//
-// The stages, in the only order Recast accepts:
-//
-//   zrcHeightfieldCreate
-//     -> rasterize (a triangle, an indexed mesh, or a soup) / add spans
-//     -> filters
-//   zrcCompactHeightfieldCreate
-//     -> erode -> median filter -> mark areas
-//     -> build the distance field -> build regions
-//   zrcContourSetCreate
+// zrcPolyMeshBake taken apart: each stage is its own entry point and each
+// intermediate container a handle the host owns. The only order Recast takes:
+//   zrcHeightfieldCreate -> rasterize / add spans -> filters
+//   zrcCompactHeightfieldCreate -> erode -> median filter -> mark areas
+//     -> build the distance field -> build regions -> zrcContourSetCreate
 //   zrcPolyMeshCreate -> zrcPolyMeshBuild -> zrcPolyMeshBuildDetail
-//
-// Recast's stages assume their output container is empty and overwrite its
-// buffer pointers without checking, which leaks every allocation the container
-// held. Two of them check with rcAssert, which compiles to nothing in a release
-// build. Handing a host the containers is what makes that reachable, so every
-// stage here refuses a container that already holds a result, with
-// ZRC_ERR_ALREADY_BUILT, in every build configuration. See docs/design.md.
-//
-// How a container answers "what is in you" is uniform here and among the tile
-// cache's containers below. One carrying aggregate data beyond its element
-// count answers through zrc<Container>Info, filling a Zrc<Container>Info
-// struct. One that is nothing but a sized array answers through
-// zrc<Container>Count, a struct around a single int being ceremony rather than
-// symmetry: zrcHeightfieldLayerSetCount and zrcTileCacheContourSetCount are
-// the two on that arm, and rcHeightfieldLayerSet and dtTileCacheContourSet
-// hold nothing else to report.
+// Every stage refuses a container that already holds a result, in every
+// build, with ZRC_ERR_ALREADY_BUILT. A container reports its contents through
+// zrc<Container>Info, or zrc<Container>Count when it is only a sized array.
+// See docs/design.md, Known upstream behaviour: rcBuildPolyMesh.
 //===----------------------------------------------------------------------===//
 
 /// Which of Recast's build messages a log entry is.
@@ -900,18 +837,12 @@ typedef struct ZrcHeightfieldStorage {
 
 /// Allocates a heightfield of `width` x `height` cells over `bmin`..`bmax`.
 ///
-/// The same grid zrcCalcGridSize computes and the same bounds it applies, so a
-/// host that sizes a field from a mesh and one that names the size itself are
-/// held to one rule. Upstream stores both sizes as they arrive and allocates
-/// `width * height` span pointers from their product in plain `int`
-/// arithmetic, which two large sizes overflow before the allocation is even
-/// attempted.
-///
-/// The vertical extent is bounded too, and separately: Recast never turns it
-/// into a grid size, so nothing else would catch it, and a rasteriser converts
-/// a height to a cell index before it clamps. `(bmax[1] - bmin[1]) /
-/// cell_height` must be under ZRC_SPAN_MAX_HEIGHT, which is all a span's
-/// 13-bit extent can address in any case.
+/// Held to the bounds zrcCalcGridSize applies, so a field sized from a mesh
+/// and one sized by hand obey one rule. The vertical extent is bounded
+/// separately: `(bmax[1] - bmin[1]) / cell_height` must be under
+/// ZRC_SPAN_MAX_HEIGHT, all a span's 13-bit extent can address.
+/// See docs/design.md, Known upstream behaviour: rcCreateHeightfield.
+/// See docs/design.md, Known upstream behaviour: rasterizeTri.
 ///
 /// [Limit: 0 < width, height <= 32767; width * height <= 268435456; bmin
 /// no greater than bmax on every axis; every float finite; cell_size and
@@ -1430,17 +1361,14 @@ typedef struct ZrcNavMesh ZrcNavMesh;
 //===----------------------------------------------------------------------===//
 // Off-mesh connections
 //
-// A bake produces surface an agent can walk across, and only that. An off-mesh
-// connection joins two places the surface does not: a jump down a ledge, a
-// ladder, a door between two rooms, a teleporter. It is a two-vertex polygon of
-// its own, linked into the graph at both ends, so a path can route through it
-// and a straight path reports it as a corner flagged
-// ZRC_STRAIGHTPATH_OFFMESH_CONNECTION — which is how a game knows to play an
-// animation instead of walking.
+// An off-mesh connection joins two places the baked surface does not: a jump
+// down a ledge, a ladder, a door between two rooms, a teleporter. It is a
+// two-vertex polygon linked into the graph at both ends, so a path can route
+// through it and a straight path reports it as a corner flagged
+// ZRC_STRAIGHTPATH_OFFMESH_CONNECTION.
 //
 // Connections belong to a tile, and are supplied when that tile is built. They
-// cannot be added to a live navmesh: Detour wires them during addTile and has
-// no path to do it later.
+// cannot be added to a live navmesh: Detour wires them only during addTile.
 //===----------------------------------------------------------------------===//
 
 /// One point-to-point link between two places the surface does not join.
@@ -1655,19 +1583,16 @@ ZRC_API ZrcResult zrcNavMeshTileBounds(const ZrcNavMesh* navmesh, ZrcTileRef ref
 /// the caller owns and frees with zrcFree.
 ///
 /// A tiled navmesh has no single image and this returns
-/// ZRC_ERR_INVALID_ARGUMENT for one: cook each tile with zrcTileDataBuild
-/// instead, which is the shape a streaming host wants anyway.
+/// ZRC_ERR_INVALID_ARGUMENT for one: cook each tile with zrcTileDataBuild.
 ///
-/// The image is Detour's own tile format: architecture-independent as to
-/// pointer width, but **native-endian**, and tied to the struct layouts of the
-/// vendored Detour. Treat it as a build artefact keyed to this library's
-/// version, not as an interchange format. zrcNavMeshDataVersion reports the
-/// format version an image will carry.
+/// The image is Detour's own tile format: independent of pointer width, but
+/// **native-endian**, and tied to the struct layouts of the vendored Detour.
+/// Treat it as a build artefact keyed to this library's version, not as an
+/// interchange format. zrcNavMeshDataVersion reports its format version.
 ///
-/// An image this package produced round-trips byte for byte. An image from
-/// another tool does not quite: loading it seals the spare bounding-volume node
-/// upstream leaves zeroed (see ZrcBvNode), so serialising it again differs in
-/// that one int.
+/// An image this package produced round-trips byte for byte. One from another
+/// tool differs in one int when serialised again: loading it seals the spare
+/// bounding-volume node upstream leaves zeroed (see ZrcBvNode).
 ZRC_API ZrcResult zrcNavMeshSerialize(const ZrcNavMesh* navmesh,
                                       void** out_data, size_t* out_size);
 
@@ -2103,21 +2028,14 @@ ZRC_API ZrcResult zrcNavMeshRestoreTileState(ZrcNavMesh* navmesh, ZrcTileRef ref
 
 /// Rewrites a cooked tile image into the opposite byte order, as a new buffer.
 ///
-/// The image Detour cooks is native-endian, so a host that cooks on one
-/// architecture and loads on another of the opposite byte order has to convert
-/// on one side or the other. This is that conversion. The caller owns the
-/// result and frees it with zrcFree; `data` is never modified, so a refusal
-/// leaves nothing half-converted.
+/// For a host that cooks on one architecture and loads on another of the
+/// opposite byte order. The caller owns the result and frees it with zrcFree;
+/// `data` is never modified, so a refusal leaves nothing half-converted.
 ///
-/// `from_native` says which way round. ZRC_TRUE: `data` is an image this build
+/// `from_native` says which way round, and a wrong answer reads the header's
+/// counts through the wrong byte order. ZRC_TRUE: `data` is an image this build
 /// can load, and the result is for a machine of the opposite byte order.
 /// ZRC_FALSE: `data` came from such a machine, and the result is loadable here.
-///
-/// The direction is not cosmetic. Upstream's two halves have to run in opposite
-/// orders — the body is swapped while the header still reads natively on the
-/// way out, and the header is swapped first on the way in — because the body's
-/// array bounds are counts stored in the header. Running them the wrong way
-/// round reads those counts through the wrong byte order.
 ///
 /// The result is validated as thoroughly as zrcNavMeshValidate validates any
 /// image, in whichever byte order it ends up native to.
@@ -2128,36 +2046,18 @@ ZRC_API ZrcResult zrcNavMeshImageSwapEndian(const void* data, size_t size,
 /// Checks that `data` is a tile image this build can load, without building
 /// anything.
 ///
-/// One rule, and it is about memory safety rather than about which navmesh the
-/// tile belongs to: a tile of a grid passes here just as a lone tile does. The
-/// extra conditions live where they matter — zrcNavMeshDeserialize requires a
-/// tile with no neighbours, zrcNavMeshAddTile requires one that fits its
-/// grid — so there is one definition of "well formed" and two of "admissible".
+/// The rule is memory safety alone: a tile of a grid passes just as a lone tile
+/// does. zrcNavMeshDeserialize also requires a tile with no neighbours, and
+/// zrcNavMeshAddTile one that fits its grid.
 ///
-/// This exists because Detour's own dtNavMesh::init checks two fields — magic
-/// and version — by dereferencing the buffer *before* looking at its length,
-/// and then trusts every count in the header to address the rest of it. A
-/// truncated or doctored image is therefore an out-of-bounds read inside
-/// Detour, not an error return. This function closes that: it bounds-checks the
-/// header itself, rejects negative or inconsistent counts, and requires the
-/// total size implied by those counts to equal `size` exactly.
-///
-/// It then walks the arrays and bounds every index Detour will dereference:
-/// each polygon's corner count, corner indices and neighbour indices, each
-/// detail sub-mesh's base and extent, each detail triangle's corner
-/// resolution, each BV-tree node's polygon index or escape jump, and each
-/// off-mesh connection's polygon, side code and flags, with every coordinate
-/// required finite. That second pass is not optional —
-/// a `dtPoly::vertCount` of 200 in an otherwise untouched image passes every
-/// header check and then overruns a fixed stack array in four Detour functions
-/// with coordinates taken from the image.
-///
-/// What it still does not do is decide whether the mesh is *sensible*: a fully
-/// in-bounds image can describe degenerate polygons, a nonsense BV tree, or a
-/// navmesh whose geometry corresponds to nothing. So this is a guarantee about
-/// memory safety, not about the mesh being usable or trustworthy. For untrusted
-/// input, wrap the image in a length-and-signature container and check that
-/// first.
+/// The header is bounds-checked, negative or inconsistent counts are refused,
+/// and the size the counts imply must equal `size` exactly. Every index Detour
+/// will dereference is then bounded (polygon corners and neighbours, detail
+/// sub-meshes and triangles, BV-tree nodes, off-mesh connections) and every
+/// coordinate must be finite. A passing image may still describe a degenerate
+/// or meaningless mesh: for untrusted input, check a length-and-signature
+/// container first.
+/// See docs/design.md, Known upstream behaviour: dtNavMesh::init.
 ZRC_API ZrcResult zrcNavMeshValidate(const void* data, size_t size);
 
 /// Total polygons across the mesh. Returns -1 for a NULL navmesh.
@@ -2174,26 +2074,15 @@ ZRC_API ZrcResult zrcNavMeshBounds(const ZrcNavMesh* navmesh, float* bmin,
 //===----------------------------------------------------------------------===//
 // Geometry primitives
 //
-// The computational geometry Detour runs on, callable directly. These are what
-// a host needs when it reasons about a navmesh itself rather than asking a
-// query: whether a point is in a polygon, where a segment leaves one, how far
-// an agent is from an edge. Answering those questions with a second
-// implementation would mean answering them differently from Detour at the
-// boundaries, which is where every one of them matters.
+// The computational geometry Detour runs on, callable directly, so a host that
+// reasons about a navmesh itself answers exactly as Detour does at the
+// boundaries. The vector arithmetic underneath is on the Zig side, not here.
 //
-// The vector arithmetic underneath is deliberately NOT here. A three-float add
-// across an FFI boundary is a call to add three floats; the Zig side spells
-// those out and proves them bit-identical to the C instead. What crosses the
-// boundary is only the part with an algorithm in it.
-//
-// Every array is a caller's own, so every count is checked against what the
-// function will dereference rather than trusted — upstream checks none of
-// them. Positions are (x, y, z) triples and must be finite; a polygon is
-// `3 * vert_count` floats and must have at least three vertices, which is the
-// smallest shape each of these has a defined answer for.
-//
-// Where upstream projects onto the xz-plane and ignores y, so does this, and
-// each entry point says so.
+// Every array is the caller's, and every count is checked against what the
+// function will dereference. Positions are finite (x, y, z) triples; a polygon
+// is `3 * vert_count` floats with at least three vertices. Where upstream
+// projects onto the xz-plane and ignores y, so does this, and each entry point
+// says so.
 //===----------------------------------------------------------------------===//
 
 /// Closest point on a triangle to `point`, in 3D. All four arrays are 3 floats.
@@ -2583,35 +2472,16 @@ ZRC_API ZrcResult zrcRaycast(const ZrcNavMeshQuery* query,
 //===----------------------------------------------------------------------===//
 // Sliced pathfinding
 //
-// The same search zrcFindPath runs, driven a few iterations at a time so a
-// frame can spend a fixed budget on it. The state lives in the query object;
-// there is no second handle.
-//
-// Two things the C++ API leaves to a host, which this one does not:
-//
-//   * **The filter must outlive the call.** initSlicedFindPath stores the
-//     filter as a raw pointer and every later update and finalise reads
-//     through it (DetourNavMeshQuery.cpp:1233). The start and end positions
-//     are copied; the filter is not. ZrcNavMeshQuery keeps its own copy for
-//     the life of the slice, so a caller may destroy or change its filter
-//     while the slice runs, as it may after any other call.
-//
-//   * **One search at a time.** Detour's own class comment promises that const
-//     methods have "no impact on an in-progress sliced path query"
-//     (DetourNavMeshQuery.cpp:133). It is false. zrcFindPath,
-//     zrcFindPolysAroundCircle, zrcFindPolysAroundShape,
-//     zrcFindRandomPointAroundCircle and zrcFindDistanceToWall each begin by
-//     clearing the shared node pool, and dtNodePool::clear resets the count
-//     without clearing the storage — so the slice's best-node pointer stays
-//     valid while the nodes behind it are handed to the next search.
-//     Finalising then walks a chain belonging to that other search and
-//     returns plausible, wrong references. Those five are refused while a
-//     slice is in flight, with ZRC_ERR_SEARCH_IN_PROGRESS.
-//
-//     Refused, and not more: zrcFindNearestPoly, zrcQueryPolygons,
-//     zrcRaycast, zrcMoveAlongSurface, zrcFindLocalNeighbourhood and
-//     zrcFindRandomPoint touch no shared node, so a game loop may keep using
-//     them between slices of a path.
+// zrcFindPath's search, run a few iterations at a time; its state lives in the
+// query object with a copy of the filter, so the caller's filter may change or
+// die while the slice runs.
+// While a slice is in flight, zrcFindPath, zrcFindPolysAroundCircle,
+// zrcFindPolysAroundShape, zrcFindRandomPointAroundCircle and
+// zrcFindDistanceToWall return ZRC_ERR_SEARCH_IN_PROGRESS. zrcFindNearestPoly,
+// zrcQueryPolygons, zrcRaycast, zrcMoveAlongSurface, zrcFindLocalNeighbourhood
+// and zrcFindRandomPoint touch no shared node and stay usable between slices.
+// See docs/design.md, Known upstream behaviour: initSlicedFindPath.
+// See docs/design.md, Known upstream behaviour: dtNavMeshQuery's class comment.
 //===----------------------------------------------------------------------===//
 
 /// Options for zrcSlicedFindPathInit (Detour's dtFindPathOptions).
@@ -3125,28 +2995,16 @@ ZRC_API ZrcResult zrcHeightfieldLayerCons(const ZrcHeightfieldLayerSet* layers,
 //===----------------------------------------------------------------------===//
 // The tile cache — obstacles carved into a baked mesh at runtime
 //
-// A baked navmesh is fixed at cook time. A tile cache keeps each tile's
-// walkable surface in a compressed layer beside the navmesh, and rebuilds a
-// tile from that layer whenever an obstacle over it appears or goes away. It
-// is how a game does a door, a destructible, or a bridge that collapses.
-//
-// The shape a host works in:
-//
+// A tile cache keeps each tile's walkable surface in a compressed layer beside
+// the navmesh, and rebuilds a tile from it when an obstacle over it appears or
+// goes away: a door, a destructible, a bridge that collapses.
 //   cook time   a layer per tile, from zrcHeightfieldLayerSetCreate,
 //               compressed with the host's codec by zrcTileCacheLayerBuild
 //   load time   zrcTileCacheCreate, then zrcTileCacheAddTile per layer
 //   run time    zrcTileCacheAddCylinderObstacle and friends, then
 //               zrcTileCacheUpdate in a loop until it reports up to date
-//
-// No codec is bundled and no container format is invented. Upstream's own
-// interface is three functions and the vendored tree ships no implementation
-// of it, so this package supplies none either: a host picks a codec, and the
-// bytes a cook produces are the bytes that codec produced.
-//
-// Tile-cache tiles carry no bounding-volume tree — upstream sets
-// buildBvTree false when it builds one — so every query against one falls
-// back to a linear scan of the tile. That is upstream's design decision, and
-// it is what makes tile size worth choosing carefully.
+// No codec is bundled: the host supplies one. Tiles carry no bounding-volume
+// tree, so a query scans a tile linearly, which is what makes tile size matter.
 //===----------------------------------------------------------------------===//
 
 /// Magic and version of a compressed layer's header (DT_TILECACHE_MAGIC,
@@ -3479,24 +3337,18 @@ ZRC_API ZrcResult zrcTileCacheQueryTiles(const ZrcTileCache* cache,
 
 /// Processes queued obstacle requests and rebuilds **one** tile.
 ///
-/// That is the throttle rather than a batch API: a host calls this in a loop
-/// until `*out_up_to_date` is true, spending as much of a frame on it as it
-/// can afford. `out_up_to_date` may be NULL.
+/// A host calls this in a loop until `*out_up_to_date` is true, spending as
+/// much of a frame on it as it can afford. `out_up_to_date` may be NULL.
 ///
-/// A mesh-process callback that fails is reported here, but the tile it was
-/// called for has already been committed by then: upstream's callback returns
-/// void and the rebuild continues past it regardless. The tile is well formed
-/// — it carries whatever the callback wrote before failing, and no off-mesh
-/// connections — so the error means "rebuild that tile", not "nothing
-/// happened".
+/// A failing mesh-process callback is reported here, but its tile is already
+/// committed: well formed, carrying whatever the callback wrote before failing
+/// and no off-mesh connections. The error means "rebuild that tile", not
+/// "nothing happened".
 ///
-/// The tiles this produces go into `navmesh` through Detour directly, without
-/// the image validation zrcNavMeshAddTile applies. That is upstream's design
-/// and not something a binding can insert itself into: the bytes are built by
-/// upstream from a layer this package already checked on the way in, from
-/// parameters it checked at creation, and from a mesh-process callback it
-/// narrows to the fields the callback is for. Those three are where a host's
-/// data enters, and those three are checked.
+/// The tiles go into `navmesh` through Detour directly, without the image
+/// validation zrcNavMeshAddTile applies; what is checked instead is where a
+/// host's data enters: the layer, the creation parameters, and the fields the
+/// mesh-process callback may write.
 ZRC_API ZrcResult zrcTileCacheUpdate(ZrcTileCache* cache, ZrcNavMesh* navmesh,
                                      ZrcBool* out_up_to_date);
 
@@ -3732,44 +3584,16 @@ ZRC_API ZrcResult zrcTileCachePolyMeshFlags(const ZrcTileCachePolyMesh* mesh,
 //===----------------------------------------------------------------------===//
 // Crowds — many agents steering around each other and the world
 //
-// A query answers where an agent could go. A crowd moves it: every frame it
-// re-plans each agent's local path, looks at its neighbours and the walls
-// nearby, picks a velocity that avoids both, and integrates. The navmesh says
-// what is walkable; the crowd decides who walks where.
-//
-// The shape a host works in:
-//
 //   zrcCrowdCreate            once, against a navmesh that must outlive it
 //   zrcCrowdAddAgent          per agent, giving position and parameters
 //   zrcCrowdRequestMoveTarget per agent, whenever the destination changes
 //   zrcCrowdUpdate            once a frame, with the frame's delta time
 //   zrcCrowdAgentInfo         per agent, to read back position and velocity
 //
-// **The crowd owns an agent's movement.** Position and velocity are outputs it
-// recomputes every frame from the parameters and the target; there is no entry
-// point that writes them, because writing them is how a C++ host desynchronises
-// an agent from its own path corridor. Upstream says the same thing in prose
-// (DetourCrowd.h, "you give up direct control of the agent's movement") and
-// then hands out a mutable pointer anyway. What a host controls is what
-// zrcCrowdSetAgentParams and the three move-request entry points take.
-//
-// **Steering is not a cook.** The cross-platform guarantee this package makes
-// covers baked assets: the same geometry produces the same navmesh bytes on
-// every target (see zrcPolyMeshBake and docs/design.md). It does not extend here.
-// dtObstacleAvoidanceQuery::sampleVelocityAdaptive reaches cosf and sinf
-// (DetourObstacleAvoidance.cpp:499-500, 535-536) — the only transcendentals
-// anywhere in DetourCrowd — and replacing them with the exact polynomial the
-// bake path uses would cost a hot loop every frame for a decision that is
-// recomputed the next frame anyway. A host that needs a reproducible replay
-// should record its inputs, not assume the steering repeats.
-//
-// **Agents are referenced, not indexed.** Upstream identifies an agent by its
-// slot in a fixed pool: removeAgent only clears a flag, addAgent reuses the
-// lowest free slot, and every setter bounds-checks the index without ever
-// asking whether the slot is live. A stale index therefore drives whichever
-// agent took the slot next, silently. ZrcAgentRef carries a serial number
-// alongside the slot so a stale one is refused with ZRC_ERR_NOT_FOUND, the
-// same shape ZrcTileRef and ZrcObstacleRef already have.
+// The crowd owns position and velocity: a host steers only through
+// zrcCrowdSetAgentParams and the three move-request entry points. A stale
+// ZrcAgentRef is refused with ZRC_ERR_NOT_FOUND. Steering is outside the
+// byte-for-byte bake guarantee; see docs/design.md, Where it ends.
 //===----------------------------------------------------------------------===//
 
 /// Neighbours an agent steers around (DT_CROWDAGENT_MAX_NEIGHBOURS).
@@ -3794,21 +3618,11 @@ ZRC_API ZrcResult zrcTileCachePolyMeshFlags(const ZrcTileCachePolyMesh* mesh,
 
 /// Cell coordinates a crowd's proximity grid addresses without overflowing.
 ///
-/// Upstream hashes a cell by multiplying each coordinate by a large prime in
-/// int arithmetic (DetourProximityGrid.cpp:43-46); 73856093 * 30 is already
-/// past INT_MAX, so a coordinate outside this is signed overflow. The
-/// coordinate is an agent's world position divided by the grid's cell size,
-/// and a crowd sizes that cell at `max_agent_radius * 3` — so a world wider
-/// than about this many cells reaches it.
-///
-/// **Not defended against, because there is no seam to defend at**: dtCrowd
-/// calls its grid itself, from inside update(), with positions this package
-/// never sees. A C++ host is in exactly the same position. Refusing large
-/// worlds at the door would remove a capability upstream has rather than bind
-/// it. Named here so a host building with UBSan knows what a trap in
-/// hashPos2 is, and recorded in docs/design.md so a re-vendor can check whether
-/// upstream has fixed it. The standalone grid entry points below do not bound
-/// it either: a C++ host passing the same coordinate gets the same behaviour.
+/// A coordinate is an agent's world position divided by the grid's cell size,
+/// which a crowd sets at `max_agent_radius * 3`. Past this magnitude upstream's
+/// cell hash is signed overflow, which a UBSan build traps in hashPos2. Neither
+/// the crowd nor the standalone grid entry points below bound it.
+/// See docs/design.md, Known upstream behaviour: dtProximityGrid.
 #define ZRC_PROXIMITY_GRID_SAFE_CELL 29
 
 /// Agents one crowd may be created for.
@@ -4434,22 +4248,16 @@ ZRC_API ZrcResult zrcProximityGridClear(ZrcProximityGrid* grid);
 
 /// Files `id` under every cell the box [min_x, min_y] - [max_x, max_y] covers.
 ///
-/// The two axes are the world's x and z; upstream calls them x and y because
-/// the grid is two-dimensional, and this keeps its spelling.
+/// The two axes are the world's x and z; upstream spells them x and y.
 ///
-/// The four bounds must be finite, min <= max on both axes, and the box must
-/// cover at most ZRC_PROXIMITY_GRID_MAX_SPAN cells on each axis. Upstream
-/// floors each bound into an int and loops between them
-/// (DetourProximityGrid.cpp:104-112): a non-finite bound makes that conversion
-/// undefined, and a box spanning billions of cells is a loop that does not
-/// end. A cell coordinate outside [-32768, 32767] is refused too — upstream
-/// stores it in a `short` and compares the truncated copy against the full
-/// value when reading back, so items outside that range are filed and then
-/// never found.
+/// The four bounds must be finite, min <= max on both axes, the box must cover
+/// at most ZRC_PROXIMITY_GRID_MAX_SPAN cells on each axis, and every cell
+/// coordinate must lie in [-32768, 32767]; anything else, or a NULL `grid`, is
+/// ZRC_ERR_INVALID_ARGUMENT.
+/// See docs/design.md, Known upstream behaviour: dtProximityGrid::addItem.
 ///
 /// **Silently drops items once the pool is full**, which is upstream's own
-/// behaviour and is why the pool size is a capacity question rather than an
-/// error one.
+/// behaviour, so the pool size is a capacity question rather than an error.
 ZRC_API ZrcResult zrcProximityGridAddItem(ZrcProximityGrid* grid, uint16_t id,
                                           float min_x, float min_y,
                                           float max_x, float max_y);
@@ -4812,15 +4620,9 @@ ZRC_API ZrcResult zrcPathCorridorPath(const ZrcPathCorridor* corridor,
 /// Each edits `path` in place and reports the new length in `*out_count`.
 /// `path_count` is the current length, `max_path` the array's capacity, and
 /// `visited` the polygons crossed since the last edit, in the order they were
-/// crossed. `path_count` and `visited_count` must both be in [0, max_path].
-///
-/// **`visited_count` above `max_path` is what corrupts memory upstream.** Two
-/// of the three compute a merge width, subtract it from the capacity in a
-/// signed int, and hand the difference to memmove as a length
-/// (DetourPathCorridor.cpp:60-63, 146-149). A width wider than the capacity
-/// makes that difference negative, and memmove reads it as roughly 2^64 bytes
-/// from a pointer already past the end of the array. The third asserts the
-/// bound and the assert compiles away (DetourPathCorridor.cpp:103).
+/// crossed. `path_count` and `visited_count` must both be in [0, max_path], or
+/// the call returns ZRC_ERR_INVALID_ARGUMENT.
+/// See docs/design.md, Known upstream behaviour: dtMergeCorridorStartMoved.
 ///
 /// A merge whose result would not fit is truncated by upstream with no signal;
 /// `*out_count` is the length that resulted either way.
@@ -5016,20 +4818,15 @@ ZRC_API ZrcResult zrcPathQueueNavMeshQuery(const ZrcPathQueue* queue,
 //===----------------------------------------------------------------------===//
 // DebugUtils — drawing what a bake produced, and dumping it to a file
 //
-// Upstream's fifth directory. Every entry point in it renders through one
-// abstract class, duDebugDraw, whose implementation a host supplies: the
-// library decides what a heightfield, a region or a navmesh looks like as
-// points, lines, triangles and quads, and the host decides what to do with
-// them. ZrcDebugDraw below is that class as a table of function pointers, and
-// the shim wears it as the C++ subclass upstream expects.
+// Every entry point renders through duDebugDraw, whose implementation a host
+// supplies: the library decides what a heightfield, a region or a navmesh
+// looks like as points, lines, triangles and quads, and the host what to do
+// with them. ZrcDebugDraw below is that class as a table of function pointers.
 //
-// Nothing here is part of a cook. These calls read a container and emit
-// primitives; none of them allocates, mutates what it is given, or affects a
-// navmesh a query will see. The two read entry points are the exception and
-// say so.
-//
-// RecastDump.h's duFileIO is the same shape for bytes rather than primitives:
-// four hooks a host fills, so a dump reaches whatever a host calls a file.
+// None of these calls allocates, mutates what it is given, or affects a
+// navmesh a query will see, except the two read entry points, which say so.
+// RecastDump.h's duFileIO is the same shape for bytes: four hooks a host
+// fills, so a dump reaches whatever a host calls a file.
 //===----------------------------------------------------------------------===//
 
 /// Recast's own pi, the one duDebugDrawTriMeshSlope converts degrees with

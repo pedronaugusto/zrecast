@@ -3,20 +3,15 @@
 //! A `NavMesh` says what is walkable and a `NavMeshQuery` answers where an
 //! agent could go. A `Crowd` moves it: every frame it re-plans each agent's
 //! local path, collects the neighbours and walls nearby, picks a velocity that
-//! avoids both, and integrates under acceleration and speed limits.
-//!
-//! The crowd owns an agent's movement. Position and velocity are outputs it
-//! recomputes each frame from the parameters and the target; what a host
-//! controls is `Crowd.setAgentParams` and the three move-request calls.
+//! avoids both, and integrates under acceleration and speed limits. Position
+//! and velocity are outputs; a host controls `Crowd.setAgentParams` and the
+//! three move-request calls.
 //!
 //! `ProximityGrid`, `AvoidanceQuery`, `PathCorridor`, `LocalBoundary` and
-//! `PathQueue` are the parts a crowd drives internally, each usable on its own
-//! by a host steering a single character.
+//! `PathQueue` are the parts a crowd drives internally, each usable on its own.
 //!
-//! The package's byte-for-byte cook guarantee does not reach here: the
-//! adaptive velocity sampler calls `cosf` and `sinf`, and steering is a
-//! frame-local decision recomputed the next frame. A host that needs a
-//! reproducible replay should record its inputs. See `ffi/zrecast.h`.
+//! The byte-for-byte cook guarantee does not reach here: the velocity sampler
+//! calls `cosf` and `sinf`. See `ffi/zrecast.h`.
 
 const aegis = @import("aegis");
 const c = @import("c.zig");
@@ -121,13 +116,10 @@ pub const Crowd = struct {
 
     /// Creates a crowd of at most `max_agents`, planning against `navmesh`.
     ///
-    /// `navmesh` is borrowed and must outlive the crowd. Tiles may come and go
-    /// underneath: an agent whose polygon is removed drops to `.invalid` and
-    /// recovers when one is there again.
-    ///
+    /// `navmesh` is borrowed and must outlive the crowd; an agent whose polygon
+    /// is removed drops to `.invalid` and recovers when one is there again.
     /// `max_agents` is `[1, crowd_max_agents]`; `max_agent_radius` sizes the
-    /// crowd's proximity grid and its placement search box, and an agent added
-    /// with a larger radius is refused.
+    /// proximity grid and search box, and a larger agent radius is refused.
     pub fn init(navmesh: NavMesh, max_agents: u32, max_agent_radius: f32, failure: *err.Failure) err.Error!Crowd {
         const agents = aegis.int.cast(i32, max_agents) catch
             return err.refuse(failure, .crowd_create, error.InvalidArgument);
@@ -156,9 +148,8 @@ pub const Crowd = struct {
 
     /// Adds an agent at the navmesh position nearest `position`.
     ///
-    /// The agent is placed on the navmesh, not at the point asked for. When
-    /// nothing is near enough it is still added, at the requested point, in
-    /// state `.invalid` — it exists and is not steered.
+    /// When nothing is near enough it is still added, at the requested point,
+    /// in state `.invalid` — it exists and is not steered.
     ///
     /// `error.CrowdFull` when every slot is taken.
     pub fn addAgent(
@@ -822,11 +813,9 @@ pub const PathCorridor = struct {
     /// String-pulls the corridor ahead into the corners to walk, returning how
     /// many were produced.
     ///
-    /// **At most `out.len - 1` corners come back**, which is upstream's own
-    /// behaviour rather than a rounding error: the string-pull reserves the
-    /// last slot for the corridor's end point and then drops the first when
-    /// the agent already stands on it. Ask for one more than needed; `out`
-    /// must hold at least two.
+    /// **At most `out.len - 1` corners come back**, upstream's own behaviour:
+    /// the string-pull reserves the last slot for the corridor's end point and
+    /// drops the first when the agent stands on it. `out` holds at least two.
     pub fn findCorners(
         self: PathCorridor,
         query: NavMeshQuery,
@@ -1225,9 +1214,8 @@ fn PathQueueOf(comptime access: c.Access) type {
 
         /// Advances the request at the front by at most `max_iters` iterations.
         ///
-        /// One call advances one request, so a queue with several outstanding is
-        /// drained over several calls. A request that does not finish within one
-        /// call's budget holds the front and the others wait behind it, and a
+        /// One call advances one request. A request that does not finish within
+        /// one call's budget holds the front and the others wait behind it, and a
         /// finished result is discarded two calls after it became ready — both
         /// upstream's behaviour.
         pub fn update(self: Self, max_iters: u32, failure: *err.Failure) err.Error!void {
@@ -1270,14 +1258,12 @@ fn PathQueueOf(comptime access: c.Access) type {
             return state;
         }
 
-        /// Takes a finished request's path and frees its slot, returning its
-        /// length.
+        /// Takes a finished request's path and frees its slot; returns the length.
         ///
         /// `error.SearchInProgress` when it has not finished and `error.NotFound`
         /// for a reference no slot holds; the request survives both. The slot is
         /// freed whichever way a successful call ends, so size `out` at the
-        /// queue's `max_path_size` rather than retrying after
-        /// `error.BufferTooSmall`.
+        /// queue's `max_path_size` rather than retrying after `error.BufferTooSmall`.
         pub fn result(self: Self, ref: PathRequestRef, out: []PolyRef, failure: *err.Failure) err.Error!usize {
             const max_path = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .path_queue_result, error.InvalidArgument);
             const ptr: ?[*]PolyRef = if (out.len == 0) null else out.ptr;

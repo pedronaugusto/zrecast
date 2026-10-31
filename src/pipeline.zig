@@ -34,19 +34,11 @@ pub const LogCategory = c.LogCategory;
 pub const TimerLabel = c.TimerLabel;
 
 /// Where a build's log messages and timings go: the same seam as upstream's
-/// `rcContext`, restated as a POD rather than a class with six protected
-/// virtuals.
-///
-/// Every hook may be `null` individually, and the whole context may be
-/// `null` wherever one is asked for — a null context has both flags clear,
-/// while a default-initialised one has both set, the same as upstream's own
-/// `rcContext()`. The flags gate more than convenience: `accumulatedTime`
-/// answers -1 without calling the hook at all when `timers_enabled` is
-/// false, the same as upstream.
-///
-/// A `log` message over 511 bytes arrives as two calls: first an error
-/// reading "Log message was truncated", at a category the caller did not
-/// choose, then the message cut to 511 bytes.
+/// `rcContext`, as a POD rather than a class with six protected virtuals.
+/// Every hook may be `null`, and so may the whole context: a null context has
+/// both flags clear, a default one both set. `accumulatedTime` answers -1
+/// without calling its hook while `timers_enabled` is false.
+/// See docs/design.md, Known upstream behaviour: `rcContext::log`.
 pub const BuildContext = struct {
     /// Passed back to every hook untouched.
     user: ?*anyopaque = null,
@@ -62,11 +54,10 @@ pub const BuildContext = struct {
     accumulated_time: ?*const fn (user: ?*anyopaque, label: TimerLabel) callconv(.c) i32 = null,
     /// Clear to silence `log` and `reset_log` without removing them.
     ///
-    /// Defaulted on, matching upstream's own `rcContext()` constructor rather
-    /// than the zeroed C struct: a host that installs a hook and gets silence
-    /// has the same trouble a flagless polygon gives a query. The C side
-    /// cannot default this way, because a zeroed ZrcBuildContext has to be a
-    /// valid one.
+    /// Defaulted on, matching upstream's own `rcContext()` constructor: a host
+    /// that installs a hook and gets silence has the same trouble a flagless
+    /// polygon gives a query. The C side defaults off, since a zeroed
+    /// ZrcBuildContext has to be a valid one.
     log_enabled: bool = true,
     /// Clear to silence the four timer hooks; `accumulatedTime` then always
     /// answers -1. Defaulted on for the same reason.
@@ -158,13 +149,11 @@ pub fn calcGridSize(bmin: [3]f32, bmax: [3]f32, cell_size: f32, failure: *err.Fa
 }
 
 /// Writes `area_walkable` into `out_areas` for every triangle of `mesh`
-/// whose slope is within `walkable_slope_angle`, leaving the rest
-/// untouched.
+/// whose slope is within `walkable_slope_angle`, leaving the rest untouched:
+/// zero the array first, or reuse one already marked.
 ///
-/// `out_areas` is one byte per triangle: its length must equal `mesh`'s
-/// triangle count, checked here since the C side only ever sees a bare
-/// pointer. Untouched means untouched — zero the array first, or reuse one
-/// already marked.
+/// `out_areas` is one byte per triangle, its length equal to `mesh`'s
+/// triangle count, checked here since the C side sees a bare pointer.
 pub fn markWalkableTriangles(
     context: ?*const BuildContext,
     walkable_slope_angle: f32,
@@ -229,13 +218,9 @@ pub const Heightfield = struct {
     /// Allocates a `width` x `height` field over `bmin`..`bmax`, the same
     /// grid `calcGridSize` computes and the same bounds it applies.
     ///
-    /// Upstream allocates `width * height` span pointers from their product
-    /// in plain `int` arithmetic, which two large sizes overflow before the
-    /// allocation is even attempted; `width * height` above 268435456 is
-    /// refused. The vertical extent is bounded too, separately:
-    /// `(bmax[1] - bmin[1]) / cell_height` must be under 8191, all a span's
-    /// 13-bit extent can address, since nothing else catches a height that
-    /// overflows it.
+    /// `width * height` above 268435456 is refused, as is a vertical extent
+    /// `(bmax[1] - bmin[1]) / cell_height` of 8191 or more, past a span's 13 bits.
+    /// See docs/design.md, Known upstream behaviour: `rcCreateHeightfield`.
     pub fn init(
         context: ?*const BuildContext,
         width: i32,
@@ -280,11 +265,8 @@ pub const Heightfield = struct {
     /// Copies the column at (`x`, `z`), lowest span first, into `out`, and
     /// returns how many spans the column holds in total.
     ///
-    /// `out` receives however many fit; the total is always the return
-    /// value, written whether or not every span fit, so a caller compares
-    /// it against `out.len` to see whether a second, larger call is needed
-    /// rather than treating a short column as failure. An empty `out` asks
-    /// only for the count.
+    /// `out` receives however many fit and the total is always returned, so a
+    /// short `out` is not a failure; an empty `out` asks only for the count.
     pub fn column(self: Heightfield, x: i32, z: i32, out: []Span, failure: *err.Failure) err.Error!usize {
         const max_spans = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .heightfield_column, error.InvalidArgument);
         const ptr: ?[*]Span = if (out.len == 0) null else out.ptr;
@@ -814,15 +796,11 @@ pub fn polyMeshCopy(context: ?*const BuildContext, src: PolyMesh, dst: PolyMesh,
 }
 
 /// Merges `meshes` into `out`, which must be empty in both halves. Both
-/// halves must be present in every input or absent from every input; every
-/// input must carry its own agent dimensions and its own `verts_per_poly`,
-/// and every input after the first must match the first on both — upstream
-/// takes the first mesh's stride and dimensions for the whole merge. A
-/// failure partway through can leave `out` holding a merged polygon half
-/// and no detail half; destroy it and start again rather than reuse it.
-///
-/// Builds a scratch array of C handles from `meshes` through the installed
-/// allocator, freed before this returns.
+/// halves must be present in every input or absent from every input, and
+/// every input must carry agent dimensions and `verts_per_poly` matching the
+/// first's. A failure partway can leave `out` with a polygon half and no
+/// detail half: destroy it rather than reuse it.
+/// See docs/design.md, Known upstream behaviour: `rcMergePolyMeshes`.
 pub fn polyMeshMerge(
     context: ?*const BuildContext,
     meshes: []const PolyMesh,
@@ -888,13 +866,9 @@ pub fn dirOffsetY(direction: i32) i32 {
 
 /// The direction that steps by (`offset_x`, `offset_z`) — one of the four
 /// compass directions, for the four combinations where exactly one of them
-/// is nonzero. Mirrors upstream's `rcGetDirForOffset`.
-///
-/// Upstream indexes a five-entry table with no bound of its own. Each
-/// argument inside [-1, 1] is not enough on its own: a diagonal
-/// combination inside that range still derives an index outside the table.
-/// Both the arguments and the derived index are checked here, and
-/// `error.InvalidArgument` replaces upstream's out-of-bounds read.
+/// is nonzero; otherwise `error.InvalidArgument`, where upstream's
+/// `rcGetDirForOffset` reads out of bounds.
+/// See docs/design.md, Known upstream behaviour: `rcGetDirForOffset`.
 pub fn dirForOffset(offset_x: i32, offset_z: i32, failure: *err.Failure) err.Error!i32 {
     if (offset_x < -1 or offset_x > 1 or offset_z < -1 or offset_z > 1) {
         return err.refuse(failure, .dir_for_offset, error.InvalidArgument);

@@ -35,11 +35,9 @@ pub fn defaultFilterDesc() QueryFilterDesc {
 /// Which polygons a query may traverse, and what each area costs: Detour's
 /// filter, checked once when it is made.
 ///
-/// Every query takes one, so no call checks the costs again or rebuilds
-/// Detour's filter. A query only reads it, so queries on any number of
-/// threads may share one; changing it while one of them runs is a data race.
-/// A sliced search, a path queue request and a crowd keep a copy, so it need
-/// not outlive them.
+/// A query only reads it, so queries on any number of threads may share one;
+/// changing it while one of them runs is a data race. A sliced search, a path
+/// queue request and a crowd keep a copy, so it need not outlive them.
 pub const QueryFilter = struct {
     handle: *c.QueryFilter,
 
@@ -131,10 +129,8 @@ pub const PathResult = struct {
     /// The answer is a best effort: either the goal was unreachable, the node
     /// pool ran out, or the buffer could not hold the whole result.
     ///
-    /// This is deliberately not folded into the error set. A partial path is
-    /// usable — an agent walks it and re-plans — and collapsing it into an
-    /// error would push every caller into treating "no route" and "long route"
-    /// the same way.
+    /// Not an error: a partial path is usable — an agent walks it and re-plans —
+    /// and an error would make "no route" and "long route" look the same.
     partial: bool,
 };
 
@@ -268,18 +264,11 @@ pub const ClosestPoint = struct {
 };
 
 /// How much of a caller's buffers a Dijkstra-style search filled, and whether
-/// it had to stop short.
-///
-/// Several entry points below share one C-side `max_result` across two or
-/// three output arrays. The Zig side takes a slice per array: an **empty**
-/// slice passes NULL and means "not wanted"; a non-empty one must be exactly
-/// as long as every other non-empty one in the group, or the call is
-/// `error.InvalidArgument`, and `max_result` is that shared length.
-/// `findLocalNeighbourhood` and `polyWallSegments` each have one array
-/// upstream requires non-NULL regardless of what is wanted (`out_refs`,
-/// `out_verts`); for those the required array's own length sets the capacity,
-/// and only the remaining, genuinely optional array follows the
-/// empty-means-NULL rule.
+/// it had to stop short. Where a search fills several arrays, an empty slice
+/// means "not wanted" and the non-empty ones must share one length, or
+/// `error.InvalidArgument`. `findLocalNeighbourhood`'s `out_refs` and
+/// `polyWallSegments`' `out_verts` are always required; their length is the
+/// capacity, and only the other array may be empty.
 pub const ReachedPolys = struct {
     len: usize,
     truncated: bool,
@@ -580,13 +569,11 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
             };
         }
 
-        /// Casts a walkability ray across the surface.
-        ///
-        /// Not a physics ray: it ignores height and reports the first navmesh
-        /// boundary crossed. `prev_ref` is the polygon `start_ref` was entered
-        /// from, or null for "no parent"; it affects nothing but the cost of
-        /// entering `start_ref`, and only when `options.use_costs` is set.
-        /// `out_path`, when given, receives the polygons crossed.
+        /// Casts a walkability ray across the surface; `out_path`, when given,
+        /// receives the polygons crossed. Not a physics ray: it ignores height and
+        /// reports the first navmesh boundary crossed. `prev_ref` is the polygon
+        /// `start_ref` was entered from, or null; it affects only the cost of
+        /// entering `start_ref`, and only with `options.use_costs`.
         pub fn raycast(
             self: Self,
             start_ref: PolyRef,
@@ -671,11 +658,9 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
 
         /// Reads out the corridor a finished search found, and ends the slice.
         ///
-        /// A second call in a row is `error.NoSearch` rather than an answer:
-        /// upstream clears its own re-entry guard on the way out without clearing
-        /// the state it guards, so a second call would otherwise fall into the
-        /// "start and end are the same polygon" branch and report success with a
-        /// one-element path holding the null reference.
+        /// A second call in a row is `error.NoSearch` rather than a one-element
+        /// path holding the null reference.
+        /// See docs/design.md, Known upstream behaviour: `finalizeSlicedFindPath`.
         pub fn slicedFindPathFinalize(self: Self, out_path: []PolyRef, failure: *err.Failure) err.Error!PathResult {
             const capacity = aegis.int.cast(i32, out_path.len) catch
                 return err.refuse(failure, .sliced_find_path_finalize, error.InvalidArgument);
@@ -748,13 +733,10 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
         }
 
         /// A random point on a polygon the search reached within `max_radius` of
-        /// `center`, starting from `start_ref`. Reachable, not merely near: the
-        /// search walks the surface, so a polygon across a wall is not a
-        /// candidate however close it is.
-        ///
-        /// The polygon is what the radius bounds, not the point. Upstream picks a
-        /// polygon the search reached and places the point anywhere inside it, and
-        /// a polygon reached near the edge of the circle extends past it.
+        /// `center`, starting from `start_ref`. Reachable, not merely near: a
+        /// polygon across a wall is not a candidate however close it is. The radius
+        /// bounds the polygon, not the point, which may lie outside the circle.
+        /// See docs/design.md, Known upstream behaviour: `findRandomPointAroundCircle`.
         pub fn findRandomPointAroundCircle(
             self: Self,
             start_ref: PolyRef,

@@ -139,6 +139,12 @@ not express, so a port has the reason and not only the diff.
   behaviour and how the package is tested, folding in BINDING.md, UPSTREAM.md
   and the six files under `docs/`.
 
+- Comments are held to the family's caps, six lines above a declaration
+  and fourteen for a file or section header, with a stated cap of sixteen
+  for a doc block in `ffi/zrecast.h`, which holds the C contract only.
+  Rationale that lived in comments is in `docs/design.md`, whose record of
+  upstream's behaviour is now a table: one row per defect, saying what the
+  binding does about it.
 - A free through the allocator bridge of a block it did not issue, a
   sub-slice of one or a block from another allocator, stops a Debug or
   ReleaseSafe build with a message naming it. It used to leak silently in

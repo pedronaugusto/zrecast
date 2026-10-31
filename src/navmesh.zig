@@ -116,10 +116,9 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// Creates an empty navmesh sized for a tile grid.
         ///
         /// `max_tiles` bounds how many tiles may be resident at once and
-        /// `max_polys_per_tile` how many polygons any one may hold. Both feed
-        /// Detour's 32-bit polygon reference, which needs 10 bits of salt left
-        /// over: rounded up to powers of two, the two together may claim at most
-        /// 22 bits, and `InvalidArgument` says they did not.
+        /// `max_polys_per_tile` how many polygons any one may hold. Rounded up to
+        /// powers of two, the two together may claim at most 22 bits of Detour's
+        /// 32-bit polygon reference, or `InvalidArgument`.
         pub fn initTiled(
             grid: TileGrid,
             max_tiles: u32,
@@ -175,18 +174,12 @@ fn NavMeshOf(comptime access: c.Access) type {
             return c.reported(u32, c.zrcNavMeshTileCount(self.handle));
         }
 
-        /// The tile in slot `index`, or null when the slot is empty.
-        ///
-        /// Slots are the navmesh's own storage, `maxTiles` of them; walking them is
-        /// how a host enumerates what is resident without knowing where to look.
         /// Every tile stacked at a grid position, across all layers, lowest
         /// first, and how many are resident there in total.
         ///
-        /// `out` receives however many fit; the total is always the return value,
-        /// so a caller compares it against `out.len` to see whether a second,
-        /// larger call is needed rather than treating a short buffer as failure.
-        /// An empty `out` asks only for the count. A tile cache is what stacks
-        /// layers at one position.
+        /// `out` receives however many fit and the total is always the return value,
+        /// so a short buffer is not a failure; an empty `out` asks only for the
+        /// count. A tile cache is what stacks layers at one position.
         pub fn tileRefsAt(
             self: Self,
             tile_x: i32,
@@ -204,6 +197,10 @@ fn NavMeshOf(comptime access: c.Access) type {
             return c.reported(usize, count);
         }
 
+        /// The tile in slot `index`, or null when the slot is empty.
+        ///
+        /// Slots are the navmesh's own storage, `maxTiles` of them; walking them is
+        /// how a host enumerates what is resident without knowing where to look.
         pub fn tileRefAtIndex(self: Self, index: u32, failure: *err.Failure) err.Error!?TileRef {
             const i = aegis.int.cast(i32, index) catch return err.refuse(failure, .nav_mesh_tile_ref_at_index, error.InvalidArgument);
             var ref: c.Maybe(TileRef) = .none;
@@ -274,11 +271,9 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// The two endpoints of an off-mesh connection, `.{ start, end }`, in the
         /// direction of travel.
         ///
-        /// `prev_ref` is the polygon the path arrives from, and decides which
-        /// endpoint is reported first: pass the polygon immediately before the
-        /// connection in the corridor. Anything else — including null — reports them
-        /// reversed, because arriving from anywhere that is not endpoint A's
-        /// landing polygon means arriving from endpoint B.
+        /// `prev_ref` is the polygon the path arrives from and decides which endpoint
+        /// comes first: pass the polygon just before the connection in the corridor.
+        /// Anything else, null included, reports them reversed.
         pub fn offMeshConnectionEndPoints(
             self: Self,
             prev_ref: ?c.PolyRef,
@@ -299,10 +294,8 @@ fn NavMeshOf(comptime access: c.Access) type {
         /// The connection a polygon reference names, as it is stored.
         ///
         /// `.flags` and `.area` come from the connection's polygon, so a
-        /// `setPolyFlags` since the tile was added is reflected here. The
-        /// endpoints are the stored ones, which is not always where the
-        /// connection attached: `offMeshConnectionEndPoints` reports where it
-        /// landed.
+        /// `setPolyFlags` since the tile was added is reflected here. The endpoints
+        /// are the stored ones; `offMeshConnectionEndPoints` reports where it landed.
         pub fn offMeshConnection(self: Self, ref: c.PolyRef, failure: *err.Failure) err.Error!OffMeshConnection {
             var out: OffMeshConnection = undefined;
             try err.check(failure, .nav_mesh_off_mesh_connection, c.zrcNavMeshOffMeshConnection(self.handle, ref, &out));
@@ -405,10 +398,8 @@ fn NavMeshOf(comptime access: c.Access) type {
 
         /// Copies detail triangles into `out`, starting at `first`, one `[4]u8`
         /// each: three corner indices and an edge-flag byte. Same range rule as
-        /// `tileVerts`.
-        ///
-        /// A corner below the owning polygon's `vert_count` names one of its own
-        /// corners; at or above it, name `detail_vert_base + corner - vert_count`
+        /// `tileVerts`. A corner below the owning polygon's `vert_count` is one of
+        /// its own corners; at or above it, `detail_vert_base + corner - vert_count`
         /// in the detail vertex array.
         pub fn tileDetailTris(self: Self, ref: TileRef, first: u32, out: [][4]u8, failure: *err.Failure) err.Error!void {
             const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .nav_mesh_tile_detail_tris, error.InvalidArgument);
@@ -490,18 +481,9 @@ fn NavMeshOf(comptime access: c.Access) type {
 /// A buffer the library allocated, and the right to free it.
 ///
 /// A whole single-tile navmesh from `NavMesh.serialize`, or one tile from
-/// `buildTileData`. Both are bytes from the installed allocator and both are
-/// freed the same way.
-///
-/// This is a type rather than a bare `[]u8` plus a `freeSerialized(bytes)`
-/// function for one reason: the buffer comes from the installed allocator
-/// behind a private header, so only its original base pointer can be freed.
-/// With a free function taking a slice, `freeSerialized(bytes[8..])` compiles
-/// and hands the allocator a pointer it never issued. The Zig allocator
-/// bridge refuses such a pointer where it can recognise one, and upstream's
-/// malloc cannot; an image is also a thing callers index into, so the
-/// spelling should not exist at this seam at all. Owning the slice makes it
-/// impossible instead of merely discouraged.
+/// `buildTileData`, from the installed allocator behind a private header.
+/// Only its base pointer can be freed, so the type owns the slice and no
+/// spelling can hand a sub-slice back.
 pub const Serialized = struct {
     /// The image. Borrow it freely; it lives until `deinit`.
     bytes: []u8,
@@ -513,10 +495,8 @@ pub const Serialized = struct {
 
 /// Cooks a baked tile into the bytes a navmesh accepts.
 ///
-/// This is the cook step of a tiled build: write the bytes to disk, and hand
-/// them to `NavMesh.addTile` at runtime. The grid position is stored in the
-/// image, so a tile knows where it belongs without being told again.
-///
+/// The cook step of a tiled build: write the bytes to disk and hand them to
+/// `NavMesh.addTile` at runtime; the grid position is stored in the image.
 /// `authoring` is optional and supplies the tile's off-mesh connections and
 /// opaque user id, same contract as `NavMesh.initFromPolyMesh`.
 pub fn buildTileData(
@@ -547,27 +527,11 @@ pub fn buildTileData(
 }
 
 /// Checks that `image` is a tile image this build can load, without building
-/// anything.
-///
-/// One rule, and it is about memory safety rather than about which navmesh the
-/// tile belongs to: a tile of a grid passes here just as a lone tile does. The
-/// extra conditions live where they matter — `NavMesh.initFromBytes` wants a
-/// tile with no neighbours, `NavMesh.addTile` one that fits its grid.
-///
-/// Worth calling on its own before, say, admitting a file into a content
-/// pipeline. Detour's own loader checks two header fields by dereferencing the
-/// buffer before it looks at the length, then trusts every count in that header
-/// to address the rest; this closes both gaps.
-///
-/// It then bounds every index inside the image that Detour dereferences —
-/// polygon corner counts and indices, detail sub-mesh bases and extents, detail
-/// triangle corners, BV-tree nodes. That pass is what makes a doctored image
-/// safe: a polygon claiming 200 corners passes every header check and then
-/// overruns a fixed stack array inside Detour.
-///
-/// It does not decide whether the mesh is *sensible*. An in-bounds image can
-/// still describe a degenerate or useless navmesh. This is a guarantee about
-/// memory safety, not about trustworthiness.
+/// anything: the header against the length, then every index Detour
+/// dereferences. A memory-safety guarantee only; a lone tile and a tile of a
+/// grid both pass, and an in-bounds image may still be degenerate.
+/// See docs/design.md, Known upstream behaviour: `dtNavMesh::init`.
+/// See docs/design.md, Known upstream behaviour: `dtPoly::vertCount`.
 pub fn validate(image: Image, failure: *err.Failure) err.Error!void {
     const bytes = image.readForParse();
     try err.check(failure, .nav_mesh_validate, c.zrcNavMeshValidate(bytes.ptr, bytes.len));
@@ -587,10 +551,9 @@ pub const Range = struct {
 /// Where each of a tile image's eight arrays lives, and how many bytes it
 /// occupies, both relative to the start of the image.
 ///
-/// A host parsing an image itself — a tool that patches polygon flags in a
-/// cooked asset, say — wants these numbers directly rather than through
-/// `.of`, which borrows from the image; `.offset` and `.len` write into it
-/// instead.
+/// For a host parsing an image itself, a tool that patches polygon flags in
+/// a cooked asset say: `.of` borrows from the image, while `.offset` and
+/// `.len` address it for writing.
 pub const TileLayout = struct {
     verts: Range,
     polys: Range,
@@ -637,14 +600,10 @@ pub fn tileLayout(image: Image, failure: *err.Failure) err.Error!TileLayout {
 
 /// Rewrites a cooked tile image into the opposite byte order, as a new buffer.
 ///
-/// A host that cooks on one architecture and loads on another of the opposite
-/// byte order converts on one side or the other; this is that conversion. The
-/// input is never modified, and the caller owns the result.
-///
-/// `from_native` says which way round: true when `image` is one this build
-/// can load and the result is for the other machine, false when `image` came
-/// from that machine and the result is for this one. Either way the result is
-/// validated in full before it is handed back.
+/// The input is never modified, and the caller owns the result. `from_native`
+/// is true when `image` is one this build can load and the result is for a
+/// machine of the other byte order, false the other way round. Either way the
+/// result is validated in full before it is handed back.
 pub fn swapImageEndian(image: Image, from_native: bool, failure: *err.Failure) err.Error!Serialized {
     const bytes = image.readForParse();
     var data: ?*anyopaque = null;

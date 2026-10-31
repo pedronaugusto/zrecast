@@ -15,19 +15,9 @@ namespace {
 /// Upper bound Detour itself enforces on the node pool (DT_NULL_IDX).
 const int32_t kMaxNodes = 0xffff;
 
-/// Lower bound, and it is not cosmetic.
-///
-/// dtNavMeshQuery::init builds its node pool as
-/// `dtNodePool(maxNodes, dtNextPow2(maxNodes / 4))`. For maxNodes below 4 that
-/// second argument is `dtNextPow2(0)`, and dtNextPow2 returns **0** for 0 (it
-/// decrements, smears the bits, and increments back through the wrap). The pool
-/// then allocates a zero-byte hash table, and its own
-/// `dtAssert(dtNextPow2(m_hashSize) == m_hashSize)` passes because 0 == 0, so
-/// even an asserts-on build says nothing.
-///
-/// Every later bucket index is `hash & (m_hashSize - 1)` — `hash & 0xFFFFFFFF`
-/// — so the first search reads, and then *writes*, gigabytes past a zero-byte
-/// allocation. Four is the smallest value for which the hash table exists.
+/// Lower bound: below 4, dtNavMeshQuery::init builds a node pool with a
+/// zero-byte hash table, and the first search writes far past it.
+/// See docs/design.md, Known upstream behaviour: dtNavMeshQuery::init.
 const int32_t kMinNodes = 4;
 
 /// Scratch used when a caller asks for a move but not for the polygons it
@@ -37,23 +27,17 @@ const int32_t kDiscardVisited = 16;
 
 /// The most grid cells one query may scan.
 ///
-/// dtNavMeshQuery::queryPolygons turns the caller's box into a tile range and
-/// walks every cell of it, calling getTilesAt on each — including cells no tile
-/// has ever occupied (DetourNavMeshQuery.cpp:947-956). Nothing bounds that
-/// range except the int a tile coordinate is cast to. Measured here at roughly
-/// ten million cells a second, so this ceiling is a few tenths of a second; a
-/// half-extent of 1e7 over a 50 m tile would be 1.4e11 lookups, which is not
-/// undefined behaviour, merely a call that never returns.
+/// dtNavMeshQuery::queryPolygons walks every cell of the caller's box,
+/// occupied or not, bounded only by the int a tile coordinate is cast to
+/// (DetourNavMeshQuery.cpp:947-956). At about ten million cells a second
+/// (measured), this ceiling costs a few tenths of a second.
 const int64_t kMaxQueryCells = 1 << 22;
 
 /// The largest tile coordinate a query box may reach, exclusive, on either
-/// side of zero.
-///
-/// Detour computes the coordinate in float and converts it to an int; the
-/// check computes it in double. Near 2^31 a float is 128 apart from the next,
-/// so a coordinate just under 2^31 in double can round to 2^31 in float and
-/// overflow the conversion. Half that is out of reach of any rounding, and no
-/// grid a navmesh can address has a tile that far out.
+/// side of zero. Detour computes the coordinate in float and converts it to
+/// int; the check computes it in double. Near 2^31 floats are 128 apart, so a
+/// double just under 2^31 can round to 2^31 in float and overflow. Half that
+/// is beyond any rounding and any grid a navmesh can address.
 const double kMaxTileCoord = 1073741824.0;
 
 /// floor() for a value already known to lie within kMaxTileCoord: one
@@ -63,24 +47,12 @@ int64_t FloorToInt(double v) {
   return static_cast<double>(t) > v ? t - 1 : t;
 }
 
-/// A query box, checked before Detour turns it into a tile range.
-///
-/// Two separate failures, and the first is reachable from surface this package
-/// has already shipped. queryPolygons computes `center - halfExtents` and
-/// `center + halfExtents` in float and hands both to dtNavMesh::calcTileLoc,
-/// which is `(int)floorf((pos[0] - orig[0]) / tileWidth)` with no test of its
-/// own (DetourNavMesh.cpp:1193). Upstream checks only that `center` and
-/// `halfExtents` are each finite — but two finite floats sum to infinity, and
-/// converting an infinite float to an int is undefined. The sanitizer catches
-/// it as "outside the range of representable values of type 'int'".
-///
-/// The second is the cell count above. Both are decided here rather than per
-/// entry point, because every box query in this file reaches the same code.
-///
-/// The grid comes from the query, which read it once at creation (see
-/// zrc::BindQuery), so the check is two sums, a multiply and a compare per bound:
-/// dividing by the tile size here and calling floor was a tenth of a
-/// findNearestPoly, measured with the bench.
+/// A query box, checked before Detour turns it into a tile range: each corner
+/// must name a tile an int holds, and the range must stay within
+/// kMaxQueryCells. Upstream checks `center` and `halfExtents` are finite, but
+/// their sum can still be infinite. Scales by the grid zrc::BindQuery read at
+/// creation; dividing here measured a tenth of a findNearestPoly.
+/// See docs/design.md, Known upstream behaviour: dtNavMesh::calcTileLoc.
 ZrcResult CheckQueryBox(const ZrcNavMeshQuery& query, const float* center,
                         const float* half_extents) {
   for (int i = 0; i < 3; ++i) {
@@ -160,15 +132,10 @@ ZrcResult BeginQueryPoint(const ZrcNavMeshQuery* query,
   return ZRC_OK;
 }
 
-/// Refuses a call that would clear the node pool a sliced search is using.
-///
-/// dtNavMeshQuery's own class comment promises that const methods have "no
-/// impact on an in-progress sliced path query" (DetourNavMeshQuery.cpp:133).
-/// It is false for exactly five of them: each begins by clearing the shared
-/// node pool, and dtNodePool::clear resets the count without clearing the
-/// storage, so a slice's best-node pointer stays valid while the nodes behind
-/// it are handed to the next search. Finalising then walks a chain belonging
-/// to that other search. This is the gate those five take.
+/// Refuses a call that would clear the node pool a sliced search is using:
+/// the gate the five pool-clearing queries take, since a cleared pool hands
+/// the slice's nodes to the next search. See docs/design.md, Known upstream
+/// behaviour: dtNavMeshQuery's class comment.
 ZrcResult CheckNotSlicing(const ZrcNavMeshQuery* query) {
   if (query == nullptr || query->impl == nullptr) {
     return ZRC_ERR_INVALID_ARGUMENT;
@@ -356,15 +323,9 @@ ZrcResult zrcFindNearestPoly(const ZrcNavMeshQuery* query, const float* center,
   const ZrcResult box = CheckQueryBox(*query, center, half_extents);
   if (box != ZRC_OK) return box;
 
-  // Detour leaves nearestPt untouched when nothing is found, so seed it with
-  // the query point: a caller that ignores the reference still reads something
-  // meaningful rather than whatever was on its stack.
-  //
-  // The scratch is not spare: upstream writes isOverPoly only inside the
-  // branch that also writes nearestPt (DetourNavMeshQuery.cpp:722-725), so a
-  // caller wanting the flag and not the point would otherwise always be told
-  // false. Handing it a point it then discards is what makes the two outputs
-  // independent here.
+  // Seeded with the query point, which Detour leaves untouched when nothing is
+  // found. The scratch lets a caller have isOverPoly without the point.
+  // See docs/design.md, Known upstream behaviour: findNearestPoly.
   float scratch[3];
   float* nearest = out_point != nullptr ? out_point : scratch;
   for (int i = 0; i < 3; ++i) nearest[i] = center[i];
@@ -455,13 +416,10 @@ ZrcResult zrcFindStraightPath(const ZrcNavMeshQuery* query,
   if (out_refs != nullptr && max_refs < max_points) {
     return ZRC_ERR_BUFFER_TOO_SMALL;
   }
-  // The corridor's references are NOT scanned here. Detour validates them
-  // itself and does so on every element: findStraightPath rejects a zero
-  // path[0] outright, resolves path[0] and path[pathSize-1] through
-  // closestPointOnPolyBoundary, and reaches every interior transition through
-  // getPortalPoints, which calls the bounds-checking getTileAndPolyByRef on
-  // both ends (DetourNavMeshQuery.cpp:1807, 2255). An O(path_count) scan here
-  // would repeat that work once per frame per agent and catch nothing.
+  // The corridor's references are not scanned here: findStraightPath already
+  // validates every element (DetourNavMeshQuery.cpp:1807, 2255), so an
+  // O(path_count) scan would repeat that work per frame per agent and catch
+  // nothing.
 
   // The string-pull walks a corridor that findPath already filtered, so it
   // takes no filter of its own — hence CheckQuery rather than BeginQuery.
@@ -562,13 +520,10 @@ ZrcResult zrcRaycast(const ZrcNavMeshQuery* query, ZrcPolyRef start_ref,
       start_ref, start_pos, end_pos, &filter->impl, options, &hit, prev_ref);
   if (dtStatusFailed(status)) return zrc::ResultFromStatus(status);
 
-  // Detour reports "reached the end without hitting anything" as t == FLT_MAX,
-  // which is not a lerp parameter. Normalise it to exactly 1 and say so through
-  // the `hit` flag instead, so `t` is always usable arithmetic.
-  //
-  // The comparison is <= rather than <: FLT_MAX is the only "no hit" value, so
-  // a wall struck exactly at the segment's end is a hit like any other. A NaN
-  // compares false and is reported as no hit, which is the safe reading.
+  // Detour reports "no hit" as t == FLT_MAX, which is no lerp parameter; it is
+  // normalised to 1 and reported through `hit`. The compare is <= because
+  // FLT_MAX is the only "no hit" value, so a wall exactly at the segment's end
+  // is a hit; a NaN compares false and reads as no hit, the safe reading.
   const bool struck = hit.t <= 1.0f;
   const float t = struck ? hit.t : 1.0f;
 

@@ -65,24 +65,12 @@ ZrcResult ValidateHeightfieldCreateArgs(int32_t width, int32_t height,
   return ZRC_OK;
 }
 
-// rcBuildCompactHeightfield (Recast.cpp:403-536 in this vendored tree — the
-// upstream source keeps the compact-heightfield builder in Recast.cpp itself
-// rather than a separate RecastCompact.cpp) takes walkableHeight and
-// walkableClimb as plain `int` parameters. Neither is stored in a bitfield
-// anywhere reachable from this call: rcCompactHeightfield::walkableHeight and
-// ::walkableClimb are themselves full `int` fields, so there is no packed
-// width for a value to be truncated into.
-//
-// The one real hazard is Recast.cpp:423 —
-//   compactHeightfield.bmax[1] += walkableHeight * heightfield.ch;
-// — a float computation that can push bmax[1] toward infinity for a large
-// enough walkableHeight, which then propagates into every stage downstream
-// that trusts bmax. The bound applied here is [0, ZRC_SPAN_MAX_HEIGHT]: the
-// same ceiling a span's own vertical extent already carries elsewhere in this
-// API (zrcHeightfieldAddSpan's span_max limit), which keeps a walkable height
-// consistent with the tallest span it could ever actually measure against and
-// keeps the multiplication well inside float range for any realistic
-// cell_height.
+// rcBuildCompactHeightfield takes walkableHeight and walkableClimb as plain
+// int and stores them in int fields, so nothing truncates them. The hazard is
+// Recast.cpp:423, `bmax[1] += walkableHeight * ch`, which a large height can
+// push toward infinity for every later stage. Bounding both to
+// [0, ZRC_SPAN_MAX_HEIGHT], the span limit zrcHeightfieldAddSpan already
+// applies, keeps that product in float range.
 ZrcResult ValidateCompactHeightfieldCreateArgs(int32_t walkable_height,
                                                int32_t walkable_climb) {
   if (walkable_height < 0 || walkable_height > ZRC_SPAN_MAX_HEIGHT) {

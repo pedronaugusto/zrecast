@@ -1,22 +1,16 @@
 //! Vector and scalar math Recast and Detour spell out `inline` in their C++
 //! headers, reimplemented here so a host that lerps between straight-path
-//! corners gets exactly the same answer Detour does — a call across the FFI
-//! boundary to add three floats is not a binding worth having.
+//! corners gets exactly the same answer Detour does without an FFI call.
 //!
 //! Every function below is asserted bit-identical to the C, over a table
-//! that includes zeros, negative zeros and denormals. Each one is a sum of
-//! products, the shape a fused multiply-add contracts into a single
-//! rounding instead of two, so the C side is compiled with
-//! `-ffp-contract=off` and this side leans on Zig's default float mode,
-//! `.strict`, being the same promise. Do not write `@setFloatMode` anywhere
-//! in this file: strict is already the default, and naming it would suggest
-//! otherwise.
+//! that includes zeros, negative zeros and denormals. Each is a sum of
+//! products, which a fused multiply-add would round once instead of twice,
+//! so the C side is compiled with `-ffp-contract=off` and this side relies on
+//! Zig's default float mode, `.strict`; `@setFloatMode` has no place here.
 //!
-//! Three of the scalar helpers below answer differently from the obvious
-//! Zig spelling at an edge, and two more do at a value the parity table
-//! already exercises. Each is transcribed as upstream's own expression
-//! rather than the natural Zig one, and its doc comment names the value
-//! where the two diverge.
+//! The scalar helpers whose natural Zig spelling answers differently at an
+//! edge are transcribed as upstream's own expression, and each doc comment
+//! names the value where the two diverge.
 
 const std = @import("std");
 
@@ -181,9 +175,7 @@ pub const scalar = struct {
         return if (v < lo) lo else if (v > hi) hi else v;
     }
 
-    /// `dtNextPow2(0)` is `0`. `std.math.ceilPowerOfTwo` refuses a zero input
-    /// outright rather than answering for it, so it is not an alternative
-    /// spelling of this at all, let alone an agreeing one.
+    /// `dtNextPow2(0)` is `0`; `std.math.ceilPowerOfTwo` refuses a zero input.
     ///
     /// The decrement underflows to `0xFFFFFFFF` for an input of 0 and the
     /// increment wraps back to 0, both intentional, so `-%` and `+%` are used

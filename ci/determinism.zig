@@ -1,23 +1,17 @@
 //! Cook determinism across targets (`bay determinism [--strict] [filter]`).
-//! The suite asserts that one target cooking twice gets the same bytes; what
-//! it cannot see from one process is how the bytes compare across targets.
-//! The development build hands this program the suite built per target, and
-//! it runs each where this host can, natively or in a container, and collects
+//! The development build hands this program the suite built per target; it
+//! runs each where this host can, natively or in a container, and collects
 //! the three cook digests a run prints when ZRECAST_COOK_DIGESTS is set.
 //!
-//! Targets sharing a C library must agree: with -ffp-contract=off pinned and
-//! no libm in the bake, architecture may not move a byte, and a disagreement
-//! fails. Across C libraries the digests are reported, not gated: upstream
-//! sorts BV items, holes and diagonals with qsort, ties fall to the
-//! implementation, and any order they land in is a valid navmesh.
+//! Targets sharing a C library must agree, and a disagreement fails. Across C
+//! libraries the digests are reported, not gated: upstream's qsort ties fall
+//! to the implementation. See docs/design.md, Known upstream behaviour: `qsort`.
 //!
-//! Three outcomes, never two: a target ran, a target failed, or this host
-//! could not run it. The last is counted and named, so a run never reads as
-//! more coverage than it was; `--strict` makes it a failure.
+//! A target ran, failed, or could not run on this host; the last is counted
+//! and named, and `--strict` makes it a failure.
 //!
 //! Arguments after the options, four per target: the target, its C-library
-//! group, its runner (`native`, or `docker:<image>:<platform>`) and the
-//! suite binary.
+//! group, its runner (`native` or `docker:<image>:<platform>`), the binary.
 const std = @import("std");
 const Io = std.Io;
 

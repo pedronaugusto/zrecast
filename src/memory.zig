@@ -1,43 +1,17 @@
 //! Bridges a Zig `std.mem.Allocator` onto Recast's and Detour's allocator seam.
 //!
-//! ## Why this is not a two-line shim
-//!
 //! Both halves of upstream free with `free(ptr)` — no size, no alignment —
-//! while Zig's allocator interface requires the size back. The gap is closed by
-//! allocating a little extra and stashing the length in a header placed
-//! immediately before the pointer handed to upstream:
-//!
-//! ```text
-//!   base                       returned pointer
-//!    |                          |
-//!    v                          v
-//!   [ ... padding ... ][Header][ ..... payload ..... ]
-//!    \___ prefix, a multiple of `alignment` ___/
-//! ```
-//!
-//! The prefix is rounded up to `alignment` so the returned pointer keeps that
-//! alignment, and the base pointer is recoverable by subtracting the same
-//! prefix at free time.
-//!
-//! ## One difference from the equivalent bridge over ozz-animation
-//!
-//! ozz asks for an alignment per allocation, so a bridge over it has to record
-//! the alignment in the header too and recompute the prefix from it. Neither
-//! `rcAlloc` nor `dtAlloc` has an alignment parameter — both are modelled on
-//! `malloc` — so there is exactly one alignment here, it is a compile-time
-//! constant, and storing it per block would be storing a constant. So the
-//! header carries the length, and the tag `Header` explains.
-//!
-//! `alignment` is `ZRC_ALLOC_ALIGNMENT` from the C header, mirrored in
-//! `c.alloc_alignment` and checked against the compiled library by the ABI test.
-//!
-//! ## Global state
+//! while Zig's allocator interface requires the size back. Each block is
+//! allocated with a prefix, a multiple of `alignment`, whose last bytes are a
+//! `Header` holding the length; the pointer handed to upstream follows it, so
+//! it keeps that alignment and the base is recovered by subtracting the prefix.
+//! `rcAlloc` and `dtAlloc` take no alignment, so `alignment` is one constant:
+//! `ZRC_ALLOC_ALIGNMENT` from the C header, mirrored in `c.alloc_alignment` and
+//! checked against the compiled library by the ABI test.
 //!
 //! `rcAllocSetCustom` and `dtAllocSetCustom` each take a bare pair of function
 //! pointers with nowhere to thread a host pointer through, so the seam is
-//! process-wide. That is a property of upstream, not a shortcut taken here — it
-//! is surfaced rather than hidden behind a per-object allocator parameter that
-//! could not be honoured.
+//! process-wide, surfaced rather than hidden behind a per-object parameter.
 
 const std = @import("std");
 const aegis = @import("aegis");
@@ -179,9 +153,8 @@ pub const AllocHint = c.AllocHint;
 /// if `setAllocator` was called, upstream's own malloc otherwise. `hint` is
 /// upstream's own lifetime hint, passed straight through.
 ///
-/// Reachable so a host already accounting for Recast's and Detour's own
-/// allocations can make one on the same seam and have it accounted the same
-/// way — scratch for `geom.randomPointInConvexPoly`, say.
+/// A host can allocate on the same seam as Recast and Detour, scratch for
+/// `geom.randomPointInConvexPoly` say, and have it accounted the same way.
 pub fn alloc(size: usize, hint: AllocHint, failure: *err.Failure) err.Error![]u8 {
     const p = c.zrcAlloc(size, hint) orelse return err.refuse(failure, .alloc, error.OutOfMemory);
     const bytes: [*]u8 = @ptrCast(p); // aegis: no-danger: zrcAlloc returns a block of size bytes
@@ -190,16 +163,10 @@ pub fn alloc(size: usize, hint: AllocHint, failure: *err.Failure) err.Error![]u8
 
 /// Releases a block from `alloc` back to whichever allocator is installed.
 ///
-/// `block` must be the slice `alloc` returned and not a sub-slice of it: with
-/// a Zig allocator installed, the bridge keeps a private header immediately
-/// ahead of each block, and only the pointer `alloc` handed back sits where
-/// that header can be found. The bridge never frees a pointer it did not
-/// issue: a Debug or ReleaseSafe build stops on it, and a ReleaseFast or
-/// ReleaseSmall build leaks the block. Upstream's own malloc, in use when
-/// `setAllocator` was never called, has no such guard.
-///
-/// A serialised navmesh image does not come back through here: those arrive
-/// as `navmesh.Serialized`, which owns its slice and releases it in `deinit`.
+/// `block` must be the slice `alloc` returned, not a sub-slice: the bridge
+/// finds its private header just ahead of that pointer. A pointer it did not
+/// issue stops a Debug or ReleaseSafe build and leaks in ReleaseFast or
+/// ReleaseSmall; upstream's own malloc, without `setAllocator`, has no guard.
 pub fn free(block: []u8) void {
     c.zrcFree(block.ptr);
 }

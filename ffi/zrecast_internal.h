@@ -68,13 +68,9 @@ void Delete(T* object) {
   Free(object);
 }
 
-/// Allocates one of Recast's container types.
-///
-/// Recast's own rcAllocPolyMesh and friends do exactly this minus the null
-/// test: rcNew is `new (rcAlloc(...)) T()`, so a failed allocation constructs
-/// at address zero. The container comes from rcAlloc rather than dtAlloc
-/// because Recast releases its internals with rcFree, and pairing the two
-/// keeps the ownership story honest even though both reach the same host.
+/// Allocates one of Recast's container types: rcNew with the null test it
+/// lacks. Uses rcAlloc rather than dtAlloc because Recast releases its
+/// internals with rcFree. See docs/design.md, Known upstream behaviour: rcNew.
 template <typename T>
 T* RcNew() {
   void* block = rcAlloc(sizeof(T), RC_ALLOC_PERM);
@@ -82,18 +78,10 @@ T* RcNew() {
   return new (block) T();
 }
 
-/// Releases one of Recast's container types, through upstream's own free
-/// function for that type.
-///
-/// This is an overload set rather than a `~T(); rcFree(p)` template on purpose.
-/// Four of Recast's five containers free their internal buffers in a
-/// destructor, so the generic form would work for them — but rcPolyMeshDetail
-/// has no user-declared destructor at all, and its buffers are released only by
-/// rcFreePolyMeshDetail. A generic delete therefore leaks three allocations per
-/// detail mesh, silently, because nothing in the type system distinguishes it
-/// from the other four. Deferring to upstream's own free function per type
-/// keeps that asymmetry upstream's business instead of something this package
-/// has to remember. See docs/design.md.
+/// Releases one of Recast's container types through upstream's own free
+/// function for that type, not a generic `~T(); rcFree(p)`, which would leak
+/// rcPolyMeshDetail's three buffers.
+/// See docs/design.md, Known upstream behaviour: rcPolyMeshDetail.
 inline void RcFree(rcHeightfield* p) { rcFreeHeightField(p); }
 inline void RcFree(rcCompactHeightfield* p) { rcFreeCompactHeightfield(p); }
 inline void RcFree(rcContourSet* p) { rcFreeContourSet(p); }
@@ -118,20 +106,11 @@ inline bool IsFiniteVec3(const float* v) {
 }
 
 /// Cosine of an angle in degrees, to double precision, using only the four
-/// operations IEEE-754 specifies exactly.
-///
-/// A cook must not depend on the host's libm, and `cosf` is the one thing in
-/// the bake path that would tie it there. The standard does not require a
-/// correctly rounded cosine, so two C libraries may legitimately differ in the
-/// last bit — and the walkable-slope threshold that comes out of it decides,
-/// per triangle, whether a surface is navigable at all.
-///
-/// The argument is bounded: zrecast refuses a slope outside [0, 90), so x stays
-/// within [0, pi/2) where the Taylor series through x^16 is accurate to about
-/// 5e-13, four orders below the precision of the float it becomes. Every step
-/// is an add, a subtract, a multiply or a divide, each of which IEEE-754
-/// defines as correctly rounded, so the result is bit-identical everywhere the
-/// package is compiled with -ffp-contract=off.
+/// operations IEEE-754 specifies exactly, so the walkable-slope threshold
+/// does not depend on the host's libm. A slope is refused outside [0, 90), so
+/// x stays within [0, pi/2), where the Taylor series through x^16 is accurate
+/// to about 5e-13; with -ffp-contract=off the result is bit-identical
+/// everywhere.
 inline double CosDegrees(double degrees) {
   const double pi = 3.14159265358979323846;
   const double x = degrees / 180.0 * pi;
@@ -154,13 +133,9 @@ inline double CosDegrees(double degrees) {
 const float kMaxCoordinate = 1e18f;
 
 /// A tile grid handed back by a caller, checked before either half of a tiled
-/// build trusts it.
-///
-/// zrcTileGridCompute is where one comes from, but nothing stops a host storing
-/// it in an asset and reading it back, so both the bake and the navmesh check
-/// rather than assume. Both, because they fail differently: a NaN origin is an
-/// out-of-range float conversion inside rcRasterizeTriangles on one side, and a
-/// tile width Detour divides by on the other.
+/// build trusts it, since a host may store one and read it back. Both halves
+/// check because they fail differently: a NaN origin is an out-of-range float
+/// conversion in rcRasterizeTriangles, and Detour divides by the tile width.
 inline ZrcResult ValidateTileGrid(const ZrcTileGrid& grid) {
   if (!IsFiniteVec3(grid.origin) || !IsFiniteVec3(grid.extent_max)) {
     return ZRC_ERR_INVALID_ARGUMENT;
@@ -188,14 +163,10 @@ inline ZrcResult ValidateTileGrid(const ZrcTileGrid& grid) {
 // Serialised navmesh images
 //===----------------------------------------------------------------------===//
 
-/// What a caller will accept beyond the image being well formed.
-///
-/// The two are separate questions. "Well formed" is about memory safety and is
-/// the same for every tile. "Admissible" depends on the navmesh the tile is
-/// going into: a single-tile mesh has no neighbours, so a portal edge in one of
-/// its polygons points nowhere, while a tile of a grid must land inside that
-/// grid. Keeping them apart means one definition of well formed and a
-/// per-caller definition of admissible, rather than three validators.
+/// What a caller will accept beyond the image being well formed. Well formed
+/// is memory safety, the same for every tile; admissible depends on the
+/// navmesh the tile goes into: a single-tile mesh has no neighbours for a
+/// portal edge, and a tile of a grid must land inside that grid.
 struct TileAdmission {
   /// Largest grid coordinate the header may carry, inclusive.
   int max_tile_x;
@@ -208,14 +179,9 @@ struct TileAdmission {
 
 /// Full validation of a serialised tile image, header and interior. Shared by
 /// zrcNavMeshValidate, zrcNavMeshDeserialize and zrcNavMeshAddTile so there is
-/// exactly one definition of "well formed".
-///
-/// Two layers, and both are needed. The first recomputes, line for line, the
-/// pointer arithmetic dtNavMesh::addTile performs on the same buffer — addTile
-/// derives eight array pointers from the header's counts and never compares
-/// them against the buffer length it was handed. The second walks those arrays
-/// and bounds every index Detour will dereference, because a count that fits
-/// the buffer says nothing about the indices stored inside it.
+/// exactly one definition of "well formed". The first layer recomputes
+/// dtNavMesh::addTile's pointer arithmetic against the buffer length; the
+/// second bounds every index Detour will dereference inside those arrays.
 ZrcResult ValidateNavMeshImage(const void* data, size_t size,
                                const TileAdmission& admission);
 
@@ -245,14 +211,10 @@ ZrcResult BuildTileData(const ZrcPolyMesh& mesh, int32_t tile_x, int32_t tile_z,
 // Detour status mapping
 //===----------------------------------------------------------------------===//
 
-/// Collapses a dtStatus into a ZrcResult.
-///
-/// Detour packs a success/failure bit together with detail bits, and some
-/// detail bits ride along with success (DT_PARTIAL_RESULT, and
-/// DT_BUFFER_TOO_SMALL from the path queries, which fill what they can). Those
-/// are not failures and are reported through the separate `partial` out
-/// parameters instead; only a status with DT_FAILURE set reaches the mapping
-/// below.
+/// Collapses a dtStatus into a ZrcResult. Detail bits that ride along with
+/// success (DT_PARTIAL_RESULT, and DT_BUFFER_TOO_SMALL from the path queries)
+/// are not failures and go through the separate `partial` out parameters;
+/// only a status with DT_FAILURE set reaches the mapping.
 ZrcResult ResultFromStatus(dtStatus status);
 
 /// True when a *successful* status says the answer was cut short — the goal was
@@ -277,18 +239,10 @@ class TempBuffer {
   void* ptr_;
 };
 
-/// Largest voxel count along one axis of a heightfield.
-///
-/// Recast squares voxel quantities in plain `int` arithmetic, and — this is the
-/// part that decides the number — it *sums* two of those squares:
-/// simplifyContour compares `dx*dx + dz*dz` against `maxEdgeLen*maxEdgeLen`
-/// (RecastContour.cpp:399). So the bound is not the largest integer whose
-/// square fits an int (46340) but the largest whose square fits twice over.
-/// 2 * 32767^2 is 2147352578, just under INT_MAX; 32768 would not fit.
-///
-/// It is not a practical limit. A single-tile mesh 32 000 voxels across is
-/// already far past the point where a tiled mesh is the right answer, and
-/// tiling is the documented way to go bigger.
+/// Largest voxel count along one axis of a heightfield: simplifyContour sums
+/// two squares in int (RecastContour.cpp:399), so the bound is the largest
+/// value whose square fits twice over. Tiling is the way to go bigger.
+/// See docs/design.md, Known upstream behaviour: simplifyContour.
 const int kMaxAxisCells = 32767;
 
 /// Largest unnavigable border, in voxels, a build stage will accept.
@@ -348,17 +302,11 @@ inline GridExtent CheckGridExtentFit(const float* bmin, const float* bmax,
 /// upstream, against overflowing an int before any of it is performed.
 const int kMaxTriMeshCount = 1 << 28;
 
-/// Rejects geometry Recast would read out of bounds or turn into NaN.
-///
-/// Recast indexes `verts[tris[i] * 3]` with no range test of its own — an index
-/// past the end is an out-of-bounds read inside the rasteriser, in every build
-/// configuration. A NaN coordinate is worse: rcCalcBounds propagates it into
-/// the grid size, and the heightfield allocation that follows is computed from
-/// garbage.
-///
-/// Shared rather than per-file: the bake, the staged rasterisers and the
-/// triangle-area markers all hand the same arrays to the same upstream
-/// functions, and a second copy of this rule is a second place for it to drift.
+/// Rejects geometry Recast would read out of bounds or turn into NaN. Recast
+/// indexes `verts[tris[i] * 3]` unchecked, and rcCalcBounds carries a NaN
+/// coordinate into the grid size the heightfield is allocated from. Shared by
+/// the bake, the staged rasterisers and the triangle-area markers, which hand
+/// the same arrays to the same upstream functions.
 inline ZrcResult ValidateTriMesh(const ZrcTriMesh& mesh) {
   if (mesh.verts == nullptr || mesh.tris == nullptr) {
     return ZRC_ERR_INVALID_ARGUMENT;
@@ -384,11 +332,8 @@ inline ZrcResult ValidateTriMesh(const ZrcTriMesh& mesh) {
 
 /// Rejects area authoring Recast would misread: an out-of-range shape or area
 /// id, a non-finite extent, or a shape whose own fields do not describe
-/// geometry Recast can rasterise.
-///
-/// Shared with the staged pipeline: a bake and a hand-driven
-/// zrcCompactHeightfieldMarkAreas apply the same volumes to the same upstream
-/// markers, so they answer to one rule rather than two copies of it.
+/// geometry Recast can rasterise. Shared with the staged pipeline, so a bake
+/// and zrcCompactHeightfieldMarkAreas answer to one rule.
 inline ZrcResult ValidateAreaAuthoring(const ZrcAreaAuthoring& authoring) {
   if (authoring.volume_count < 0) return ZRC_ERR_INVALID_ARGUMENT;
   if (authoring.volume_count > 0 && authoring.volumes == nullptr) {
@@ -450,11 +395,9 @@ inline ZrcResult ValidateAreaAuthoring(const ZrcAreaAuthoring& authoring) {
 
 /// Colours a compact heightfield's area ids with the authored volumes, in
 /// array order, so a later volume overwrites an earlier one where they
-/// overlap.
-///
-/// `authoring` must already have passed ValidateAreaAuthoring. Shared so that
-/// a bake and a hand-driven mark produce bit-identical fields: the order, the
-/// argument construction and the choice of upstream marker are all decided
+/// overlap. `authoring` must already have passed ValidateAreaAuthoring.
+/// Shared so that a bake and a hand-driven mark agree bit for bit: the order,
+/// the arguments and the choice of upstream marker are all decided
 /// here, once.
 inline void MarkAreaVolumes(rcContext& ctx, const ZrcAreaAuthoring& authoring,
                             rcCompactHeightfield& chf) {
@@ -482,18 +425,11 @@ inline void MarkAreaVolumes(rcContext& ctx, const ZrcAreaAuthoring& authoring,
   }
 }
 
-/// The same work rcMarkWalkableTriangles does, with upstream's own vector
-/// helpers over upstream's own edge cross product, and one difference:
-/// upstream takes the threshold from `cosf`, which the C standard does not
-/// require to be correctly rounded. Two platforms may therefore disagree in the
-/// last bit of the threshold, and the comparison it feeds decides per triangle
-/// whether a surface is navigable — so a cook would depend on the host's libm.
-/// CosDegrees computes the same threshold using only exactly specified
-/// operations, so the cook does not depend on the host's libm.
-///
-/// Shared with the staged pipeline for exactly that reason: a host that marks
-/// triangles a stage at a time must get the platform-stable threshold too, or
-/// the libm independence holds only for whole-bake callers.
+/// rcMarkWalkableTriangles with upstream's own vector helpers and edge cross
+/// product, but with the threshold from CosDegrees rather than `cosf`, which
+/// the C standard does not require to be correctly rounded, so the cook does
+/// not depend on the host's libm. Shared with the staged pipeline so a host
+/// marking triangles a stage at a time gets the same threshold.
 inline void MarkWalkableTriangles(float slope_degrees, const ZrcTriMesh& mesh,
                                   unsigned char* tri_areas) {
   const float threshold =
@@ -534,11 +470,8 @@ inline void ClearUnwalkableTriangles(float slope_degrees,
 
 /// Rejects one off-mesh connection Detour would misread: a non-finite or
 /// out-of-domain endpoint, a radius that is not a positive finite number, or
-/// an area id outside range.
-///
-/// Shared because a connection reaches Detour from two directions — a tile a
-/// host authors, and a tile the cache rebuilds through its mesh-process
-/// callback — and both must hold it to the same rule.
+/// an area id outside range. Shared because a connection reaches Detour from a
+/// tile a host authors and from the tile cache's mesh-process callback.
 inline ZrcResult ValidateOffMeshConnection(const ZrcOffMeshConnection& con) {
   if (!IsFiniteVec3(con.start) || !IsFiniteVec3(con.end)) {
     return ZRC_ERR_INVALID_ARGUMENT;
@@ -564,33 +497,22 @@ inline ZrcResult ValidateOffMeshConnection(const ZrcOffMeshConnection& con) {
 /// very long loop.
 const int kMaxOffMeshConnections = 65536;
 
-/// True when a vertical extent, in cells, is one a Recast span can address.
-///
-/// Easy to miss, because Recast never turns the vertical extent into a grid
-/// dimension. rasterizeTri computes `(int)ceilf(spanMax * inverseCellHeight)`
-/// and only *then* clamps the result to RC_SPAN_MAX_HEIGHT
-/// (RecastRasterization.cpp:445-446), so a tall triangle over a fine cell
-/// height is an out-of-range float conversion before the clamp ever runs. One
-/// vertex at y = 4e8 with a 0.2 cell height is enough.
-///
-/// The bound is RC_SPAN_MAX_HEIGHT rather than INT_MAX because that is all a
-/// 13-bit span extent can address. Beyond it Recast silently flattens
-/// everything into the topmost span, so refusing turns a quietly wrong mesh
-/// into an answerable error as well as removing the undefined behaviour.
+/// True when a vertical extent, in cells, is one a Recast span can address:
+/// at most RC_SPAN_MAX_HEIGHT, all a 13-bit span extent holds. rasterizeTri
+/// converts the extent to int before clamping it, and past the bound it
+/// flattens everything into the topmost span; refusing removes both.
+/// See docs/design.md, Known upstream behaviour: rasterizeTri.
 inline bool VerticalExtentFits(float bmin_y, float bmax_y, float ch) {
   const double span_y = static_cast<double>(bmax_y) - static_cast<double>(bmin_y);
   const double cells_y = span_y / static_cast<double>(ch) + 1.0;
   return cells_y <= static_cast<double>(RC_SPAN_MAX_HEIGHT);
 }
 
-/// True when a vertex maps to grid coordinates rasterizeTri can compute.
-///
-/// rasterizeTri converts a triangle's own bounds to cell indices with
-/// `(int)((triBBMin[2] - hfBBMin[2]) * inverseCellSize)`
-/// (RecastRasterization.cpp:335-336, 384-385) and clamps only afterwards, so
-/// the conversion is undefined before the clamp can help. Upstream's
-/// overlapBounds test rejects a triangle wholly outside the field, but one
-/// that straddles it reaches the cast with whatever the far vertex holds.
+/// True when a vertex maps to grid coordinates rasterizeTri can compute: it
+/// converts a triangle's bounds to cell indices with `(int)` before clamping
+/// (RecastRasterization.cpp:335-336, 384-385). overlapBounds rejects a
+/// triangle wholly outside the field, but one that straddles it reaches the
+/// cast with whatever the far vertex holds.
 inline bool RasterVertexFits(const rcHeightfield& hf, const float* v) {
   if (!IsFiniteVec3(v)) return false;
   for (int k = 0; k < 2; ++k) {
@@ -649,13 +571,11 @@ class HostTileCacheAlloc : public dtTileCacheAlloc {
   const ZrcTileCacheAllocator* hooks_;
 };
 
-/// A caller's ZrcTileCacheMeshProcess, narrowed.
-///
-/// Upstream hands its callback the whole mutable dtNavMeshCreateParams and
-/// feeds the result straight to dtNavMesh::addTile, which is the one path into
-/// a navmesh that skips zrcNavMeshAddTile's validation. This shows the caller
-/// only the fields the callback is for, validates what comes back, and writes
-/// it into the params itself. See docs/design.md.
+/// A caller's ZrcTileCacheMeshProcess, narrowed: the caller sees only the
+/// fields the callback is for, and what comes back is validated and written
+/// into the params here, since upstream's tile skips zrcNavMeshAddTile.
+/// See docs/design.md, Known upstream behaviour:
+/// dtTileCacheMeshProcess::process.
 class HostMeshProcess : public dtTileCacheMeshProcess {
  public:
   HostMeshProcess(ZrcTileCacheMeshProcess hook, void* user);
@@ -689,12 +609,10 @@ class HostMeshProcess : public dtTileCacheMeshProcess {
 //===----------------------------------------------------------------------===//
 
 /// A caller's ZrcBuildContext, wearing the rcContext every Recast stage takes.
-///
-/// Built on the stack for the duration of one stage call rather than stored, so
-/// a host that swaps a hook between calls is obeyed, and a NULL ZrcBuildContext
-/// is a context with both flags clear. Upstream consults m_logEnabled and
-/// m_timerEnabled before it reaches a virtual, so the flags are set here rather
-/// than tested in each hook.
+/// Built on the stack per stage call, so a hook swapped between calls is
+/// obeyed and a NULL ZrcBuildContext has both flags clear. Upstream tests
+/// m_logEnabled and m_timerEnabled before a virtual, so the flags are set
+/// here rather than tested in each hook.
 class HostContext : public rcContext {
  public:
   explicit HostContext(const ZrcBuildContext* hooks);
@@ -721,12 +639,9 @@ class HostContext : public rcContext {
 //===----------------------------------------------------------------------===//
 
 /// A caller's ZrcDebugDraw, wearing the renderer interface every DebugUtils
-/// entry point takes.
-///
-/// Every hook but `area_to_col` is required, so none is null-checked per
-/// call: the entry point that accepts a ZrcDebugDraw rejects an incomplete
-/// one. `area_to_col` left null falls through to duDebugDraw's own table, so
-/// areaToCol is overridden rather than replaced.
+/// entry point takes. Every hook but `area_to_col` is required and checked by
+/// the entry point, not per call; a null `area_to_col` falls through to
+/// duDebugDraw's own table.
 class HostDebugDraw : public duDebugDraw {
  public:
   explicit HostDebugDraw(const ZrcDebugDraw& hooks);
@@ -766,20 +681,12 @@ class HostFileIO : public duFileIO {
   ZrcFileIO hooks_;
 };
 
-/// duDisplayList made concrete, and counting what it holds.
-///
-/// Upstream's class overrides five of duDebugDraw's nine pure virtuals and
-/// leaves `texture` and the two textured `vertex` forms untouched, so
-/// `duDisplayList` as declared cannot be instantiated. These three fill the
-/// gap: a texture state change is nothing to record, and a textured vertex is
-/// recorded without its coordinates — which is what duDisplayList::draw would
-/// do with them, since it replays every vertex through the untextured form.
-///
-/// The vertex count is kept here rather than read out of the object because
-/// duDisplayList keeps its own privately and offers no accessor. Every route
-/// into the list passes through one of the two overrides below:
-/// duDisplayList::vertex(pos, color) forwards to the virtual (x, y, z) form,
-/// and begin() is where a run is discarded.
+/// duDisplayList made concrete, and counting what it holds. Upstream leaves
+/// `texture` and the two textured `vertex` forms pure; here a texture change
+/// records nothing and a textured vertex drops its coordinates, as
+/// duDisplayList::draw would. The count is kept here because upstream offers
+/// no accessor; every route in passes through vertex(x, y, z) or begin().
+/// See docs/design.md, Known upstream behaviour: duDisplayList, abstract.
 class ConcreteDisplayList : public duDisplayList {
  public:
   explicit ConcreteDisplayList(int cap) : duDisplayList(cap), count_(0) {}
@@ -1172,11 +1079,9 @@ struct ZrcTileCachePolyMesh {
 struct ZrcNavMeshQuery;
 
 /// A group of steered agents, and the bookkeeping upstream does not keep.
-///
-/// `serial` per slot is what makes a reference outlive nothing: addAgent
-/// stamps the next value into the slot it took, removeAgent clears it, and a
-/// reference resolves only when the two still agree. `next_serial` counts up
-/// across re-initialisations as well, so a crowd pointed at a new navmesh
+/// A reference resolves only while its serial matches its slot's: addAgent
+/// stamps the next value, removeAgent clears it, and `next_serial` keeps
+/// counting across re-initialisations, so a crowd pointed at a new navmesh
 /// retires every reference minted against the old one.
 struct ZrcCrowd {
   dtCrowd* impl;
@@ -1233,13 +1138,10 @@ struct ZrcPathQueue {
   ZrcNavMeshQuery* query;
   int32_t max_path_size;
   bool owns;
-  /// One filter per queue slot, owned for the request's lifetime.
-  ///
-  /// dtPathQueue stores the caller's dtQueryFilter as a raw pointer and reads
-  /// through it on every later update, which its own header calls
-  /// "potentially dangerous" (DetourPathQueue.h:43). `filter_owner` records
-  /// which request each is lent to, so a slot upstream has recycled after its
-  /// keep-alive window can be reclaimed.
+  /// One filter per queue slot, owned for the request's lifetime: dtPathQueue
+  /// keeps the caller's filter as a raw pointer (DetourPathQueue.h:43).
+  /// `filter_owner` records which request each is lent to, so a slot upstream
+  /// has recycled after its keep-alive window can be reclaimed.
   dtQueryFilter filters[zrc::kPathQueueSlots];
   ZrcPathRequestRef filter_owner[zrc::kPathQueueSlots];
 };
@@ -1259,19 +1161,11 @@ struct ZrcNavMeshQuery {
   /// The navmesh this query was created against, borrowed. zrcQueryNavMesh
   /// hands it back; the caller still owns it.
   const ZrcNavMesh* navmesh;
-  /// The filter a sliced search runs under, owned for the slice's lifetime.
-  ///
-  /// No mutation probe covers this one, deliberately. Replacing this with a
-  /// stack local reproduces upstream's hazard exactly — and the result is
-  /// undefined behaviour rather than a wrong answer, so whether any test
-  /// notices depends on what the next call happens to write over the dead
-  /// frame. A probe that passes for that reason would be worse than none.
-  ///
-  /// dtNavMeshQuery::initSlicedFindPath stores the filter it is given as a raw
-  /// pointer and every later update and finalise reads through it
-  /// (DetourNavMeshQuery.cpp:1233). Every other entry point hands Detour the
-  /// caller's ZrcQueryFilter, which the caller may destroy the moment init
-  /// returns.
+  /// The filter a sliced search runs under, owned for the slice's lifetime,
+  /// since the caller may destroy its ZrcQueryFilter once init returns. No
+  /// probe covers it: a stack local here is undefined behaviour, which a test
+  /// notices only by chance.
+  /// See docs/design.md, Known upstream behaviour: initSlicedFindPath.
   dtQueryFilter slice_filter;
   /// Whether a sliced search is in flight.
   bool slicing;
@@ -1286,11 +1180,9 @@ struct ZrcNavMeshQuery {
 namespace zrc {
 
 /// Fills a query handle around upstream's query: every handle, the package's
-/// own and the ones a crowd or path queue lends, is made here.
-///
-/// The tile grid is read now rather than per call. dtNavMesh::init sets the
-/// parameters, their only write after the constructor (DetourNavMesh.cpp:226),
-/// so they hold for the navmesh's life. A grid without a finite, positive tile
+/// own and the ones a crowd or path queue lends, is made here. The tile grid
+/// is read now: dtNavMesh::init is the parameters' only write after the
+/// constructor (DetourNavMesh.cpp:226). A grid without a finite, positive tile
 /// size keeps a NaN scale, which every box check refuses.
 inline void BindQuery(ZrcNavMeshQuery* query, dtNavMeshQuery* impl,
                       const ZrcNavMesh* navmesh) {

@@ -82,10 +82,8 @@ pub fn setHandler(h: ?Handler) void {
 /// The handler this library is actually routed to, or `null`.
 ///
 /// Asked of the library rather than answered from the slot above: the C side
-/// holds the trampoline, so comparing what it reports against `trampoline`
-/// says whether the routing is still in place. A handler cleared or replaced
-/// through the C entry point directly reports `null` here, which a mirror of
-/// the last Zig call could not.
+/// holds the trampoline, so a handler cleared or replaced through the C entry
+/// point directly reports `null` here.
 pub fn handler() ?Handler {
     var out: c.AssertHandler = undefined;
     err.map(c.zrcAssertHandler(&out)) catch aegis.assert.never("the boundary refuses only a null output");

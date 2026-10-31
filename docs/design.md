@@ -546,8 +546,7 @@ build if a re-vendored upstream changes:
 - The C undefined-behaviour sanitizer is not switched off to make anything
   pass. A package build leaves it off unless `-Dsanitize_c` asks for it, and
   the suite runs one of its three arms against the C++ compiled with it, in
-  every optimize mode; [What the sanitizer found](#what-the-sanitizer-found-nothing)
-  says what that does and does not prove.
+  every optimize mode; see [Known upstream behaviour](#known-upstream-behaviour).
 - `-fno-exceptions` / `-fno-rtti` everywhere except the MSVC ABI, where
   disabling them through Clang flags breaks the Microsoft standard library
   headers. Neither Recast nor Detour contains a single `throw`, `try`,
@@ -589,7 +588,10 @@ Each of these was a real gap rather than a precaution.
   x86-64 baseline has none. The same source line in Recast therefore produced
   different floats on the two architectures. With contraction off, every
   remaining operation in the bake path is one IEEE-754 specifies exactly: add,
-  subtract, multiply, divide, `sqrtf`, `floorf`, `ceilf`, `fabsf`.
+  subtract, multiply, divide, `sqrtf`, `floorf`, `ceilf`, `fabsf`. The vector
+  math's bit-identity test rests on it too: `tests/reference.cpp` is compiled
+  with it, so the Zig arithmetic is compared against the header's own, not a
+  contracted form of it.
 - **`zrc::CosDegrees` instead of `cosf`.** The slope limit becomes a cosine
   through `rcMarkWalkableTriangles`, and that was the only transcendental the
   bake reached. The C standard does not require a correctly rounded cosine, so
@@ -707,743 +709,96 @@ so the workarounds are not mistaken for arbitrary defensiveness. Nothing in
 this section is patched: each is handled at the boundary, in `ffi/`, or is
 documented rather than defended where there is no boundary to defend at.
 
-**Five `qsort` comparators leave ties to the C library, so two C libraries may
-cook different bytes from the same input.** `dtCreateNavMeshData` sorts the
-tile's bounding-volume items one axis at a time
-(`DetourNavMeshBuilder.cpp:145-155`) and serialises the sorted array straight
-into the tile image; the comparators (`:40-72`) return 0 for two items whose
-minimum on that axis is equal, and `qsort` is not required to be stable. The
-contour stage has the same shape with more visible consequences:
-`mergeRegionHoles` sorts a region's holes by their leftmost vertex
-(`RecastContour.cpp:727`) and the order decides how the holes merge into the
-outline, and the diagonal search sorts candidates by squared distance
-(`:773`), where equal distances are ordinary on a regular grid and the winner
-picks the triangulation.
-
-**Documented, not defended — there is no boundary to defend at.** The sorts
-run deep inside upstream's build functions, behind no seam this package can
-reach, and rewriting them in the vendored tree would be exactly the local
-divergence `bay check-vendor` exists to refuse. Any order the ties land in
-is a valid navmesh; what varies between C libraries is which valid one comes
-out. So the determinism claim is scoped to match: one target cooking twice
-gets the same bytes, asserted by the suite on every target that runs it;
-targets sharing a C library get the same bytes, checked by `bay determinism`
-across architectures (NOT ESTABLISHED on Zig 0.17; see
-[Cook determinism](#cook-determinism)); targets with different C libraries are compared and
-reported there, not gated. A host that ships cooked navmeshes should cook on
-one platform, or key its asset cache by cook platform — the same position
-every engine consuming upstream from C++ is in.
-
-**`dtCrowd::removeAgent` orphans an off-mesh traversal onto the next agent in
-the slot.** It clears the agent's `active` flag and touches nothing else
-(`DetourCrowd.cpp:572-578`). The traversal itself lives in `m_agentAnims`, a
-parallel array `dtCrowd::update` walks by raw pool slot, consulting only that
-array's own `active` flag and never the agent's state
-(`DetourCrowd.cpp:1411-1447`). `addAgent` hands out the lowest free slot, so an
-agent removed part way across a connection leaves a live animation for whoever
-takes the slot next: that agent's position is overwritten every frame by a lerp
-between coordinates it has never been near, until the dead agent's time budget
-runs out. Neither array is reachable from outside `dtCrowd`, and `addAgent`
-chooses the slot itself, so there is nothing to intercept.
-
-Worked around by not handing the slot back yet. `zrcCrowdRemoveAgent` retires
-the caller's reference immediately, and for an agent in
-`DT_CROWDAGENT_STATE_OFFMESH` it calls `resetMoveTarget` and leaves the slot
-occupied; `zrcCrowdUpdate` calls upstream's `removeAgent` once the crossing has
-finished on its own. The cost is a slot that stays busy for the rest of that
-crossing, which `zrcCrowdAddAgent` documents.
-
-**`dtProximityGrid`'s cell hash overflows a signed int.** `hashPos2` multiplies
-each cell coordinate by a large prime in `int` arithmetic
-(`DetourProximityGrid.cpp:43-46`), and `73856093 * 30` is already past
-`INT_MAX`, so any cell coordinate whose magnitude exceeds 29 is signed
-overflow — undefined behaviour, not a wrapped value. The coordinate is an
-agent's world position divided by the grid's cell size, and `dtCrowd` sizes that cell at
-`maxAgentRadius * 3`, about 1.8 m for a half-metre agent, so a world wider than
-roughly a hundred metres reaches it.
-
-**Not worked around, and deliberately so.** `dtCrowd::update` calls its own
-grid, with positions this package never sees, between two private members;
-there is no seam. The alternatives would be to fork the hash or to refuse large
-worlds at the door, and refusing them would remove a capability upstream has
-rather than bind it — a C++ host is in exactly this position and gets exactly
-this behaviour. `ZRC_PROXIMITY_GRID_SAFE_CELL` names the limit in
-`ffi/zrecast.h` so a host building with UBSan knows what a trap inside
-`hashPos2` is. The standalone grid entry points do not bound it either, for
-the same reason: a C++ host passing the same coordinate gets the same
-behaviour, and a package that refused it would be answering a different
-question from the one upstream answers.
-
-**`dtNavMesh::removeTile` dereferences a null header.** `getTileByRef` resolves
-a reference by checking the slot index and the salt and stops there, so it
-returns free slots as well as occupied ones — and a free slot's `header` is
-null. `removeTile` then reads `tile->header->x` to unhash the tile
-(`DetourNavMesh.cpp:1253`) with no test of its own. A freshly created navmesh
-gives every slot salt 1, so a reference naming an unused slot of one passes both
-of `removeTile`'s checks and faults on the third line. Worked around by
-resolving every `ZrcTileRef` through a helper that requires a non-null header
-before either `zrcNavMeshRemoveTile` or `zrcNavMeshTileBounds` proceeds.
-
-**`dtNavMesh::getNeighbourTilesAt` walks off the end of the coordinate space.**
-It reaches a neighbour with a bare `nx++` / `nx--` / `ny++` / `ny--`
-(`DetourNavMesh.cpp:1078-1089`), so a tile whose header carries `INT_MIN` or
-`INT_MAX` in either grid coordinate is signed overflow the moment a query looks
-for its neighbours. Worked around by bounding both coordinates to
-`ZRC_MAX_TILE_COORD` when a tile image is validated, which keeps every such step
-far inside range.
-
-**`dtNavMesh::init` reads the buffer before it checks the length.** Its first
-two statements dereference `(dtMeshHeader*)data` to test the magic and version;
-`dataSize` is never compared against anything. `addTile` then derives eight
-array pointers from counts in that header — vertices, polygons, links, detail
-meshes, detail vertices, detail triangles, BV nodes, off-mesh connections — and
-again never compares them against the length. A buffer shorter than
-`sizeof(dtMeshHeader)`, or one whose header describes more data than it carries,
-is an out-of-bounds read in every build configuration. Worked around by
-`zrcNavMeshValidate`, which copies the header out (so a misaligned caller buffer
-is not a struct read either), sanity-checks every count, and requires the total
-size implied by those counts to equal the buffer length exactly.
-
-**`maxLinkCount == 0` is an out-of-bounds *write*.** While building the tile's
-link free list, `addTile` executes `tile->links[header->maxLinkCount-1].next =
-DT_NULL_LINK;` before any loop guard. With a zero count that writes one element
-before the array. `zrcNavMeshValidate` rejects it.
-
-**Every index inside a tile image is trusted, and several become memory
-errors.** `dtNavMesh::addTile` bounds nothing it reads out of the buffer, and
-neither does the query layer that walks the result. Four of these were found by
-mutating the image at random and running the full query surface; three of the
-four were not visible from reading the validator:
-
-| Field | What Detour does with it |
+| Upstream | What zrecast does |
 |---|---|
-| `dtPoly::vertCount` | Four functions copy that many vertices into a fixed `float verts[DT_VERTS_PER_POLYGON*3]` stack array — `getPolyHeight` (`DetourNavMesh.cpp:687`), `closestPointOnPoly`, `moveAlongSurface`, `raycast` (`DetourNavMeshQuery.cpp:549`, `:2091`, `:2490`). A value of `200` overwrites the saved return address with coordinates from the image. |
-| `dtPoly::neis` | `connectIntLinks` turns it into a link reference, `base \| (neis[j] - 1)`, with no range test (`DetourNavMesh.cpp:549`). Traversal queries then resolve that reference with `getTileAndPolyByRefUnsafe`, which indexes `tile->polys` and checks nothing — the same overrun, one indirection later. The *safe* accessor is used only on the caller's own references. |
-| Vertex coordinates | `closestPointOnDetailEdges` keeps its nearest edge with `if (d < dmin)` and calls `dtVlerp` on the result unconditionally (`DetourNavMesh.cpp:673`). Every comparison against a NaN distance is false, so one NaN coordinate leaves the pointers null. |
-| Detail edge flags, triangle count | Same null dereference from two more directions: the `onlyBoundary` instantiation skips every triangle with no boundary bit, and a sub-mesh with no triangles never enters the loop at all. |
-| BV-tree node `i` | `queryPolygonsInTile` indexes `tile->polys` by a leaf's `i` directly (`DetourNavMeshQuery.cpp:776`). |
-
-All are checked by `zrcNavMeshValidate` before Detour sees the image, and none
-of those checks rejects anything `dtCreateNavMeshData` produces.
-
-**A node pool below four nodes has a zero-bucket hash table.**
-`dtNavMeshQuery::init` builds `dtNodePool(maxNodes, dtNextPow2(maxNodes / 4))`,
-and `dtNextPow2(0)` returns **0** — it decrements to `0xFFFFFFFF`, smears, and
-increments back through the wrap (`DetourCommon.h:439`). The pool then allocates
-a zero-byte hash table, and its own
-`dtAssert(dtNextPow2(m_hashSize) == m_hashSize)` passes because `0 == 0`, so
-even an asserts-on build is silent. Every subsequent bucket index is
-`hash & (m_hashSize - 1)` — `hash & 0xFFFFFFFF` — so the first search reads and
-then *writes* far outside the allocation. Worked around by requiring
-`max_nodes >= 4`, which is the smallest value for which the table exists.
-
-**Recast converts a span height to `int` before clamping it.** `rasterizeTri`
-computes `(int)ceilf(spanMax * inverseCellHeight)` and only then passes the
-result to `rcClamp(..., RC_SPAN_MAX_HEIGHT)` (`RecastRasterization.cpp:445-446`),
-so tall geometry over a fine `cell_height` is an out-of-range float conversion
-before the clamp ever runs — one vertex at y = 4e8 with the default
-`cell_height` of 0.2 is enough. `ffi/zrecast_bake.cpp` bounds the vertical
-extent to `RC_SPAN_MAX_HEIGHT` voxels, which is also all a 13-bit span extent
-can address: past that Recast silently flattens everything into the topmost
-span, so rejecting removes a quietly wrong mesh as well as the undefined
-behaviour.
-
-**Recast sums squared voxel deltas in `int`.** `simplifyContour` compares
-`dx*dx + dz*dz` against `maxEdgeLen*maxEdgeLen` (`RecastContour.cpp:399`). The
-bound that keeps this defined is therefore not the largest integer whose square
-fits an `int` but the largest whose square fits *twice over* — 32767, since
-`2 * 32767^2` is 2147352578 and `2 * 32768^2` is not representable. Both the
-per-axis grid dimension and `maxEdgeLen` are held to it in
-`ffi/zrecast_bake.cpp`.
-
-**`rcPolyMeshDetail` does not free itself.** Four of Recast's five container
-types — `rcHeightfield`, `rcCompactHeightfield`, `rcContourSet`, `rcPolyMesh` —
-release their internal buffers in a destructor, and their `rcFreeX` functions
-are one-liners calling `rcDelete`. `rcPolyMeshDetail` has no user-declared
-destructor at all; its three buffers are released only inside
-`rcFreePolyMeshDetail`. Nothing in the type system distinguishes it, so a
-generic `~T(); rcFree(p)` helper leaks three allocations per detail mesh
-silently. This is not hypothetical — it is exactly the bug the C smoke test's
-balanced-allocation assertion caught during development. Worked around by
-`zrc::RcFree`, an overload set that defers to upstream's own free function for
-each type rather than re-deriving the rule.
-
-**`rcNew` does not check its allocation.** It is
-`new (rcAlloc(...)) T()`, so a failed allocation is a placement-new at address
-zero, and `rcAllocHeightfield` and friends inherit that. Replaced by a checked
-`zrc::RcNew` in `ffi/zrecast_internal.h`, which is what makes the
-`ZRC_ERR_OUT_OF_MEMORY` paths reachable rather than decorative. Detour's
-`dtAllocNavMesh` and `dtAllocNavMeshQuery` *do* return null on failure, so they
-are used as they are.
-
-**Neither library survives an allocation failure inside itself.** This is the
-one limitation that could not be closed from outside, so it is recorded in full
-rather than glossed. Four places, all found by sweeping an induced allocation
-failure across every allocation site:
-
-| Where | What happens |
-|---|---|
-| `rcVectorBase::push_back` (`RecastAlloc.h:214`) | `allocate_and_copy` returns null when `rcAlloc` fails, and `construct(data + m_size, value)` then placement-news through it. A bake under memory pressure is a null dereference, not an error. |
-| `createBVTree` (`DetourNavMeshBuilder.cpp:175`) | Allocates its item array and indexes it with no check, so `dtCreateNavMeshData` faults the same way. |
-| `dtNodePool`, `dtNodeQueue` (`DetourNode.cpp:64`, `:163`) | Check their allocations with `dtAssert` and then `memset` the result. Under `NDEBUG` that is a null `memset`; with asserts on it is an abort. Building a query object is therefore not recoverable either. |
-| `~dtNavMesh` (`DetourNavMesh.cpp:211`) | Walks `m_tiles` for `m_maxTiles` entries. `dtNavMesh::init` sets `m_maxTiles` *before* allocating that array and `memset`s it only after a second allocation also succeeds, so after an out-of-memory failure the destructor either dereferences null or reads uninitialised tile flags and calls `dtFree` on the garbage behind them. |
-
-The last one *is* worked around, narrowly: `FreeFailedNavMesh` in
-`ffi/zrecast_navmesh.cpp` releases the object's storage without running its
-destructor when `init` reports `DT_OUT_OF_MEMORY`, which turns a certain crash
-into at worst one leaked `dtMeshTile` array on an already-fatal path. Detour
-distinguishes the cases for us: its only other `init` failure happens after both
-arrays are live, where the destructor is safe.
-
-The other three are not worked around, because they cannot be. What zrecast
-does instead is keep its own allocations correct and *prove* it: the
-`a failure at any allocation zrecast owns` test sweeps every allocation site in
-the serialise/validate/deserialise arc and requires an error, the documented
-error, and balanced bytes — with exactly one index permitted to leak, that being
-the `~dtNavMesh` residue above. The bake and the query object are outside the
-sweep for the reasons in the table, and the test says so at the point where it
-skips them.
-
-The practical consequence for a host: **run the bake where an allocation failure
-is not survivable anyway** — a cook, a tool, a loading screen with a budget —
-and do not expect Recast to degrade gracefully under memory pressure. The
-runtime side (deserialise, query) is far better behaved, and that is the half a
-game runs.
-
-**Recast reports failure as a bare `false`.** The reason goes to a virtual log
-callback on `rcContext`, and there is no default that records it. A caller
-without a context subclass therefore learns only that some stage of eleven
-failed. Worked around by `ZrcBakeLog`: `ffi/zrecast_bake.cpp` installs a context
-that captures the messages into a caller-supplied buffer.
-
-**`dtNavMesh::calcTileLoc` casts an unbounded quotient to `int`.** It computes
-`(int)floorf((pos[0] - m_orig[0]) / m_tileWidth)` and the same for z
-(`DetourNavMesh.cpp:1063-1067`), with no check on either. A position far enough
-from the origin — or a degenerate tile size, which makes the quotient infinite —
-is a float-to-int conversion whose value does not fit, which is undefined
-behaviour rather than a wrong answer. This is the same defect class as the grid
-extent recorded above, in a function a host calls directly. Worked around by
-doing the division in `double` first and refusing a position whose tile could
-not be named by an `int`; a non-finite position and a NULL `pos` are refused at
-the same point.
-
-**Nothing bounds an off-mesh connection's polygon index.** `baseOffMeshLinks`
-does `dtPoly* poly = &tile->polys[con->poly];` (`DetourNavMesh.cpp:571`) with no
-comparison against `polyCount`, then writes through
-`tile->verts[poly->verts[0] * 3]` (584-585); `connectExtOffMeshLinks` repeats
-both (`DetourNavMesh.cpp:468`, `:485-486`). `con->poly` is an `unsigned short`
-read straight out of the tile image, so this is an out-of-bounds **write**
-primitive reachable from tile bytes, not merely a wrong answer. Worked around
-by requiring `con[i].poly == offMeshBase + i` exactly when an image is validated — the
-builder writes them from the same counter (`DetourNavMeshBuilder.cpp:660-662`),
-so the equality covers the bound, the ordering, and two connections claiming one
-polygon at once.
-
-**`getOffMeshConnectionByRef` underflows an unsigned subtraction.** It computes
-`const unsigned int idx = ip - tile->header->offMeshBase;`
-(`DetourNavMesh.cpp:1521`) with no check that `ip >= offMeshBase`, guarded only
-by a `dtAssert` that `DetourAssert.h:25-29` compiles to `(void)sizeof(x)` under
-`NDEBUG` — nothing at all in a release build. A polygon below `offMeshBase`
-tagged `DT_POLYTYPE_OFFMESH_CONNECTION` therefore returns
-`&tile->offMeshCons[huge]`. `dtPoly::getType()` is a 2-bit field with two
-undefined values, and nothing upstream constrains it. Worked around by a
-two-sided rule when an image is validated: a polygon is typed off-mesh **iff**
-its index lies in `[offMeshBase, offMeshBase + offMeshConCount)`, and neither
-undefined type value is accepted. `getOffMeshConnectionPolyEndPoints` reads
-`tile->verts[poly->verts[idx]*3]` (1495-1496) with no bound of its own either;
-the same validation pass bounds those two vertex indices.
-
-**The BV-tree query does not filter off-mesh polygons; the linear one does.**
-`queryPolygonsInTile`'s no-tree branch skips them explicitly
-(`DetourNavMesh.cpp:869-871`), and its BV branch returns any leaf that passes the
-overlap test with no type test at all (808-860). Both `baseOffMeshLinks` and
-`connectExtOffMeshLinks` resolve their endpoints through it, so a doctored tree
-could make a connection land on another connection's polygon rather than on
-ground. `createBVTree` only ever emits ground leaves
-(`DetourNavMeshBuilder.cpp:200`), so the workaround is to bound a leaf by
-`offMeshBase` rather than by `polyCount`.
-
-**Tile state is restored against a polygon count the blob does not carry.**
-`dtTileState` holds a magic, a version and a tile ref and nothing else
-(`DetourNavMesh.cpp:1363-1368`), so `restoreTileState` sizes its `dtPolyState`
-array from the **live tile's** `polyCount` and accepts any buffer at least that
-large (1422-1450). A blob taken from a tile that has since been replaced by a
-differently shaped one therefore passes every check upstream makes. Worked
-around by requiring the caller's length to equal `getTileStateSize` exactly
-rather than merely reach it, which is the only remaining signal that a blob and
-a tile disagree. Note also the asymmetry, mirrored deliberately rather than by
-accident: upstream reports a short buffer as `DT_BUFFER_TOO_SMALL` from `store`
-and as `DT_INVALID_PARAM` from `restore`.
-
-**An area id past the end of its field is truncated, not refused.** Both halves
-of the library store an area in six bits — `rcSpan::area` on the Recast side
-(`Recast.h:298`), `dtPoly::areaAndtype` on the Detour side — and neither
-validates what it is given. `dtPoly::setArea` masks with `& 0x3f`
-(`DetourNavMesh.h:178`), and `dtNavMesh::setPolyArea` hands it any
-`unsigned char` unchecked, so area `64` silently becomes area `0`, the id that
-means unwalkable. `rcMarkBoxArea` and its two siblings take the same
-unchecked `unsigned char`. The limit is documented in both headers and enforced
-in neither. Worked around by refusing an id outside `[0, ZRC_MAX_AREAS)` in
-`ValidateAreaAuthoring` and in `zrcNavMeshSetPolyArea`, so a host learns it
-asked for something impossible rather than silently getting a different area.
-
-**The bounding-volume tree is walked one node past its end, and that node
-names polygon 0.** `dtCreateNavMeshData` reserves `polyCount * 2` nodes
-(`DetourNavMeshBuilder.cpp:507`) while `createBVTree` fills exactly
-`2 * polyCount - 1` of them — `subdivide` emits one node per call and either
-makes a leaf or splits into two children, so there are no unary nodes and the
-count is fixed. The last reserved node keeps the zeroes the whole buffer was
-memset with. `queryPolygonsInTile` then ends its traversal at
-`&bvTree[bvNodeCount]` rather than at the tree
-(`DetourNavMeshQuery.cpp:744`), so it reads that node: an `i` of 0 is a leaf
-naming polygon 0, and bounds of `{0,0,0}..{0,0,0}` overlap any query box whose
-quantised minimum is 0 on all three axes.
-
-That is not an exotic query. Every box is clamped to the tile's bounds before
-being quantised (`:750-757`), so *any* query at or below the tile's minimum
-corner — including every query that misses the tile entirely and is clamped
-onto it — matches. Measured on the test fixture: `findNearestPoly` at the
-navmesh's own minimum corner with 0.05 m half-extents returned polygon 0, whose
-nearest point is nine metres away. `zrcFindNearestPoly` had that behaviour from
-the day it was bound.
-
-Worked around by `zrc::SealBvSentinel`, which marks that node internal — the
-traversal reports a polygon only for a node with a non-negative `i`, and steps
-past this one either way. It runs on every tile this package cooks, so an image
-handed straight to Detour is protected too, and again on the private copy taken
-when a tile is added or a navmesh deserialised, so an image from another tool is
-protected without being altered where it lies. It costs one `int` per tile of
-the cooked image.
-
-**`dtAlign4` overflows for the top three values of its range.** It is
-`(x + 3) & ~3` on a signed `int` (`DetourCommon.h:463`), so any `x` above
-`INT_MAX - 3` is signed overflow. Zig's undefined-behaviour sanitizer traps it,
-which is how it was found rather than reasoned about. Nothing inside Detour
-reaches it — every call site derives `x` from a tile count already bounded by
-image validation — but the function is public, and a host aligning its own
-sizes with it can. `src/vec.zig`'s port uses a wrapping add, so the Zig
-spelling is defined over the whole range; the C is not, and the parity test
-stops comparing against it at `INT_MAX - 3` for that reason.
-
-**`dtNodePool::getNodeAtIdx` bounds only the zero.** It tests `if (!idx)` and
-otherwise indexes straight into the pool's storage (`DetourNode.h:68-72`), so
-an index between the node count and the pool's capacity returns a pointer to
-memory no search has written. `zrcQueryNodeAt` bounds against the count the
-pool itself reports rather than its capacity, so an index past what a search
-populated is `ZRC_ERR_NOT_FOUND`.
-
-**`findNearestPoly` writes `isOverPoly` only when it also writes
-`nearestPt`.** Both are `[opt]` in the header, but the second is written inside
-the branch guarded by the first (`DetourNavMeshQuery.cpp:722-725`) — so a
-caller wanting to know whether the point is over the polygon, and not wanting
-the point, is told false whatever the answer. `zrcFindNearestPoly` passes
-scratch of its own when the caller declines the point, which is what makes the
-two outputs independent.
-
-**A random point near a position is not within the radius given.**
-`findRandomPointAroundCircle` bounds its *search* by `maxRadius` and then
-places the point anywhere inside whichever polygon it settled on
-(`DetourNavMeshQuery.cpp:478-492`). A polygon reached at the edge of the circle
-extends past it, so the point can too. Not worked around — the alternative
-would be rejection sampling with a caller's own generator — but stated in the
-header, because the parameter name invites the opposite reading.
-
-**A sliced path search keeps the caller's filter as a raw pointer.**
-`initSlicedFindPath` copies the start and end positions into its query state
-and stores `m_query.filter = filter` (`DetourNavMeshQuery.cpp:1230-1233`);
-every later `update` and `finalize` dereferences it. A host that destroys its
-filter once `init` returns, as it may after any other call, leaves a dangling
-pointer. Worked around by giving `ZrcNavMeshQuery` a `dtQueryFilter` of its
-own that lives as long as the slice, copied from the caller's.
-
-**"No impact on an in-progress sliced path query" is not true.** The class
-comment says const member functions are safe to call alongside a slice
-(`DetourNavMeshQuery.cpp:133-135`). Five of them begin by clearing the shared
-node pool: `findPath` (`:1003`), `findPolysAroundCircle` (`:2742`),
-`findPolysAroundShape` (`:2919`), `findRandomPointAroundCircle` (`:340`) and
-`findDistanceToWall` (`:3487`). `dtNodePool::clear` resets the bucket table and
-the count and never touches the node storage (`DetourNode.cpp:83-87`), so the
-slice's `lastBestNode` stays a valid pointer into nodes the next search hands
-out and overwrites. Finalising then walks a chain belonging to a different
-search and returns plausible, wrong references. The obvious game-loop shape —
-one query object, iterate agents — walks straight into it. Worked around by
-refusing those five while a slice is in flight, with
-`ZRC_ERR_SEARCH_IN_PROGRESS`. Only those five: `raycast`, `moveAlongSurface`
-and `findLocalNeighbourhood` use the separate tiny pool and `findRandomPoint`
-runs no search at all, so refusing them would be a restriction the defect does
-not justify.
-
-**Finalising a sliced path twice succeeds and answers nothing.** Both finalise
-functions `memset` their query state to zero on the way out
-(`DetourNavMeshQuery.cpp:1579`) and guard re-entry with
-`dtStatusFailed(m_query.status)` — which is false for the zero that memset just
-wrote. A second call therefore reaches the `startRef == endRef` special case,
-both being 0, and returns `DT_SUCCESS` with a one-element path holding the null
-reference (`:1516-1520`). A real `init` can never leave `startRef` at 0, so the
-state is reachable only this way. Closed by the in-flight flag: with it
-cleared, a second finalise is `ZRC_ERR_NO_SEARCH` and upstream's zeroed path is
-never entered.
-
-**`findLocalNeighbourhood` writes through a null result pointer.** It writes
-`resultRef[n]` with no test (`DetourNavMeshQuery.cpp:3135`, `:3252`) while both
-of its siblings guard the identical write with `if (resultRef)` (`:2784`,
-`:2964`). Its own validation block never checks the pointer either. The header
-does not mark that parameter `[opt]`, so the omission may be deliberate — but a
-caller asking only for a count gets a null write rather than a refusal.
-`zrcFindLocalNeighbourhood` requires the array.
-
-**`findDistanceToWall` reports "nothing found" as a hit.** `hitPos` is written
-only inside the branch that finds a closer edge, so with no wall in range it
-keeps whatever the caller passed in. The function then computes
-`dtVsub(hitNormal, centerPos, hitPos)` and `dtVnormalize(hitNormal)` over it
-regardless and returns `DT_SUCCESS` (`DetourNavMeshQuery.cpp:3648-3652`); the
-only signal is the convention that `*hitDist` equals `maxRadius`. Separately,
-`dtVnormalize` has no zero-length guard, so an agent standing exactly on a wall
-normalises a zero vector and gets NaN in all three components. Worked around by
-seeding both outputs, reporting nothing-in-range through its own flag, and
-zeroing a normal that comes back non-finite.
-
-**`isValidPolyRef` dereferences its filter with no null check.** Every other
-filtered method in the file tests it — `findPath` (`:991`),
-`findPolysAroundCircle` (`:2737`), `findPolysAroundShape` (`:2910`),
-`findLocalNeighbourhood` (`:3108`), `findDistanceToWall` (`:3482`),
-`getPolyWallSegments` (`:3330`). `isValidPolyRef` alone does not (`:3663`), so
-a NULL filter is an immediate crash. Here a NULL filter is a different
-question, answered by `dtNavMesh::isValidPolyRef`: whether the reference names
-a live polygon at all.
-
-**`dtRaycastHit::hitEdgeIndex` can come back uninitialised.** `raycast` writes
-it once per polygon step (`DetourNavMeshQuery.cpp:2534`), but returns early
-when the *first* polygon's intersection test fails (`:2527-2532`) — and
-neither it nor its two-overload wrapper zeroes the field first. In that path
-the caller reads back whatever its own struct held. Seeded to -1 before the
-call.
-
-**`getTilesAt` truncates silently at 32 tiles per column.** `queryPolygons`
-declares `MAX_NEIS = 32` and passes it as the capacity
-(`DetourNavMeshQuery.cpp:944, 951`); `dtNavMesh::getTilesAt` walks the whole
-bucket chain but appends only `if (n < maxTiles)` (`DetourNavMesh.cpp:1133`),
-with no overflow signal — its own comment says it "will simply fill the array
-to capacity". A grid column stacked more than 32 layers deep therefore drops
-the rest from every query that touches it. Not worked around, because the
-capacity is upstream's own and a layered navmesh that deep is outside what this
-version builds; stated in the header instead.
-
-**`encodePolyId` truncates a field that does not fit.** It shifts and ors
-without checking any of the three values against the bit widths
-`dtNavMesh::init` computed (`DetourNavMesh.h`), so a salt or tile index one bit
-too wide silently becomes a reference to something else. `zrcEncodePolyRef`
-recomputes those widths from the navmesh's own parameters and refuses.
-
-**A convex polygon with one vertex is read from before its start.**
-`dtRandomPointInConvexPoly` fan-triangulates with `for (int i = 2; i < npts;
-i++)` and initialises its chosen triangle to `npts - 1`
-(`DetourCommon.cpp:337-345`). Given `npts == 1` neither loop body runs, `tri`
-stays 0, and the function then evaluates `pts[(tri - 1) * 3]` — three floats
-below the caller's array — before reading `pts[tri * 3]` on top of it. Worked
-around by requiring at least three vertices at the boundary, which is also the
-smallest polygon the fan has a defined answer for.
-
-**`dtCalcPolyCenter` is handed an index array and no bound for it.** Its
-signature is `(tc, idx, nidx, verts)` — there is no vertex count anywhere in it,
-so every value in `idx` is trusted as an offset into `verts`
-(`DetourCommon.cpp:186-202`). It then divides by `nidx` with no test, so an
-empty polygon yields `1.0f / 0` multiplied by a zero accumulator, which is NaN
-in all three components rather than an error. `zrcPolyCenter` takes the vertex
-count as a real parameter, bounds every index against it, and requires at least
-one index.
-
-**An empty polygon is an out-of-bounds read in the overlap test.**
-`dtOverlapPolyPoly2D`'s helper opens with
-`rmin = rmax = dtVdot2D(axis, &poly[0]);` before any loop
-(`DetourCommon.cpp:275`). The outer loops are
-guarded by their own counts, but the second one projects the *first* polygon on
-every iteration — so `npolya == 0` with a non-empty second polygon reads three
-floats from an empty array. Both counts are checked at the boundary.
-
-**`rcOffsetPoly` needs one more slot than it fills.** Its bounds checks are
-`if (n + 2 >= maxOutVerts)` on the bevelled path and `if (n + 1 >= maxOutVerts)`
-on the other (`RecastArea.cpp:496, 510`), where every comparable bound in the
-tree is `>` rather than `>=`. The last slot of the caller's buffer is therefore
-never written and a buffer sized exactly to the result returns 0, which is also
-how the function reports failure. Not worked around — a fix would change which
-inputs succeed — but stated in the header, and the zero return is given the name
-`ZRC_ERR_BUFFER_TOO_SMALL` so it is at least distinguishable from a result.
-
-**The assertion hook does not exist in a release build.** In both
-`DetourAssert.h` and `RecastAssert.h` the whole family — the
-`dtAssertFailFunc` / `rcAssertFailFunc` typedef, the `SetCustom` setter and the
-`GetCustom` getter — sits inside the `#else` of `#ifdef NDEBUG`, and `dtAssert`
-/ `rcAssert` expand to `do { (void)sizeof(x); } while(...)`. So a host cannot
-route upstream's assertions anywhere in a build that compiled them out, and
-nothing in the API says which build it is holding. `zrcSetAssertHandler` still
-records the handler in either build, and `zrcAssertsEnabled` is the answer to
-the question upstream leaves unanswerable.
-
-**A bake that produces nothing is not an error.** `rcBuildPolyMesh` succeeds
-with `npolys == 0`, and the resulting navmesh answers every query with "nowhere
-to go" rather than failing. Worked around by returning `ZRC_ERR_EMPTY_RESULT`,
-with an explanation written to the bake log.
-
-**A build stage overwrites its output container without freeing it.**
-`rcBuildCompactHeightfield`, `rcBuildContours`, `rcBuildPolyMesh` and
-`rcBuildPolyMeshDetail` assign fresh allocations straight over their
-destination's members with no emptiness test at all.
-`rcBuildHeightfieldLayers`, `rcCopyPolyMesh` and `rcMergePolyMeshes` attempt the
-test with `rcAssert` (`RecastMesh.cpp:1491-1495` for the copy), which
-`RecastAssert.h:25` compiles to `(void)sizeof(x)` under `NDEBUG` — so in a
-release build every one of them leaks the buffers the container already held.
-Unreachable while the only way to run a stage was a whole bake, and reachable
-the moment a host owns the containers, so every staged entry point tests the
-destination itself and returns `ZRC_ERR_ALREADY_BUILT` in every build
-configuration.
-
-**`rcErodeWalkableArea` stops eroding at a radius of 128.** The threshold is
-`const unsigned char thr = (unsigned char)(radius*2);` (`RecastArea.cpp:210`),
-so radius 128 wraps to 0 and erodes nothing, and 129 erodes as 1 would. The
-distances it compares are also saturated at 255
-(`RecastArea.cpp:111`), so nothing above 127 could be honoured anyway. Bounded
-to 127 at the boundary, in both the bake and the staged entry point.
-
-**`rcBuildRegions` reads a distance field that may not exist.** The watershed
-partitioner reaches `chf.dist` through `floodRegion`, `expandRegions` and
-`sortCellsByLevel` (`RecastRegion.cpp:339, 381, 494`), and `chf.dist` is null
-until `rcBuildDistanceField` has allocated it. Nothing in `rcBuildRegions`
-checks. `rcBuildRegionsMonotone` and `rcBuildLayerRegions` do not read it and
-are unaffected. The staged entry point refuses the watershed strategy on a field
-whose distance array has not been built.
-
-**`rcCreateHeightfield` accepts a negative size.** It stores `sizeX` and `sizeZ`
-straight into the heightfield and allocates `sizeof(rcSpan*) * width * height`
-(`Recast.cpp:306-325`). Two negative sizes multiply to a positive product, so
-the allocation succeeds at the wrong size and every later `spans[x + z * width]`
-indexes an array that does not have that shape. Bounded at the boundary.
-
-**`rcAddSpan` indexes the column array unbounded.** Its helper computes
-`columnIndex = x + z * hf.width` and dereferences `hf.spans[columnIndex]`
-(`RecastRasterization.cpp:122-124`) with no test against the field's own extent.
-Unreachable from a bake, which derives every coordinate itself, and reachable
-from a host adding spans by hand. Both coordinates are checked at the boundary.
-
-**`rcMergePolyMeshes` uses the first mesh's polygon stride for all of them.**
-`mesh.nvp` is taken from `meshes[0]` and then used as the stride into every
-input: `src = &pmesh->polys[j * 2 * mesh.nvp]` (`RecastMesh.cpp:1424`). An input
-that packs its polygons at a smaller `nvp` is read past its end, one polygon at
-a time. The boundary requires every input to agree on `nvp`.
-
-**`rcMergePolyMeshDetails` lacks the guard its twin has.**
-`rcMergePolyMeshes` opens with `if (!nmeshes || !meshes) return true;`
-(`RecastMesh.cpp:1312`); the detail-mesh merge has no such line and goes
-straight to `meshes[i]->nverts` (`RecastMeshDetail.cpp:1401-1402`). A null array with
-a positive count is a null dereference. Checked at the boundary.
-
-**`rcContext::log` can produce two entries from one call.** A formatted message
-of 512 bytes or more is reported first as a separate `RC_LOG_ERROR` reading
-"Log message was truncated" — at a category the caller did not choose — and then
-as the message cut to 511 bytes (`Recast.cpp:58-79`). Not worked around: it is
-upstream's contract for a host's own logging hook. Stated in the header, because
-a host counting entries or trusting the category would otherwise be wrong.
-
-**The tile cache reads a layer header before it checks the length.**
-`dtTileCache::addTile` casts `data` to a `dtTileCacheLayerHeader*` and tests its
-magic and version (`DetourTileCache.cpp:250-254`) with `dataSize` compared
-against nothing, then stores `compressedSize = dataSize - headerSize`
-(`:283-284`), which is negative for a short buffer and is handed to the host's
-codec as an `int`. `dtDecompressTileCacheLayer` repeats the same subtraction
-(`DetourTileCacheBuilder.cpp:2202-2203`), and
-`dtTileCacheHeaderSwapEndian` takes a length, discards it with
-`dtIgnoreUnused`, and dereferences the header anyway
-(`DetourTileCacheBuilder.cpp:2223-2226`). All three lengths are checked at the
-boundary before upstream sees the bytes.
-
-**Upstream reads a caller's bytes as structs.** `dtDecompressTileCacheLayer`
-reads its input through a `dtTileCacheLayerHeader*`
-(`DetourTileCacheBuilder.cpp:2177`), `dtTileCacheHeaderSwapEndian` swaps one in
-place (`DetourTileCacheBuilder.cpp:2226`), and `storeTileState` and
-`restoreTileState` write and read a `dtTileState` and a `dtPolyState` array
-(`DetourNavMesh.cpp:1397`, `DetourNavMesh.cpp:1429-1430`).
-A caller's buffer is bytes with no particular alignment, and at an odd address
-each of those is a misaligned access. Worked around by handing upstream an
-aligned copy: a block from the allocator seam for the three that take a whole
-buffer, a local header for the swap.
-
-**The contour walk follows a layer's connections off its grid.** A cell's low
-four `cons` bits are its connections, one per direction, and
-`getNeighbourReg` follows a set bit to the neighbouring cell with no bounds
-test (`DetourTileCacheBuilder.cpp:452-456`). `walkContour` then steps onto that
-cell and reads its height (`DetourTileCacheBuilder.cpp:509`), so a border cell
-claiming a neighbour off the grid walks the contour out of the layer's
-buffers; `dtBuildTileCacheRegions` bounds the same steps and `walkContour`
-does not. Recast never writes such a bit (`RecastLayers.cpp:638`), but a layer
-from bytes is whatever the bytes say, and the cache decompresses a stored
-layer only when it builds one. The fuzz property for compressed layers found
-it, as a segmentation fault inside `walkContour`. Worked around by holding
-every layer to one contract wherever its grids enter: `buildTileCacheLayer`
-refuses such a `cons`, and `TileCacheLayer.initFromBytes` and
-`TileCache.addTile` decompress the bytes and refuse a layer whose header or
-connections fail the same checks. `addTile` pays one decompression for it.
-
-**`buildNavMeshTile` bounds a tile index with `>` where the file uses `>=`
-everywhere else.** `if (idx > (unsigned int)m_params.maxTiles)`
-(`DetourTileCache.cpp:662-663`) admits one `dtCompressedTile` past the
-allocation; if that slot's garbage salt happens to match the reference's, its
-`data` and `dataSize` are read and fed onward. Every reference is resolved
-through upstream's own salt-checking `getTileByRef` before anything can reach
-it.
-
-**Two index accessors bound nothing at all.** `getTile(int)`
-(`DetourTileCache.h:112`) and `getObstacle(int)` (`:115`) each return
-`&array[i]` with no test against the count the cache was created for. The
-boundary bounds both.
-
-**`queryTiles` drops what does not fit and reports success.** It writes only
-`if (n < maxResults)` and returns `DT_SUCCESS` either way
-(`DetourTileCache.cpp:511-520`). Worse, `update` calls it with the fixed
-eight-entry `DT_MAX_TOUCHED_TILES` array (`:548`), so an obstacle overlapping
-more than eight tiles is carved into the first eight and silently missing from
-the rest — a hole in the navmesh nothing reports. The boundary reports the true
-count from `zrcTileCacheQueryTiles`, and refuses an obstacle that would touch
-more tiles than upstream can track.
-
-**A full obstacle table reads as an allocator failure.**
-`dtTileCache::addObstacle` returns `DT_FAILURE | DT_OUT_OF_MEMORY` when the
-free list is empty (`DetourTileCache.cpp:371-372`), which is the cache being
-full rather than the allocator failing. The boundary counts the occupied slots
-itself and reports ZRC_ERR_NAVMESH_FULL, the same distinction
-`zrcNavMeshAddTile` already draws.
-
-**`dtTileCache::init` has no purge.** It assigns every member and allocates
-both arrays (`DetourTileCache.cpp:118-171`) with no check that a previous call
-left anything behind, so calling it twice leaks every array from the first. A
-ZrcTileCache is created once and destroyed once.
-
-**The mesh-process callback is handed the whole tile description.**
-`dtTileCacheMeshProcess::process` receives a mutable `dtNavMeshCreateParams*`
-(`DetourTileCache.h:95-99`), and the tile it produces goes into the navmesh
-through `dtCreateNavMeshData` and `dtNavMesh::addTile` directly
-(`DetourTileCache.cpp:756-773`) — the one path into a navmesh that skips every
-check `zrcNavMeshAddTile` applies. A callback that changed `polyCount` or a
-buffer pointer would produce exactly the malformed tile that validator exists
-to catch. Worked around by narrowing the callback: `ZrcTileCacheBuildParams`
-shows a host the areas, the flags, the user id and the off-mesh connections,
-validates what comes back, and writes it into the params itself.
-
-**`walkableClimb / ch` is an unbounded float-to-int conversion.**
-`buildNavMeshTile` computes `(int)(m_params.walkableClimb / m_params.ch)`
-(`DetourTileCache.cpp:673`) with neither value bounded against the other. The
-ratio is checked when the cache is created.
-
-**Tile-cache tiles carry no bounding-volume tree.** `params.buildBvTree` is
-set false unconditionally (`DetourTileCache.cpp:750`), so every query against
-one falls back to a linear scan of the tile. Not a defect — it is why tile size
-matters — but it is also why `SealBvSentinel` is not called on this path and
-does not need to be: `dtCreateNavMeshData` gives such a tile `bvNodeCount == 0`
-(`DetourNavMeshBuilder.cpp:507`), and there is no spare node to seal.
-
-**`getTilesAt` truncates the same way `queryTiles` does.** It writes only
-while `n < maxTiles` and returns the count it wrote
-(`DetourTileCache.cpp:173-193`), so a caller cannot tell a full answer from a
-clipped one. The boundary asks for the cache's whole tile capacity, then
-applies the caller's limit itself and says when it did not fit.
-
-**`dtTileCache::removeTile` dereferences a header it has not checked.** Having
-validated the slot index and the salt it goes straight to
-`computeTileHash(tile->header->tx, tile->header->ty, ...)`
-(`DetourTileCache.cpp:301-306`) — and every slot starts at salt 1, so a
-reference naming a never-issued slot of a fresh cache passes both checks and
-faults on the third line. Exactly the shape `dtNavMesh::removeTile` has, and
-worked around the same way: every reference resolves through a helper that
-requires an occupied slot first.
-
-**An obstacle's slot is never observed empty through a reference.**
-`dtTileCache::update` sets `ob->state = DT_OBSTACLE_EMPTY` and bumps
-`ob->salt` in the same block (`DetourTileCache.cpp:618-624`), and
-`getObstacleByRef` rejects on the salt before it ever looks at the state
-(`:228-240`). So `DT_OBSTACLE_EMPTY` is an enumerator no reference-based
-lookup can return. Not a defect, but it makes one of upstream's four states
-unreachable through the accessor that reports the other three, which the header
-says rather than leaving a host to discover.
-
-**Two tile-cache allocators memset before checking the allocation.**
-`dtAllocTileCacheContourSet` and `dtAllocTileCachePolyMesh` both write
-`memset(p, 0, sizeof(*p))` on the line after `alloc->alloc(...)` with no null
-test (`DetourTileCacheBuilder.cpp:66-73, 86-93`), so an allocator under
-pressure is a write to address zero. Not worked around — the two are the only
-way to obtain those containers, and reimplementing them would be a second copy
-of a format upstream owns — but stated here and in the header, and reachable
-only through a host allocator that fails.
-
-**`dtFreeTileCacheLayer` has no null guard, unlike its two siblings.**
-`dtFreeTileCacheContourSet` and `dtFreeTileCachePolyMesh` both open with
-`if (!cset) return;`; the layer version goes straight to `alloc->free(layer)`
-(`DetourTileCacheBuilder.cpp:2156-2161`). Guarded at the call site.
-
-**`rcBuildHeightfieldLayers` computes negative grid dimensions.** It takes
-`lw = chf.width - borderSize*2` and `lh = chf.height - borderSize*2`
-(`RecastLayers.cpp:497-498`) with no relationship check between the two. A
-border wider than half the field makes both negative, and the allocation size
-`lw*lh` is then a positive, meaningless product while every write loop, bounded
-by the same negative values, writes nothing. Not memory-unsafe, but a layer set
-that reports dimensions no geometry has. Refused at the boundary.
-
-**`duDebugDrawHeightfieldLayersRegions` is declared and never defined.**
-`RecastDebugDraw.h:34` declares it beside the two layer draws that do exist,
-and no source in the vendored tree defines it, so a host that calls it fails to
-link. There is also nothing for it to draw: `rcHeightfieldLayer` carries
-heights, areas and connections and no region ids. No entry point here, and the
-coverage record carries it as `UNDEFINED` — a verdict `bay check-coverage`
-recomputes, so a re-vendor that supplies the definition fails the gate until it
-is bound.
-
-**`duDisplayList` is a concrete class that cannot be instantiated.** It
-overrides five of `duDebugDraw`'s nine pure virtuals and leaves `texture` and
-the two textured `vertex` forms alone (`DebugDraw.h:195-222`), so the class as
-declared is abstract. `zrc::ConcreteDisplayList` supplies the three: a texture
-state change is nothing to record, and a textured vertex is recorded without
-its coordinates — which is what `duDisplayList::draw` would do with them
-anyway, since it replays every vertex through the untextured form.
-
-**`duDisplayList` allocates outside the allocator seam.** Its vertex and colour
-arrays are `new float[]` and `new unsigned int[]` (`DebugDraw.cpp:547-562`),
-not `rcAlloc`, so `zrcSetAllocator` never sees them and an allocation failure
-there is a `std::bad_alloc` in a library compiled with `-fno-exceptions`, which
-terminates. Stated rather than worked around: the arrays are private and the
-class owns them. The handle itself goes through the seam.
-
-**`RecastDump.h`'s six entry points diagnose by printing to stdout.** A null or
-wrong-mode `duFileIO` makes each of them `printf` a line and return false
-(`RecastDump.cpp:45-53` and the same shape in the other five), and
-`duReadContourSet` and `duReadCompactHeightfield` do it again for a bad magic
-or version. Every argument case is refused at the boundary before upstream sees
-it, so only the two magic/version lines remain reachable — from a read fed
-bytes that are not a dump, which the suite does exercise.
-
-**`duReadContourSet` and `duReadCompactHeightfield` trust the stream.** Both
-read a count out of the bytes and allocate from it with no bound
-(`RecastDump.cpp:197-201`, `:340-393`), and `ioprintf` writes through a fixed
-256-byte line buffer and ignores what `write` returns
-(`RecastDump.cpp:32-40`). The format is upstream's own struct layout copied to
-the stream: neither endian- nor padding-portable, and carrying no length a
-reader could check a count against. Not defensible from outside — the reads
-happen inside upstream, one field at a time, against a stream only the host can
-interpret. `zrcReadContourSet` and `zrcReadCompactHeightfield` therefore create
-the container rather than filling a caller's, so a failed read destroys a
-half-built one instead of handing it back, and the header says to feed them
-only bytes this package wrote.
-
-**`duLogBuildTimes` divides into the total it is given.** `const float pc =
-100.0f / totalTimeUsec` (`RecastDump.cpp:437`) with an `int` total, so zero
-produces an infinity that reaches the host's log formatted as a percentage and
-a negative total produces percentages of the wrong sign. Bounded at the
-boundary.
-
-#### What the sanitizer found: nothing
-
-One of the suite's three arms compiles the whole vendored tree under Zig's C
-undefined-behaviour sanitizer. In all four optimize modes it reports no
-undefined behaviour for the workload the test suite exercises. That is a statement about
-this workload, not a clean bill of health for Recast and Detour — but it is why,
-unlike some vendored C++, nothing here needs the sanitizer switched off to pass.
+| `qsort`, five comparators in `dtCreateNavMeshData`, `mergeRegionHoles` and the contour diagonal search: each returns 0 on a tie and `qsort` is not stable, so two C libraries may cook different, equally valid bytes from one input — BV items sorted per axis and serialised into the tile (`DetourNavMeshBuilder.cpp:145-155`, comparators `:40-72`), holes by leftmost vertex (`RecastContour.cpp:727`), diagonal candidates by squared distance (`:773`). | Documented, not defended: the sorts run inside upstream's build functions behind no seam, and rewriting them in the vendored tree is the local divergence `bay check-vendor` refuses; the determinism claim is scoped to match, below the table. |
+| `dtCrowd::removeAgent` clears only the agent's `active` flag (`DetourCrowd.cpp:572-578`) while `dtCrowd::update` walks the parallel `m_agentAnims` by raw slot (`DetourCrowd.cpp:1411-1447`), so an agent removed mid off-mesh crossing leaves a live animation that overwrites the position of whoever takes the slot next, a silently wrong result. | Worked around: `zrcCrowdRemoveAgent` retires the reference at once but, for an agent in `DT_CROWDAGENT_STATE_OFFMESH`, calls `resetMoveTarget` and keeps the slot until `zrcCrowdUpdate` calls upstream's `removeAgent` after the crossing ends, a busy slot `zrcCrowdAddAgent` documents. |
+| `dtProximityGrid`'s `hashPos2` multiplies each cell coordinate by a large prime in `int` (`DetourProximityGrid.cpp:43-46`), so a cell coordinate of magnitude above 29 is signed overflow, which a world wider than roughly a hundred metres reaches at `dtCrowd`'s cell size of `maxAgentRadius * 3`. | Documented, not defended: `dtCrowd::update` calls its private grid with positions the binding never sees, the standalone grid entry points do not bound it either, and `ZRC_PROXIMITY_GRID_SAFE_CELL` in `ffi/zrecast.h` names the limit. |
+| `dtProximityGrid::addItem` floors each bound into an `int` unchecked and loops between them (`DetourProximityGrid.cpp:104-112`): a non-finite bound is an undefined conversion, a box spanning billions of cells a loop that does not end, and a cell coordinate is stored in a `short`, so an item outside its range is filed and never found. | Refused at the boundary: `zrcProximityGridAddItem` and `zrcProximityGridQueryItems` check the box (`zrc::CheckProximityBox`) and return `ZRC_ERR_INVALID_ARGUMENT`. |
+| `dtMergeCorridorStartMoved` and `dtMergeCorridorStartShortcut` subtract a merge width from the capacity in a signed `int` and pass the difference to `memmove` as a length (`DetourPathCorridor.cpp:60-63`, `:146-149`), so a visited count wider than the path's capacity is a memory corruption; `dtMergeCorridorEndMoved` guards the same bound only with a `dtAssert` (`:103`) that `NDEBUG` compiles away. | Refused at the boundary: the three `zrcMergeCorridor*` calls require `path_count` and `visited_count` in `[0, max_path]` and return `ZRC_ERR_INVALID_ARGUMENT` otherwise. |
+| `dtNavMesh::removeTile` reads `tile->header->x` (`DetourNavMesh.cpp:1253`) after `getTileByRef` has checked only slot index and salt, and a fresh navmesh gives every slot salt 1, so a reference to an unused slot is a null dereference. | Worked around: every `ZrcTileRef` resolves through a helper that requires a non-null header before `zrcNavMeshRemoveTile` or `zrcNavMeshTileBounds` proceeds. |
+| `dtNavMesh::getNeighbourTilesAt` steps with a bare `nx++` / `nx--` / `ny++` / `ny--` (`DetourNavMesh.cpp:1078-1089`), so a tile header carrying `INT_MIN` or `INT_MAX` in a grid coordinate is signed overflow on the first neighbour lookup. | Refused at the boundary: tile-image validation bounds both coordinates to `ZRC_MAX_TILE_COORD`. |
+| `dtNavMesh::init` dereferences `(dtMeshHeader*)data` for magic and version, and `addTile` derives eight array pointers from its counts, without either comparing `dataSize` to anything, so a short buffer or a header describing more data than it carries is an out-of-bounds read in every build configuration. | Refused at the boundary: `zrcNavMeshValidate` copies the header out (so a misaligned buffer is not a struct read), sanity-checks every count, and requires the size the counts imply to equal the buffer length exactly. |
+| `dtNavMesh::addTile` with `maxLinkCount == 0` executes `tile->links[header->maxLinkCount-1].next = DT_NULL_LINK;` before any loop guard, an out-of-bounds write one element before the array. | Refused at the boundary by `zrcNavMeshValidate`. |
+| `dtPoly::vertCount` is the count `getPolyHeight` (`DetourNavMesh.cpp:687`), `closestPointOnPoly`, `moveAlongSurface` and `raycast` (`DetourNavMeshQuery.cpp:549`, `:2091`, `:2490`) copy into a fixed `float verts[DT_VERTS_PER_POLYGON*3]` stack array, so a value of `200` is an out-of-bounds write over the saved return address. | Refused at the boundary: `zrcNavMeshValidate` checks it before Detour sees the image, and rejects nothing `dtCreateNavMeshData` produces. |
+| `dtPoly::neis` becomes a link reference `base \| (neis[j] - 1)` in `connectIntLinks` with no range test (`DetourNavMesh.cpp:549`), which traversal resolves through `getTileAndPolyByRefUnsafe` into `tile->polys` unchecked, an out-of-bounds read. | Refused at the boundary: `zrcNavMeshValidate` checks it before Detour sees the image. |
+| `closestPointOnDetailEdges` keeps its nearest edge with `if (d < dmin)` and calls `dtVlerp` on it unconditionally (`DetourNavMesh.cpp:673`), so one NaN vertex coordinate leaves the edge pointers null, a null dereference. | Refused at the boundary: `zrcNavMeshValidate` checks vertex coordinates before Detour sees the image. |
+| `closestPointOnDetailEdges` reaches the same null dereference from detail edge flags and the triangle count: the `onlyBoundary` instantiation skips every triangle with no boundary bit, and a sub-mesh with no triangles never enters the loop. | Refused at the boundary: `zrcNavMeshValidate` checks both before Detour sees the image. |
+| `dtBVNode::i` is used by `queryPolygonsInTile` to index `tile->polys` directly (`DetourNavMeshQuery.cpp:776`), an out-of-bounds read. | Refused at the boundary: `zrcNavMeshValidate` checks it before Detour sees the image. |
+| `dtNavMeshQuery::init` sizes the `dtNodePool` hash with `dtNextPow2(maxNodes / 4)`, and `dtNextPow2(0)` wraps back to 0 (`DetourCommon.h:439`), so a pool below four nodes gets a zero-byte table that passes its own `dtAssert`, and the first search reads and writes out of bounds. | Refused at the boundary: `max_nodes >= 4` is required, the smallest value for which the table exists. |
+| `rasterizeTri` converts `ceilf(spanMax * inverseCellHeight)` to `int` before `rcClamp(..., RC_SPAN_MAX_HEIGHT)` (`RecastRasterization.cpp:445-446`), so tall geometry over a fine `cell_height` is an out-of-range float-to-int conversion, and past that height Recast silently flattens everything into the topmost span. | Refused at the boundary: `ffi/zrecast_bake.cpp` bounds the vertical extent to `RC_SPAN_MAX_HEIGHT` voxels, all a 13-bit span extent can address. |
+| `simplifyContour` compares `dx*dx + dz*dz` against `maxEdgeLen*maxEdgeLen` in `int` (`RecastContour.cpp:399`), so the largest defined value is 32767, since `2 * 32767^2` is 2147352578 and `2 * 32768^2` is signed overflow. | Refused at the boundary: `ffi/zrecast_bake.cpp` holds both the per-axis grid dimension and `maxEdgeLen` to 32767. |
+| `rcPolyMeshDetail` has no destructor, unlike the other four Recast containers, and frees its three buffers only in `rcFreePolyMeshDetail`, so a generic `~T(); rcFree(p)` helper leaks three allocations per detail mesh, as the C smoke test's balanced-allocation assertion caught. | Worked around: `zrc::RcFree` is an overload set that defers to upstream's own free function for each type. |
+| `rcNew` is `new (rcAlloc(...)) T()` with no check, so a failed allocation is a placement-new at address zero, a null dereference `rcAllocHeightfield` and friends inherit. | Worked around: a checked `zrc::RcNew` in `ffi/zrecast_internal.h` replaces it, which makes the `ZRC_ERR_OUT_OF_MEMORY` paths reachable; `dtAllocNavMesh` and `dtAllocNavMeshQuery` return null on failure and are used as they are. |
+| `rcVectorBase::push_back` placement-news through the null `allocate_and_copy` returns when `rcAlloc` fails (`RecastAlloc.h:214`), so a bake under memory pressure is a null dereference, not an error. | Not worked around, and cannot be from outside; the bake is outside the allocation-failure sweep test, which says so where it skips it. |
+| `createBVTree` allocates its item array and indexes it unchecked (`DetourNavMeshBuilder.cpp:175`), so `dtCreateNavMeshData` is a null dereference on allocation failure. | Not worked around, and cannot be from outside; it is part of the bake, outside the allocation-failure sweep. |
+| `dtNodePool` and `dtNodeQueue` check their allocations with `dtAssert` and then `memset` them (`DetourNode.cpp:64`, `:163`), a null `memset` under `NDEBUG` and an abort with asserts on, so building a query object does not survive allocation failure. | Not worked around, and cannot be from outside; the query object is outside the allocation-failure sweep. |
+| `~dtNavMesh` walks `m_tiles` for `m_maxTiles` entries (`DetourNavMesh.cpp:211`), which `dtNavMesh::init` sets before allocating the array and `memset`s only after a second allocation succeeds, so after an out-of-memory `init` the destructor dereferences null or frees garbage. | Worked around, narrowly: `FreeFailedNavMesh` in `ffi/zrecast_navmesh.cpp` releases the storage without running the destructor when `init` reports `DT_OUT_OF_MEMORY`, leaving at worst one leaked `dtMeshTile` array, the one leak the `a failure at any allocation zrecast owns` sweep permits. |
+| `rcContext` reports a stage failure as a bare `false` and sends the reason to a virtual log callback with no recording default, so a caller without a subclass learns only that one of eleven stages failed. | Worked around: `ffi/zrecast_bake.cpp` installs a context that captures the messages into the caller-supplied `ZrcBakeLog` buffer. |
+| `dtNavMesh::calcTileLoc` casts `floorf((pos[0] - m_orig[0]) / m_tileWidth)` and its z twin to `int` unchecked (`DetourNavMesh.cpp:1063-1067`), so a far position or a degenerate tile size is an out-of-range float-to-int conversion. | Refused at the boundary: the division is done in `double` and a position whose tile an `int` cannot name is refused, as are a non-finite position and a NULL `pos`. |
+| `baseOffMeshLinks` indexes `tile->polys[con->poly]` with no comparison against `polyCount` and writes through `tile->verts[poly->verts[0] * 3]` (`DetourNavMesh.cpp:571`, `:584-585`), as does `connectExtOffMeshLinks` (`DetourNavMesh.cpp:468`, `:485-486`), so an `unsigned short` from tile bytes is an out-of-bounds write. | Refused at the boundary: image validation requires `con[i].poly == offMeshBase + i` exactly, as the builder writes them (`DetourNavMeshBuilder.cpp:660-662`), which covers the bound, the order, and two connections claiming one polygon. |
+| `getOffMeshConnectionByRef` computes the unsigned `ip - tile->header->offMeshBase` (`DetourNavMesh.cpp:1521`) under only a `dtAssert` that `DetourAssert.h:25-29` compiles out under `NDEBUG`, so a polygon below `offMeshBase` typed `DT_POLYTYPE_OFFMESH_CONNECTION` yields `&tile->offMeshCons[huge]`, an out-of-bounds read, and `getOffMeshConnectionPolyEndPoints` reads `tile->verts[poly->verts[idx]*3]` unbounded (`:1495-1496`). | Refused at the boundary: image validation types a polygon off-mesh iff its index lies in `[offMeshBase, offMeshBase + offMeshConCount)`, accepts neither undefined type value, and bounds the two endpoint vertex indices. |
+| `queryPolygonsInTile` skips off-mesh polygons only in its no-tree branch (`DetourNavMesh.cpp:869-871`) and returns any overlapping leaf in its BV branch (`:808-860`), so a doctored tree can land a connection resolved by `baseOffMeshLinks` or `connectExtOffMeshLinks` on another connection's polygon, a silently wrong result. | Worked around: a BV leaf is bounded by `offMeshBase` rather than `polyCount`, since `createBVTree` only emits ground leaves (`DetourNavMeshBuilder.cpp:200`). |
+| `restoreTileState` sizes its `dtPolyState` array from the live tile's `polyCount`, which the `dtTileState` blob does not carry (`DetourNavMesh.cpp:1363-1368`), and accepts any buffer at least that large (`:1422-1450`), so a blob from a differently shaped earlier tile is silently accepted. | Refused at the boundary: the caller's length must equal `getTileStateSize` exactly; a short buffer mirrors upstream's asymmetry, `DT_BUFFER_TOO_SMALL` from store and `DT_INVALID_PARAM` from restore. |
+| `dtPoly::setArea` masks with `& 0x3f` (`DetourNavMesh.h:178`), and `dtNavMesh::setPolyArea`, `rcSpan::area` (`Recast.h:298`) and `rcMarkBoxArea` with its two siblings take any `unsigned char` unchecked, so area `64` silently becomes area `0`, unwalkable. | Refused at the boundary: `ValidateAreaAuthoring` and `zrcNavMeshSetPolyArea` refuse an id outside `[0, ZRC_MAX_AREAS)`. |
+| `dtCreateNavMeshData` reserves `polyCount * 2` BV nodes (`DetourNavMeshBuilder.cpp:507`) where `createBVTree` fills `2 * polyCount - 1`, and `queryPolygonsInTile` walks to `&bvTree[bvNodeCount]` (`DetourNavMeshQuery.cpp:744`), so the zeroed spare node is a leaf naming polygon 0 that matches any query clamped onto the tile's minimum corner (`:750-757`), a silently wrong result measured on the fixture as a polygon nine metres away. | Worked around: `zrc::SealBvSentinel` marks that node internal on every tile this package cooks and on the private copy taken when a tile is added or a navmesh deserialised, at one `int` per tile of the cooked image. |
+| `dtAlign4` is `(x + 3) & ~3` on a signed `int` (`DetourCommon.h:463`), so any `x` above `INT_MAX - 3` is signed overflow, unreached inside Detour but reachable by a host calling the public function. | Worked around in the Zig port: `src/vec.zig` uses a wrapping add, defined over the whole range; the C is left as it is, and the parity test stops comparing against it at `INT_MAX - 3`. |
+| `dtNodePool::getNodeAtIdx` tests only `if (!idx)` (`DetourNode.h:68-72`), so an index between the node count and the capacity returns memory no search has written. | Refused at the boundary: `zrcQueryNodeAt` bounds against the count the pool reports, so an index past it is `ZRC_ERR_NOT_FOUND`. |
+| `findNearestPoly` writes `isOverPoly` only inside the branch that writes `nearestPt` (`DetourNavMeshQuery.cpp:722-725`), so a caller declining the point is told false whatever the answer. | Worked around: `zrcFindNearestPoly` passes scratch of its own when the caller declines the point. |
+| `findRandomPointAroundCircle` bounds its search by `maxRadius` and then places the point anywhere in the polygon it settled on (`DetourNavMeshQuery.cpp:478-492`), so the point can lie outside the radius. | Documented, not defended: stated in the header. |
+| `initSlicedFindPath` keeps the caller's filter as `m_query.filter = filter` (`DetourNavMeshQuery.cpp:1230-1233`) for every later `update` and `finalize`, so a filter destroyed after `init` leaves a dangling pointer. | Worked around: `ZrcNavMeshQuery` holds its own `dtQueryFilter`, copied from the caller's, for the life of the slice. |
+| `dtNavMeshQuery`'s class comment promises const members do not affect a sliced search (`DetourNavMeshQuery.cpp:133-135`), yet `findPath` (`:1003`), `findPolysAroundCircle` (`:2742`), `findPolysAroundShape` (`:2919`), `findRandomPointAroundCircle` (`:340`) and `findDistanceToWall` (`:3487`) clear the shared node pool, which leaves node storage in place (`DetourNode.cpp:83-87`), so finalising walks another search's chain and returns plausible, wrong references. | Refused at the boundary: those five return `ZRC_ERR_SEARCH_IN_PROGRESS` while a slice is in flight; `raycast`, `moveAlongSurface`, `findLocalNeighbourhood` and `findRandomPoint` are not refused, since they do not touch that pool. |
+| `finalizeSlicedFindPath` and its partial twin zero the query state on exit (`DetourNavMeshQuery.cpp:1579`) and guard re-entry with `dtStatusFailed(m_query.status)`, false for that zero, so a second call returns `DT_SUCCESS` with a one-element path holding the null reference (`:1516-1520`). | Refused at the boundary: with the in-flight flag cleared, a second finalise is `ZRC_ERR_NO_SEARCH`. |
+| `findLocalNeighbourhood` writes `resultRef[n]` unguarded (`DetourNavMeshQuery.cpp:3135`, `:3252`) where its siblings test `if (resultRef)` (`:2784`, `:2964`), so a caller asking only for a count gets a null write. | Refused at the boundary: `zrcFindLocalNeighbourhood` requires the array. |
+| `findDistanceToWall` with no wall in range keeps the caller's `hitPos`, builds the normal from it and returns `DT_SUCCESS` (`DetourNavMeshQuery.cpp:3648-3652`), and `dtVnormalize` has no zero-length guard, so an agent exactly on a wall gets a NaN normal. | Worked around: both outputs are seeded, nothing-in-range is reported through its own flag, and a non-finite normal is zeroed. |
+| `dtNavMeshQuery::isValidPolyRef` alone does not null-check its filter (`:3663`), where `findPath` (`:991`), `findPolysAroundCircle` (`:2737`), `findPolysAroundShape` (`:2910`), `findLocalNeighbourhood` (`:3108`), `findDistanceToWall` (`:3482`) and `getPolyWallSegments` (`:3330`) all do, so a NULL filter is a null dereference. | Worked around: a NULL filter is answered by `dtNavMesh::isValidPolyRef` instead, whether the reference names a live polygon at all. |
+| `dtRaycastHit::hitEdgeIndex` is written by `raycast` once per polygon step (`DetourNavMeshQuery.cpp:2534`) but never on the early return when the first polygon's test fails (`:2527-2532`), so the caller reads back an uninitialised field. | Worked around: seeded to -1 before the call. |
+| `dtNavMesh::getTilesAt` appends only `if (n < maxTiles)` with no overflow signal (`DetourNavMesh.cpp:1133`) and `queryPolygons` passes `MAX_NEIS = 32` (`DetourNavMeshQuery.cpp:944, 951`), so a column more than 32 layers deep is silently dropped from every query that touches it. | Documented, not defended: the capacity is upstream's own and a layered navmesh that deep is outside what this version builds; stated in the header. |
+| `encodePolyId` shifts and ors without checking salt, tile index or polygon index against the widths `dtNavMesh::init` computed (`DetourNavMesh.h`), so a field one bit too wide silently names something else. | Refused at the boundary: `zrcEncodePolyRef` recomputes the widths from the navmesh's own parameters and refuses. |
+| `dtRandomPointInConvexPoly` with `npts == 1` leaves `tri` at 0 and reads `pts[(tri - 1) * 3]` (`DetourCommon.cpp:337-345`), three floats before the caller's array, an out-of-bounds read. | Refused at the boundary: at least three vertices are required, the smallest polygon the fan has a defined answer for. |
+| `dtCalcPolyCenter` takes no vertex count, trusting every `idx` value as an offset into `verts`, and divides by `nidx` unchecked (`DetourCommon.cpp:186-202`), so a bad index is an out-of-bounds read and an empty polygon is NaN. | Refused at the boundary: `zrcPolyCenter` takes the vertex count as a parameter, bounds every index against it, and requires at least one index. |
+| `dtOverlapPolyPoly2D`'s helper reads `&poly[0]` before any loop (`DetourCommon.cpp:275`), so `npolya == 0` with a non-empty second polygon reads three floats from an empty array. | Refused at the boundary: both counts are checked. |
+| `rcOffsetPoly` bounds with `n + 2 >= maxOutVerts` and `n + 1 >= maxOutVerts` (`RecastArea.cpp:496, 510`), so the last slot is never written and a buffer sized exactly to the result returns 0, the failure value. | Documented, not defended: a fix would change which inputs succeed; stated in the header, and the zero return is named `ZRC_ERR_BUFFER_TOO_SMALL`. |
+| `dtAssertFailFunc` and `rcAssertFailFunc`, with their `SetCustom` and `GetCustom` functions, exist only inside the `#else` of `#ifdef NDEBUG` in `DetourAssert.h` and `RecastAssert.h`, so a release build has no assertion hook and nothing says which build a host holds. | Worked around: `zrcSetAssertHandler` records the handler in either build, and `zrcAssertsEnabled` says which build it is. |
+| `rcBuildPolyMesh` succeeds with `npolys == 0`, giving a navmesh that answers every query with nowhere to go. | Refused at the boundary: the bake returns `ZRC_ERR_EMPTY_RESULT` and writes an explanation to the bake log. |
+| `rcBuildCompactHeightfield`, `rcBuildContours`, `rcBuildPolyMesh` and `rcBuildPolyMeshDetail` assign over their destination's members with no test, and `rcBuildHeightfieldLayers`, `rcCopyPolyMesh` and `rcMergePolyMeshes` only with an `rcAssert` (`RecastMesh.cpp:1491-1495`) that `RecastAssert.h:25` compiles out under `NDEBUG`, so a reused container leaks in a release build. | Refused at the boundary: every staged entry point tests the destination and returns `ZRC_ERR_ALREADY_BUILT` in every build configuration. |
+| `rcErodeWalkableArea` takes its threshold as `(unsigned char)(radius*2)` (`RecastArea.cpp:210`), so radius 128 erodes nothing and 129 erodes as 1 would, and it saturates distances at 255 (`RecastArea.cpp:111`), so nothing above 127 is honoured. | Refused at the boundary: the radius is bounded to 127 in both the bake and the staged entry point. |
+| `rcBuildRegions`' watershed reads `chf.dist` through `floodRegion`, `expandRegions` and `sortCellsByLevel` (`RecastRegion.cpp:339, 381, 494`) unchecked, and it is null until `rcBuildDistanceField` runs, a null dereference; `rcBuildRegionsMonotone` and `rcBuildLayerRegions` do not read it. | Refused at the boundary: the staged entry point refuses the watershed strategy on a field whose distance array has not been built. |
+| `rcCreateHeightfield` stores `sizeX` and `sizeZ` unchecked and allocates `sizeof(rcSpan*) * width * height` (`Recast.cpp:306-325`), so two negative sizes allocate a wrong positive size and every later `spans[x + z * width]` is out of bounds, and two large positive sizes overflow the `int` product before the allocation is attempted. | Refused at the boundary: `zrcHeightfieldCreate` bounds both sizes and their product, and the vertical extent to what a span's 13-bit height can address. |
+| `rcAddSpan`'s helper dereferences `hf.spans[x + z * hf.width]` with no test against the field's extent (`RecastRasterization.cpp:122-124`), an out-of-bounds access unreachable from a bake and reachable from a host adding spans by hand. | Refused at the boundary: both coordinates are checked. |
+| `rcGetDirForOffset` indexes a five-entry table with no bound of its own, and a diagonal offset with each argument inside [-1, 1] still derives an index outside it, an out-of-bounds read. | Refused at the boundary: `dirForOffset` bounds both arguments and the derived index and returns `error.InvalidArgument`. |
+| `rcMergePolyMeshes` takes `nvp` from `meshes[0]` and uses it as every input's stride (`RecastMesh.cpp:1424`), so an input packed at a smaller `nvp` is read past its end. | Refused at the boundary: every input must agree on `nvp`. |
+| `rcMergePolyMeshDetails` lacks the `if (!nmeshes \|\| !meshes) return true;` its twin has (`RecastMesh.cpp:1312`) and reads `meshes[i]->nverts` at once (`RecastMeshDetail.cpp:1401-1402`), so a null array with a positive count is a null dereference. | Refused at the boundary: the array is checked. |
+| `rcContext::log` reports a message of 512 bytes or more as a separate `RC_LOG_ERROR` "Log message was truncated" and then as the message cut to 511 bytes (`Recast.cpp:58-79`), two entries, one at a category the caller did not choose. | Documented, not defended: it is upstream's contract for the host's logging hook; stated in the header. |
+| `dtTileCache::addTile` tests a layer header's magic and version with `dataSize` unchecked (`DetourTileCache.cpp:250-254`) and hands the codec `dataSize - headerSize`, negative for a short buffer (`:283-284`); `dtDecompressTileCacheLayer` repeats the subtraction (`DetourTileCacheBuilder.cpp:2202-2203`) and `dtTileCacheHeaderSwapEndian` discards its length and dereferences anyway (`DetourTileCacheBuilder.cpp:2223-2226`), out-of-bounds reads. | Refused at the boundary: all three lengths are checked before upstream sees the bytes. |
+| `dtDecompressTileCacheLayer`, `dtTileCacheHeaderSwapEndian`, `storeTileState` and `restoreTileState` read or write a caller's bytes as `dtTileCacheLayerHeader`, `dtTileState` and `dtPolyState` structs (`DetourTileCacheBuilder.cpp:2177`, `DetourTileCacheBuilder.cpp:2226`, `DetourNavMesh.cpp:1397`, `DetourNavMesh.cpp:1429-1430`), a misaligned access at an odd address. | Worked around: upstream gets an aligned copy, a block from the allocator seam for the three that take a whole buffer and a local header for the swap. |
+| `walkContour` follows a set `cons` bit through `getNeighbourReg` with no bounds test (`DetourTileCacheBuilder.cpp:452-456`) and reads that cell's height (`DetourTileCacheBuilder.cpp:509`), so a border cell claiming an off-grid neighbour walks out of the layer's buffers, an out-of-bounds read the compressed-layer fuzz property found; Recast never writes such a bit (`RecastLayers.cpp:638`). | Refused at the boundary: `buildTileCacheLayer` refuses such a `cons`, and `TileCacheLayer.initFromBytes` and `TileCache.addTile` decompress the bytes and refuse a layer whose header or connections fail the same checks, at one decompression per `addTile`. |
+| `dtTileCache::buildNavMeshTile` bounds a tile index with `>` where the file uses `>=` (`DetourTileCache.cpp:662-663`), admitting one `dtCompressedTile` past the allocation whose garbage `data` and `dataSize` are read if its salt matches. | Not reachable through the binding: every reference resolves through upstream's own salt-checking `getTileByRef` first. |
+| `dtTileCache::getTile(int)` (`DetourTileCache.h:112`) and `getObstacle(int)` (`:115`) return `&array[i]` with no test against the count, an out-of-bounds access. | Refused at the boundary: both indices are bounded. |
+| `dtTileCache::queryTiles` writes only `if (n < maxResults)` and returns `DT_SUCCESS` (`DetourTileCache.cpp:511-520`), and `update` passes the eight-entry `DT_MAX_TOUCHED_TILES` array (`:548`), so an obstacle over more than eight tiles is silently missing from the rest. | Refused at the boundary: `zrcTileCacheQueryTiles` reports the true count, and an obstacle that would touch more tiles than upstream can track is refused. |
+| `dtTileCache::addObstacle` returns `DT_FAILURE \| DT_OUT_OF_MEMORY` when the free list is empty (`DetourTileCache.cpp:371-372`), reporting a full table as an allocator failure. | Worked around: the boundary counts the occupied slots itself and reports `ZRC_ERR_NAVMESH_FULL`, as `zrcNavMeshAddTile` does. |
+| `dtTileCache::init` assigns every member and allocates both arrays with no purge (`DetourTileCache.cpp:118-171`), so a second call leaks the first call's arrays. | Not reachable through the binding: a `ZrcTileCache` is created once and destroyed once. |
+| `dtTileCacheMeshProcess::process` receives a mutable `dtNavMeshCreateParams*` (`DetourTileCache.h:95-99`) whose tile reaches the navmesh through `dtCreateNavMeshData` and `dtNavMesh::addTile` directly (`DetourTileCache.cpp:756-773`), skipping every check `zrcNavMeshAddTile` applies, so a callback changing `polyCount` or a buffer pointer produces a malformed tile. | Worked around: the callback sees `ZrcTileCacheBuildParams` (areas, flags, user id, off-mesh connections) only, and the binding validates what comes back and writes it into the params itself. |
+| `dtTileCache::buildNavMeshTile` computes `(int)(m_params.walkableClimb / m_params.ch)` (`DetourTileCache.cpp:673`) with neither value bounded against the other, an unbounded float-to-int conversion. | Refused at the boundary: the ratio is checked when the cache is created. |
+| `dtTileCache::buildNavMeshTile` sets `params.buildBvTree` false unconditionally (`DetourTileCache.cpp:750`), so tile-cache tiles carry no BV tree and queries scan the tile linearly; not a defect. | Nothing to do: `SealBvSentinel` is not called on this path, since such a tile has `bvNodeCount == 0` (`DetourNavMeshBuilder.cpp:507`) and no spare node. |
+| `dtTileCache::getTilesAt` writes only while `n < maxTiles` and returns the count written (`DetourTileCache.cpp:173-193`), so a full answer cannot be told from a clipped one. | Worked around: the boundary asks for the cache's whole tile capacity, applies the caller's limit itself, and says when the result did not fit. |
+| `dtTileCache::removeTile` reads `tile->header->tx` (`DetourTileCache.cpp:301-306`) after checking only slot index and salt, and every slot starts at salt 1, so a never-issued slot of a fresh cache is a null dereference. | Worked around: every reference resolves through a helper that requires an occupied slot first. |
+| `getObstacleByRef` rejects on the salt (`DetourTileCache.cpp:228-240`) that `dtTileCache::update` bumps in the same block that sets `DT_OBSTACLE_EMPTY` (`:618-624`), so that state is never observed through a reference; not a defect. | Documented: the header says so. |
+| `dtAllocTileCacheContourSet` and `dtAllocTileCachePolyMesh` `memset` the allocation with no null test (`DetourTileCacheBuilder.cpp:66-73, 86-93`), a write to address zero when the allocator fails. | Documented, not defended: they are the only way to obtain those containers; stated in the header, and reachable only through a host allocator that fails. |
+| `dtFreeTileCacheLayer` has no null guard, unlike its two siblings, and passes `layer` straight to `alloc->free` (`DetourTileCacheBuilder.cpp:2156-2161`). | Worked around: guarded at the call site. |
+| `rcBuildHeightfieldLayers` computes `lw` and `lh` as the field size minus `borderSize*2` (`RecastLayers.cpp:497-498`), so a border wider than half the field gives negative dimensions and a layer set that reports dimensions no geometry has, not memory-unsafe. | Refused at the boundary. |
+| `duDebugDrawHeightfieldLayersRegions` is declared (`RecastDebugDraw.h:34`) and defined nowhere, so a call fails to link, and `rcHeightfieldLayer` holds no region ids to draw. | Not reachable through the binding: no entry point; the coverage record carries it as `UNDEFINED`, which `bay check-coverage` recomputes, so a re-vendor that defines it fails the gate until it is bound. |
+| `duDisplayList` overrides five of `duDebugDraw`'s nine pure virtuals and leaves `texture` and the two textured `vertex` forms (`DebugDraw.h:195-222`), so the class is abstract and cannot be instantiated. | Worked around: `zrc::ConcreteDisplayList` supplies the three, recording nothing for a texture change and a textured vertex without its coordinates, as `duDisplayList::draw` replays it anyway. |
+| `duDisplayList` allocates its arrays with `new float[]` and `new unsigned int[]` (`DebugDraw.cpp:547-562`), outside `rcAlloc`, so `zrcSetAllocator` never sees them and a failure terminates under `-fno-exceptions`. | Documented, not defended: the arrays are private to the class; the handle itself goes through the seam. |
+| `RecastDump.h`'s six entry points `printf` a line and return false on a null or wrong-mode `duFileIO` (`RecastDump.cpp:45-53` and the same shape in the other five), and `duReadContourSet` and `duReadCompactHeightfield` print again on a bad magic or version. | Refused at the boundary for every argument case, so only the two magic/version lines stay reachable, from a read fed bytes that are not a dump. |
+| `duReadContourSet` and `duReadCompactHeightfield` allocate from counts read out of the stream with no bound (`RecastDump.cpp:197-201`, `:340-393`), over a format that is upstream's struct layout with no length, and `ioprintf` writes through a fixed 256-byte line buffer ignoring what `write` returns (`RecastDump.cpp:32-40`). | Not defended, since the reads happen inside upstream: `zrcReadContourSet` and `zrcReadCompactHeightfield` create the container so a failed read destroys a half-built one, and the header says to feed them only bytes this package wrote. |
+| `duLogBuildTimes` computes `100.0f / totalTimeUsec` on an `int` total (`RecastDump.cpp:437`), so zero logs an infinity as a percentage and a negative total logs percentages of the wrong sign. | Refused at the boundary: the total is bounded. |
+
+What a host acts on:
+
+- The determinism claim is scoped to the `qsort` ties: one target cooking twice gets the same bytes, asserted by the suite on every target that runs it; targets sharing a C library get the same bytes, checked by `bay determinism` across architectures (NOT ESTABLISHED on Zig 0.17; see [Cook determinism](#cook-determinism)); targets with different C libraries are compared and reported there, not gated. A host that ships cooked navmeshes should cook on one platform, or key its asset cache by cook platform.
+- Run the bake where an allocation failure is fatal anyway — a cook, a tool, a loading screen with a budget; the runtime side (deserialise, query), the half a game runs, is far better behaved.
+- A host building with UBSan should read a trap inside `hashPos2` as the `ZRC_PROXIMITY_GRID_SAFE_CELL` limit.
 
 ### Re-vendoring
 

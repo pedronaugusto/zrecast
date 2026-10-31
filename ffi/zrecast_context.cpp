@@ -2,16 +2,13 @@
 // zrecast — the caller-supplied build context, and the entry points that size
 // a build before any voxel exists.
 //
-// zrc::HostContext is what every staged Recast entry point in this package
-// hands upstream in place of a bare rcContext: it wraps a caller's
-// ZrcBuildContext so upstream's log and timer virtuals reach the caller's own
-// hooks, with upstream's own enable-flag gating intact. The six
-// zrcBuildContext* entry points below drive that same context directly, for a
-// caller logging a message or reading a timer with no build stage in flight.
-// The four sizing entry points answer what a caller needs before a
-// heightfield exists at all: a mesh's bounds, the voxel grid those bounds
-// imply at a given cell size, and which triangles are walkable at a given
-// slope.
+// zrc::HostContext wraps a caller's ZrcBuildContext as the rcContext every
+// staged Recast entry point hands upstream, so upstream's log and timer
+// virtuals reach the caller's hooks, gated by upstream's enable flags. The six
+// zrcBuildContext* entry points drive that context directly, with no stage in
+// flight. The four sizing entry points answer what a caller needs before a
+// heightfield exists: a mesh's bounds, the voxel grid they imply at a cell
+// size, and which triangles are walkable at a slope.
 //===----------------------------------------------------------------------===//
 
 #include "zrecast_internal.h"

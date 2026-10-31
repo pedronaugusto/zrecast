@@ -17,14 +17,11 @@ namespace {
 // Search-in-progress gate
 //===----------------------------------------------------------------------===//
 
-/// Refuses a call that would clear the node pool a sliced search is using.
-///
-/// Mirrors the file-local gate of the same name in ffi/zrecast_query.cpp:
-/// dtNavMeshQuery's own class comment promises that a const method has "no
-/// impact on an in-progress sliced path query", and that promise is false for
-/// five of them, each of which clears the shared node pool a slice's best-node
-/// pointer still points into. Every entry point below that reaches one of
-/// those five through a corridor or a boundary shares the same hazard.
+/// Refuses a call that would clear the node pool a sliced search is using, as
+/// the gate of the same name in ffi/zrecast_query.cpp does: every entry point
+/// below that reaches a pool-clearing query through a corridor or a boundary
+/// shares the hazard. See docs/design.md, Known upstream behaviour:
+/// dtNavMeshQuery's class comment.
 ZrcResult CheckNotSlicing(const ZrcNavMeshQuery* query) {
   if (query == nullptr || query->impl == nullptr) {
     return ZRC_ERR_INVALID_ARGUMENT;
@@ -36,13 +33,10 @@ ZrcResult CheckNotSlicing(const ZrcNavMeshQuery* query) {
 // Corridor-splicing argument checks
 //===----------------------------------------------------------------------===//
 
-/// Shared by the three merge free functions below.
-///
-/// `path` is an in/out buffer of `max_path` capacity: every one of upstream's
-/// three implementations can write into it even when `path_count` is 0, so it
-/// must be non-NULL whenever there is any capacity to write into
-/// (DetourPathCorridor.cpp:56-67, 140-153). `visited` need only be non-NULL
-/// when there is something in it to read.
+/// Shared by the three merge free functions below. `path` must be non-NULL
+/// whenever `max_path` > 0: upstream can write into it even when `path_count`
+/// is 0 (DetourPathCorridor.cpp:56-67, 140-153). `visited` need only be
+/// non-NULL when `visited_count` > 0.
 ZrcResult CheckMergeArgs(const ZrcPolyRef* path, int32_t path_count,
                          int32_t max_path, const ZrcPolyRef* visited,
                          int32_t visited_count) {
@@ -609,15 +603,8 @@ ZrcResult zrcPathQueueCreate(const ZrcNavMesh* navmesh, int32_t max_path_size,
   }
 
   // dtPathQueue's constructor zeroes only each slot's path pointer
-  // (DetourPathQueue.cpp:27-35); init() is what makes the rest of the object
-  // readable, and is called exactly once per handle, here, with no re-init
-  // entry point offered.
-  //
-  // navmesh->impl is already a plain dtNavMesh*: a pointer member's own
-  // constness does not propagate to what it points at, so reading it through
-  // `const ZrcNavMesh* navmesh` yields the same mutable pointer type
-  // dtPathQueue::init declares — no cast needed, the same reasoning
-  // zrecast_crowd.cpp's InitCrowdImpl already documents for dtCrowd::init.
+  // (DetourPathQueue.cpp:27-35), so init() runs exactly once per handle, here.
+  // navmesh->impl is already the mutable dtNavMesh* dtPathQueue::init takes.
   if (!handle->impl->init(max_path_size, max_search_nodes, navmesh->impl)) {
     zrc::Delete(handle->impl);
     zrc::Delete(handle);
@@ -668,13 +655,10 @@ ZrcResult zrcPathQueueUpdate(ZrcPathQueue* queue, int32_t max_iters) {
   return ZRC_OK;
 }
 
-// A crowd hands its path queue back as `const ZrcPathQueue*`
-// (zrcCrowdPathQueue), and every entry point below that mutates a queue —
-// this one included — takes a non-const one. C++ does not implicitly drop
-// that const, so nothing reachable through the public API can submit to,
-// update, or collect from a crowd's own queue: only a queue this file's own
-// zrcPathQueueCreate returned can reach here, which is exactly what
-// dtCrowd::getPathQueue's const return already prevents in C++.
+// A crowd lends its path queue only as `const ZrcPathQueue*`
+// (zrcCrowdPathQueue), and every mutating entry point below takes a non-const
+// one, so only a queue zrcPathQueueCreate returned can reach here, as
+// dtCrowd::getPathQueue's const return already ensures in C++.
 ZrcResult zrcPathQueueRequest(ZrcPathQueue* queue, ZrcPolyRef start_poly,
                               ZrcPolyRef end_poly,
                               const float* start_position,

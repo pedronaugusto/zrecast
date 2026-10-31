@@ -41,14 +41,12 @@ ZrcResult ValidateAllocatorHooks(const ZrcTileCacheAllocator* allocator) {
   return ZRC_OK;
 }
 
-/// Bounds ZrcTileCacheParams the way zrcTileCacheCreate requires.
-///
-/// The salt-bit check mirrors dtTileCache::init's own formula exactly
-/// (DetourTileCache.cpp:164-168), which differs from a navmesh's: a tile
-/// cache reference encodes only a salt and a tile index, no polygon index.
-/// The walkable_climb / cell_height bound guards buildNavMeshTile's
-/// `(int)(m_params.walkableClimb / m_params.ch)` (DetourTileCache.cpp:673),
-/// undefined once the quotient leaves int range.
+/// Bounds ZrcTileCacheParams the way zrcTileCacheCreate requires. The
+/// salt-bit check mirrors dtTileCache::init's formula exactly
+/// (DetourTileCache.cpp:164-168): a tile cache reference holds only a salt
+/// and a tile index. The climb / cell_height bound guards
+/// DetourTileCache.cpp:673. See docs/design.md, Known upstream behaviour:
+/// dtTileCache::buildNavMeshTile, `walkableClimb / ch`.
 ZrcResult ValidateTileCacheParams(const ZrcTileCacheParams& params) {
   if (!zrc::IsFiniteVec3(params.origin)) return ZRC_ERR_INVALID_ARGUMENT;
   for (int i = 0; i < 3; ++i) {
@@ -128,19 +126,10 @@ ZrcResult ValidateLayerHeader(const ZrcTileCacheLayerHeader& header) {
 }
 
 /// Whether every connection a `width` by `height` grid's cells claim leads to
-/// a cell of the grid.
-///
-/// A cell's low four `cons` bits are its connections, one per direction: -x,
-/// +z, +x, -z (getDirOffsetX and getDirOffsetY,
-/// DetourTileCacheBuilder.cpp:49-59). Upstream follows a set bit to the
-/// neighbouring cell with no bounds test (getNeighbourReg,
-/// DetourTileCacheBuilder.cpp:452-456), and walkContour then steps onto that
-/// cell and reads its height (DetourTileCacheBuilder.cpp:509), so a border
-/// cell whose bit points off the grid walks the contour out of the layer's
-/// buffers. dtBuildTileCacheRegions bounds the same steps itself; walkContour
-/// does not. The high four bits are portals to the neighbouring tile and are
-/// never followed. Recast sets a connection only for a neighbour inside the
-/// layer (RecastLayers.cpp:638), so no layer it builds fails this.
+/// a cell of the grid. The low four `cons` bits are connections (-x, +z, +x,
+/// -z; DetourTileCacheBuilder.cpp:49-59) that walkContour follows unbounded;
+/// the high four are portals to the next tile and are never followed.
+/// See docs/design.md, Known upstream behaviour: walkContour.
 bool ConnectionsStayOnGrid(int32_t width, int32_t height, const unsigned char* cons) {
   for (int32_t z = 0; z < height; ++z) {
     for (int32_t x = 0; x < width; ++x) {
@@ -355,25 +344,12 @@ HostMeshProcess::HostMeshProcess(ZrcTileCacheMeshProcess hook, void* user)
       con_dir_(0),
       con_user_id_(0) {}
 
-/// Narrows what a callback may change about a tile to exactly the fields
-/// ZrcTileCacheBuildParams exposes, then writes the validated result back
-/// into `params` itself. `polyAreas` and `polyFlags` are the same arrays
-/// `params->polyAreas` and `params->polyFlags` point at — passed separately,
-/// non-const, because dtNavMeshCreateParams declares those two fields const
-/// (DetourNavMeshBuilder.h:38,37) while dtTileCache::buildNavMeshTile hands
-/// process() the mutable arrays it built them from
-/// (DetourTileCache.cpp:740-741,758) — so these are used here rather than
-/// `params->polyAreas`/`params->polyFlags`, to reach the same memory without
-/// a const_cast.
-///
-/// Upstream's process() returns void and feeds whatever `params` holds on
-/// return straight to dtCreateNavMeshData, so a callback's writes into
-/// `polyAreas`/`polyFlags` are already committed by the time a failure here
-/// is noticed — there is no way to undo that from inside this function. What
-/// this function controls is whether `params` gains a pointer or a count the
-/// callback chose, and whether the failure becomes visible at all:
-/// last_result_ is what makes it visible, since upstream would otherwise
-/// discard it and commit the tile as though nothing had gone wrong.
+/// Narrows what a callback may change about a tile to the fields
+/// ZrcTileCacheBuildParams exposes, then writes the validated result into
+/// `params`. `polyAreas` and `polyFlags` are the arrays `params` points at,
+/// passed non-const (DetourTileCache.cpp:740-741, 758), so no const_cast.
+/// A callback's writes to them are committed regardless; last_result_ makes
+/// a failure visible, which upstream's void process() would discard.
 void HostMeshProcess::process(dtNavMeshCreateParams* params, unsigned char* polyAreas,
                               unsigned short* polyFlags) {
   last_result_ = ZRC_OK;
@@ -490,14 +466,10 @@ ZrcResult zrcTileCacheCreate(const ZrcTileCacheParams* params,
   const ZrcResult allocator_ok = ValidateAllocatorHooks(allocator);
   if (allocator_ok != ZRC_OK) return allocator_ok;
 
-  // ZrcTileCache aggregates a HostMeshProcess, and HostMeshProcess holds six
-  // TempBuffer members that disable copy and move. zrc::New<T> constructs
-  // with parentheses, which for an aggregate with no viable constructor of
-  // its own — every member here has one, but none of them is a default or a
-  // copy/move constructor — is ill-formed in C++17. Direct-list-init with
-  // braces performs member-wise aggregate initialisation instead, and each
-  // element here is a prvalue of the member's own type, so mandatory copy
-  // elision constructs it in place without ever invoking a copy or move.
+  // HostMeshProcess's TempBuffer members disable copy and move, so the
+  // aggregate ZrcTileCache cannot be built with zrc::New's parentheses in
+  // C++17. Brace-init with prvalue members constructs each in place by
+  // mandatory copy elision.
   void* block = zrc::Alloc(sizeof(ZrcTileCache), DT_ALLOC_PERM);
   if (block == nullptr) return ZRC_ERR_OUT_OF_MEMORY;
   ZrcTileCache* handle = new (block) ZrcTileCache{
@@ -569,15 +541,11 @@ ZrcResult zrcTileCacheParams(const ZrcTileCache* cache, ZrcTileCacheParams* out)
   return ZRC_OK;
 }
 
-/// Upstream reads magic/version off `data` before comparing `size` against
-/// anything and then stores `compressedSize = dataSize - headerSize`, which
-/// goes negative for a short buffer and reaches the host codec as an int
-/// (DetourTileCache.cpp:247-285); requiring `size >= dtAlign4(sizeof(header))`
-/// before either read keeps that subtraction non-negative. Occupancy is
-/// checked here too, ahead of the copy: upstream's own check
-/// (`if (getTileAt(...)) return DT_FAILURE;`) reports a bare DT_FAILURE with
-/// no detail bit, which zrc::ResultFromStatus can only map to
-/// ZRC_ERR_QUERY_FAILED, not the documented ZRC_ERR_TILE_OCCUPIED.
+/// `size >= dtAlign4(sizeof(header))` is required before upstream reads the
+/// header or subtracts it from `size` (DetourTileCache.cpp:247-285).
+/// Occupancy is checked here too: upstream reports it as a bare DT_FAILURE,
+/// which maps only to ZRC_ERR_QUERY_FAILED, not ZRC_ERR_TILE_OCCUPIED.
+/// See docs/design.md, Known upstream behaviour: dtTileCache::addTile.
 ZrcResult zrcTileCacheAddTile(ZrcTileCache* cache, const void* data, size_t size,
                               ZrcCompressedTileRef* out_ref) {
   if (out_ref != nullptr) *out_ref = 0;
@@ -638,13 +606,10 @@ ZrcResult zrcTileCacheAddTile(ZrcTileCache* cache, const void* data, size_t size
   return ZRC_OK;
 }
 
-/// dtTileCache::removeTile always frees the tile's own bytes when the
-/// DT_COMPRESSEDTILE_FREE_DATA flag is set — which zrcTileCacheAddTile always
-/// sets — regardless of whether `data`/`dataSize` out parameters are given
-/// (DetourTileCache.cpp:293-337). So upstream can never hand ownership of the
-/// tile's own storage back to a caller here; instead, a fresh copy is taken
-/// before removing, and it is that copy — not the tile's original storage —
-/// that becomes the caller's to free with zrcFree.
+/// dtTileCache::removeTile frees the tile's bytes whenever
+/// DT_COMPRESSEDTILE_FREE_DATA is set, which zrcTileCacheAddTile always sets
+/// (DetourTileCache.cpp:293-337), so it cannot hand them to a caller. A copy
+/// taken before removing becomes the caller's to free with zrcFree.
 ZrcResult zrcTileCacheRemoveTile(ZrcTileCache* cache, ZrcCompressedTileRef ref,
                                  void** out_data, size_t* out_size) {
   if (out_data != nullptr) *out_data = nullptr;
@@ -712,14 +677,10 @@ ZrcResult zrcTileCacheTileAt(const ZrcTileCache* cache, int32_t tile_x, int32_t 
   return ZRC_OK;
 }
 
-/// Upstream's own getTilesAt increments its count only while it is below the
-/// caller's own `maxTiles` (DetourTileCache.cpp:173-193), so the count it
-/// returns is capped at whatever buffer size it was given rather than
-/// reporting a true total past that cap. Querying first with a buffer sized
-/// to the cache's own tile capacity — the true upper bound on how many
-/// layers can stack at one position — recovers the real count, the same fix
-/// zrcTileCacheQueryTiles applies to the identical shape of truncation in
-/// dtTileCache::queryTiles.
+/// Upstream's getTilesAt caps its count at `maxTiles`, so the cache's whole
+/// tile capacity is asked for first to recover the true count, as
+/// zrcTileCacheQueryTiles does for queryTiles.
+/// See docs/design.md, Known upstream behaviour: dtTileCache::getTilesAt.
 ZrcResult zrcTileCacheTilesAt(const ZrcTileCache* cache, int32_t tile_x, int32_t tile_y,
                               ZrcCompressedTileRef* out, int32_t max_tiles,
                               int32_t* out_count) {

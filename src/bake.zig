@@ -203,12 +203,9 @@ pub const PolyMesh = struct {
     /// Runs the whole Recast pipeline over `mesh`.
     ///
     /// `authoring` is optional; `null` gives every walkable polygon area
-    /// `area_walkable` and flag `poly_flag_walkable`. `log` is an optional
-    /// buffer for the messages Recast emits while building. Recast reports
-    /// failure as a bare boolean and puts the reason in a log callback, so
-    /// passing one is the difference between "the bake failed" and knowing
-    /// which stage failed and why. On return it holds NUL-terminated text;
-    /// `logText` extracts it.
+    /// `area_walkable` and flag `poly_flag_walkable`. `log` is an optional buffer
+    /// for the messages Recast emits, the only record of which stage failed and
+    /// why; on return it holds NUL-terminated text, which `logText` extracts.
     pub fn bake(
         config: Config,
         mesh: TriMesh,
@@ -240,9 +237,7 @@ pub const PolyMesh = struct {
     ///
     /// `mesh` is the whole world's geometry every time; rasterisation clips it
     /// to the tile. `authoring` is optional, same contract as `bake`. `null`
-    /// means the tile holds no walkable surface, which is the common case in a
-    /// real world and is a success rather than an error — unlike `bake`, where
-    /// nothing walkable anywhere is a mistake.
+    /// means the tile holds no walkable surface, a success rather than an error.
     pub fn bakeTile(
         config: Config,
         mesh: TriMesh,
@@ -320,9 +315,8 @@ pub const PolyMesh = struct {
     ///
     /// A polygon occupies `2 * verts_per_poly` entries: the corner indices
     /// first, `mesh_null_idx` past the last corner, then the neighbour across
-    /// each edge. `out.len` must be a whole number of polygons, and the
-    /// polygon array is `max_polys` long rather than `poly_count` — that is
-    /// what indexes it.
+    /// each edge. `out.len` must be a whole number of polygons; the polygon
+    /// array is `max_polys` long, not `poly_count`.
     pub fn polys(self: PolyMesh, first: u32, out: []u16, failure: *err.Failure) err.Error!void {
         const stride = 2 * c.reported(usize, (try self.info()).verts_per_poly);
         if (stride == 0 or out.len % stride != 0) return err.refuse(failure, .poly_mesh_polys, error.InvalidArgument);
@@ -413,11 +407,9 @@ pub const BuildCells = c.BuildCells;
 
 /// Converts `config` into the voxel quantities the staged entry points take.
 ///
-/// The staged stages take voxels because Recast's own do; `Config` describes an
-/// agent in world units. This is the conversion `PolyMesh.bake` performs
-/// internally, so a host that drives the stages with these numbers reproduces a
-/// bake exactly rather than approximately. Fails for exactly the configurations
-/// `bake` rejects.
+/// This is the conversion `PolyMesh.bake` performs internally, so a host that
+/// drives the stages with these numbers reproduces a bake exactly. Fails for
+/// exactly the configurations `bake` rejects.
 pub fn buildCells(config: Config, failure: *err.Failure) err.Error!BuildCells {
     var out: BuildCells = undefined;
     try err.check(failure, .bake_config_cells, c.zrcBakeConfigCells(&config, &out));

@@ -1,19 +1,15 @@
 //===----------------------------------------------------------------------===//
 // zrecast — RecastDump: a build written to a host's bytes, and read back.
 //
-// Upstream's four dump functions and two read functions take a duFileIO, which
-// is four hooks and no file. HostFileIO wears that interface over the POD the
-// C ABI carries.
-//
-// Upstream diagnoses a null or wrong-mode stream by printing to stdout and
-// returning false, which is a library writing to a host's console. Every such
-// case is refused here first, so that printf is unreachable from this package.
+// Upstream's four dump and two read functions take a duFileIO, four hooks and
+// no file; HostFileIO wears that interface over the POD the C ABI carries.
+// Every case upstream diagnoses by printing to stdout is refused here first,
+// so that printf is unreachable from this package.
 //
 // The two read entry points build their container rather than filling a
-// caller's. Upstream's read the counts straight out of the stream and allocate
-// from them, so a half-read container is a real possibility; creating it here
-// means a failure destroys it rather than handing back something partly
-// filled. What the stream says is still trusted — see docs/design.md.
+// caller's, so a failed read destroys it rather than handing back something
+// partly filled. What the stream says is still trusted.
+// See docs/design.md, Known upstream behaviour: duReadContourSet.
 //===----------------------------------------------------------------------===//
 
 #include "zrecast_internal.h"
