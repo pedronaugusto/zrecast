@@ -164,6 +164,44 @@ float zrecast_baseline_raycast(void* opened, const uint32_t* refs, const float* 
   return sum;
 }
 
+/// The binding's nearest row with Zig taken out: the same zrcFindNearestPoly
+/// the wrapper calls, on the binding's own query and filter, from a C++ loop.
+/// Against zrecast_baseline_nearest it times the boundary's checks; against
+/// the Zig row, the wrapper and the crossing.
+uint64_t zrecast_baseline_nearest_boundary(const ZrcNavMeshQuery* query, const ZrcQueryFilter* filter,
+                                           const float* points, size_t count, const float* extents,
+                                           uint64_t times) {
+  uint64_t found = 0;
+  for (uint64_t i = 0; i < times; ++i) {
+    ZrcPolyRef ref = 0;
+    float nearest[3];
+    ZrcBool over = 0;
+    if (zrcFindNearestPoly(query, points + (i % count) * 3, extents, filter, &ref, nearest, &over) != ZRC_OK) {
+      return UINT64_MAX;
+    }
+    found += ref != 0;
+  }
+  return found;
+}
+
+/// The raycast row the same way: zrcRaycast from a C++ loop.
+float zrecast_baseline_raycast_boundary(const ZrcNavMeshQuery* query, const ZrcQueryFilter* filter,
+                                        const uint32_t* refs, const float* points, const uint32_t* pairs,
+                                        size_t count, uint64_t times) {
+  float sum = 0;
+  for (uint64_t i = 0; i < times; ++i) {
+    const uint32_t from = pairs[(i % count) * 2];
+    const uint32_t to = pairs[(i % count) * 2 + 1];
+    ZrcRaycastHit hit;
+    if (zrcRaycast(query, refs[from], points + from * 3, points + to * 3, filter, 0, 0, &hit, nullptr, 0, nullptr,
+                   nullptr) != ZRC_OK) {
+      return -1;
+    }
+    sum += hit.t;
+  }
+  return sum;
+}
+
 /// A crowd of `count` agents at `points`, each sent to its pair's other end.
 /// The agent parameters are the binding's row's, field for field
 /// (ToDtAgentParams).

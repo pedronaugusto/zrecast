@@ -83,6 +83,10 @@ const Context = struct {
         if (baseline.zrecast_baseline_nearest(c.world, &c.points, point_count, &extents, n) == std.math.maxInt(u64)) return error.Failed;
     }
 
+    fn nearestBoundary(c: *Context, n: u64) Failed!void {
+        if (baseline.zrecast_baseline_nearest_boundary(c.query.handle, c.filter.handle, &c.points, point_count, &extents, n) == std.math.maxInt(u64)) return error.Failed;
+    }
+
     fn routeZig(c: *Context, n: u64) Failed!void {
         var failure: zrecast.Failure = .{};
         var corridor: [256]zrecast.PolyRef = undefined;
@@ -116,6 +120,10 @@ const Context = struct {
 
     fn raycastC(c: *Context, n: u64) Failed!void {
         if (baseline.zrecast_baseline_raycast(c.world, &c.refs, &c.points, &c.pairs, point_count, n) < 0) return error.Failed;
+    }
+
+    fn raycastBoundary(c: *Context, n: u64) Failed!void {
+        if (baseline.zrecast_baseline_raycast_boundary(c.query.handle, c.filter.handle, &c.refs, &c.points, &c.pairs, point_count, n) < 0) return error.Failed;
     }
 
     /// A crowd ages as its agents arrive, so each batch gets a new one,
@@ -289,10 +297,12 @@ pub fn main(init: std.process.Init) !void {
     const queries = [_]Row{
         .{ .name = "nearest_zig", .unit = "query", .initial = 100, .run = Context.nearestZig },
         .{ .name = "nearest_c", .unit = "query", .initial = 100, .run = Context.nearestC },
+        .{ .name = "nearest_c_boundary", .unit = "query", .initial = 100, .run = Context.nearestBoundary },
         .{ .name = "route_zig", .unit = "route", .initial = 10, .run = Context.routeZig },
         .{ .name = "route_c", .unit = "route", .initial = 10, .run = Context.routeC },
         .{ .name = "raycast_zig", .unit = "ray", .initial = 100, .run = Context.raycastZig },
         .{ .name = "raycast_c", .unit = "ray", .initial = 100, .run = Context.raycastC },
+        .{ .name = "raycast_c_boundary", .unit = "ray", .initial = 100, .run = Context.raycastBoundary },
         .{ .name = "crowd_zig", .unit = "frame", .initial = crowd_frames, .grow = false, .run = Context.crowdZig, .fixture = .{ .lifetime = .batch, .setup = Context.openCrowd, .teardown = Context.closeCrowd } },
         .{ .name = "crowd_c", .unit = "frame", .initial = crowd_frames, .grow = false, .run = Context.crowdC, .fixture = .{ .lifetime = .batch, .setup = Context.openCrowdC, .teardown = Context.closeCrowdC } },
     };

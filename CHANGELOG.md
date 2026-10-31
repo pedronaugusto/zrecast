@@ -77,7 +77,9 @@ not express, so a port has the reason and not only the diff.
   signature, every struct field by name, every callback, enumerator and
   mirrored constant, and every header function bound.
 - `bench/` measures each binding against the same Detour work written in C++
-  (`bay dev bench`); `bay test` runs it once as a smoke test.
+  (`bay dev bench`); `bay test` runs it once as a smoke test. Two rows make
+  the boundary's own calls from a C++ loop, which tells the wrapper's cost
+  from the cost of the boundary's checks.
 - `DebugUtils` is bound. Upstream's fifth directory is compiled and every
   public name in it carries a verdict, so the whole vendored tree is now
   accounted for rather than four fifths of it. A host can draw the heightfield,

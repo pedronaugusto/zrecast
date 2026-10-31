@@ -1583,19 +1583,17 @@ medians of three runs:
 | `raycast`, per ray | 68–70 ns | 63–65 ns |
 | a crowd frame, an agent at every query point, first second after each is sent | 148–149 µs | 147–154 µs |
 
-A route and a crowd frame are level with C++. A query pays for the boundary's
-checks on what the caller passed, and nothing else: the same calls made to the
-C boundary from a C++ loop measured what the Zig rows measure, so the wrapper
-and the crossing add nothing measurable. On `findNearestPoly` that is the query
-box check, which keeps Detour's float-to-int tile conversion defined and its
-scan of the box's cells bounded; with it removed the call measured within 3 ns
-of C++ the same day. On `raycast` no single check is the cost: removing the
-position checks, or the conversion of the hit into `RaycastHit`, each left the
-row where it was. A load pays for the image check: the boundary validates the
-whole image before Detour reads any of it, and the C++ twin calling
-`zrcNavMeshValidate` first measured 5.4 µs against the binding's 6.1 µs in the
-same run. Through the Zig allocator a load measured faster than through
-upstream's `malloc`, on this machine.
+A route and a crowd frame are level with C++. A query and a load are slower,
+and the table alone does not say why. Two rows separate the wrapper and the
+crossing from the boundary's checks: `nearest_c_boundary` and
+`raycast_c_boundary` make the same `zrcFindNearestPoly` and `zrcRaycast` calls
+the Zig rows make, on the binding's own query and filter, from a C++ loop.
+`load_c_validated` does the same for a load, calling `zrcNavMeshValidate`
+before Detour reads the image. Those rows are in `bay dev bench` but not yet
+in this table: each gap is measured, and its cause, the `raycast` gap's
+included, is NOT ESTABLISHED.
+Through the Zig allocator a load measured faster than through upstream's
+`malloc`, on this machine.
 
 ## Contributing
 
