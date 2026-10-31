@@ -745,7 +745,7 @@ pub const ContourSet = struct {
         const idx = aegis.int.cast(i32, index) catch return err.refuse(failure, .contour_verts, error.InvalidArgument);
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .contour_verts, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .contour_verts, error.InvalidArgument);
-        const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .contour_verts, c.zrcContourVerts(self.handle, idx, first_i, count, ptr));
     }
 
@@ -754,7 +754,7 @@ pub const ContourSet = struct {
         const idx = aegis.int.cast(i32, index) catch return err.refuse(failure, .contour_raw_verts, error.InvalidArgument);
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .contour_raw_verts, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .contour_raw_verts, error.InvalidArgument);
-        const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]i32 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .contour_raw_verts, c.zrcContourRawVerts(self.handle, idx, first_i, count, ptr));
     }
 };
@@ -835,7 +835,7 @@ pub fn polyMeshMerge(
         return err.refuse(failure, .poly_mesh_merge, error.InvalidArgument)).raw();
     const handle_bytes = try memory.alloc(bytes_len, .temp, failure);
     defer memory.free(handle_bytes);
-    const handles: [*]*const c.PolyMesh = @ptrCast(@alignCast(handle_bytes.ptr)); // safe: memory.alloc aligns every block to alloc_alignment, which a pointer's alignment divides
+    const handles: [*]*const c.PolyMesh = @ptrCast(@alignCast(handle_bytes.ptr)); // aegis: no-danger: memory.alloc aligns every block to alloc_alignment, which a pointer's alignment divides
     for (meshes, 0..) |mesh, i| handles[i] = mesh.handle;
 
     var context_storage: c.BuildContext = undefined;

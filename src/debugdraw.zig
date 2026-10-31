@@ -215,7 +215,7 @@ pub const DebugDraw = struct {
 
         const adapt = struct {
             fn self(user: ?*anyopaque) Ptr {
-                return @ptrCast(@alignCast(user.?)); // safe: user is the pointer this function installs in .user below, a Ptr
+                return @ptrCast(@alignCast(user.?)); // aegis: no-danger: user is the pointer this function installs in .user below, a Ptr
             }
             fn depthMask(user: ?*anyopaque, state: c.Bool) callconv(.c) void {
                 self(user).depthMask(state != c.c_false);
@@ -274,7 +274,7 @@ pub const DebugDraw = struct {
         };
 
         return .{
-            .user = @constCast(@as(*const anyopaque, renderer)), // safe: the C side only hands user back to these adapters and never writes through it
+            .user = @constCast(@as(*const anyopaque, renderer)), // aegis: no-danger: the C side only hands user back to these adapters and never writes through it
             .depth_mask = adapt.depthMask,
             .texture = adapt.texture,
             .begin = adapt.begin,
@@ -1026,7 +1026,7 @@ pub const FileIO = struct {
 
         const adapt = struct {
             fn self(user: ?*anyopaque) Ptr {
-                return @ptrCast(@alignCast(user.?)); // safe: user is the pointer this function installs in .user below, a Ptr
+                return @ptrCast(@alignCast(user.?)); // aegis: no-danger: user is the pointer this function installs in .user below, a Ptr
             }
             fn isWriting(user: ?*anyopaque) callconv(.c) c.Bool {
                 return if (self(user).isWriting()) c.c_true else c.c_false;
@@ -1035,17 +1035,17 @@ pub const FileIO = struct {
                 return if (self(user).isReading()) c.c_true else c.c_false;
             }
             fn write(user: ?*anyopaque, ptr: *const anyopaque, size: usize) callconv(.c) c.Bool {
-                const bytes: [*]const u8 = @ptrCast(ptr); // safe: the hook's buffer is size bytes
+                const bytes: [*]const u8 = @ptrCast(ptr); // aegis: no-danger: the hook's buffer is size bytes
                 return if (self(user).write(bytes[0..size])) c.c_true else c.c_false;
             }
             fn read(user: ?*anyopaque, ptr: *anyopaque, size: usize) callconv(.c) c.Bool {
-                const bytes: [*]u8 = @ptrCast(ptr); // safe: the hook's buffer is size bytes
+                const bytes: [*]u8 = @ptrCast(ptr); // aegis: no-danger: the hook's buffer is size bytes
                 return if (self(user).read(bytes[0..size])) c.c_true else c.c_false;
             }
         };
 
         return .{
-            .user = @constCast(@as(*const anyopaque, stream)), // safe: the C side only hands user back to these adapters and never writes through it
+            .user = @constCast(@as(*const anyopaque, stream)), // aegis: no-danger: the C side only hands user back to these adapters and never writes through it
             .is_writing = adapt.isWriting,
             .is_reading = adapt.isReading,
             .write = adapt.write,

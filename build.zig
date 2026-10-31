@@ -333,13 +333,15 @@ pub fn dev(b: *std.Build, tools: type) void {
     // CI wiring
     //=====================================================================
 
-    for (checks) |c| _ = preflight.addCheck(b, p, c.name, c.source);
+    for (checks) |c| withAegis(p, preflight.addCheck(b, p, c.name, c.source));
     // README.md's numbers block, which the docs check regenerates through
     // this step (ci/preflight.json).
     _ = tool(b, p, test_step, "measurements", "ci/measurements.zig", "Print README.md's numbers block, recomputed from the tree");
     // The coverage record's other modes (`bay coverage -- --record`, `--names`,
     // `--summary AREA`, ...), through the program check-coverage runs.
-    const coverage = b.addRunArtifact(preflight.addCheck(b, p, "check-coverage", "ci/coverage.zig"));
+    const coverage_check = preflight.addCheck(b, p, "check-coverage", "ci/coverage.zig");
+    withAegis(p, coverage_check);
+    const coverage = b.addRunArtifact(coverage_check);
     coverage.setCwd(p.path("."));
     coverage.addPassthruArgs();
     b.step("coverage", "Run ci/coverage.zig in the mode given after --").dependOn(&coverage.step);
@@ -350,6 +352,7 @@ pub fn dev(b: *std.Build, tools: type) void {
         .name = "zrecast-vendor",
         .root_module = b.createModule(.{ .root_source_file = p.path("ci/vendor.zig"), .target = b.graph.host, .optimize = .debug }),
     });
+    withAegis(p, vendor);
     const verify = b.addRunArtifact(vendor);
     verify.addDirectoryArg2(p.path("libs/recastnavigation"), .{});
     verify.addDirectoryArg2(b.dependency("recastnavigation", .{}).path("."), .{});
@@ -478,11 +481,18 @@ fn tool(b: *std.Build, p: *std.Build, test_step: *std.Build.Step, name: []const 
         .name = b.fmt("zrecast-{s}", .{name}),
         .root_module = b.createModule(.{ .root_source_file = p.path(source), .target = b.graph.host, .optimize = .debug }),
     });
+    withAegis(p, exe);
     const run = b.addRunArtifact(exe);
     run.setCwd(p.path("."));
     b.step(name, description).dependOn(&run.step);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = exe.root_module })).step);
     return run;
+}
+
+/// Gives a host program under ci/ aegis, whose `own.readFile` reads a file
+/// whole with a limit (preflight's P006 holds every package to it).
+fn withAegis(p: *std.Build, exe: *std.Build.Step.Compile) void {
+    exe.root_module.addImport("aegis", p.dependency("aegis", .{ .target = exe.root_module.resolved_target.?, .optimize = .debug }).module("aegis"));
 }
 
 /// What `bay determinism` cooks on: each target, the C library whose qsort

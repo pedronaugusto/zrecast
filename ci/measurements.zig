@@ -3,6 +3,7 @@
 //! the block from this program and fails when the two differ, so no count in
 //! the README is written by hand. Run from the repository root.
 const std = @import("std");
+const aegis = @import("aegis");
 const Io = std.Io;
 
 /// The largest file read.
@@ -30,7 +31,7 @@ pub fn main(init: std.process.Init) !u8 {
         try stderr.interface.flush();
         return 1;
     }
-    const manifest = try cwd.readFileAlloc(io, "build.zig.zon", a, .limited(1 << 20));
+    const manifest = try aegis.own.readFile(io, cwd, "build.zig.zon", a, .fromRaw(1 << 20));
     const ledger = try verdicts(a, io, cwd);
     const rows = [_]Row{
         .{ .value = version(manifest) orelse return error.NoVersion, .description = "version (one home: `build.zig.zon`)" },
@@ -71,7 +72,7 @@ fn verdicts(a: std.mem.Allocator, io: Io, root: Io.Dir) !Ledger {
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.startsWith(u8, entry.name, "unbound_") or !std.mem.endsWith(u8, entry.name, ".txt")) continue;
-        var lines = std.mem.splitScalar(u8, try dir.readFileAlloc(io, entry.name, a, .limited(max_file_bytes)), '\n');
+        var lines = std.mem.splitScalar(u8, try aegis.own.readFile(io, dir, entry.name, a, .fromRaw(max_file_bytes)), '\n');
         while (lines.next()) |line| tally(&ledger, line);
     }
     return ledger;
@@ -97,13 +98,13 @@ fn countInDirectory(a: std.mem.Allocator, io: Io, root: Io.Dir, path: []const u8
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, suffix)) continue;
-        total += startingWith(try dir.readFileAlloc(io, entry.name, a, .limited(max_file_bytes)), prefix);
+        total += startingWith(try aegis.own.readFile(io, dir, entry.name, a, .fromRaw(max_file_bytes)), prefix);
     }
     return total;
 }
 
 fn countLines(a: std.mem.Allocator, io: Io, root: Io.Dir, path: []const u8, prefix: []const u8) !usize {
-    return startingWith(try root.readFileAlloc(io, path, a, .limited(max_file_bytes)), prefix);
+    return startingWith(try aegis.own.readFile(io, root, path, a, .fromRaw(max_file_bytes)), prefix);
 }
 
 fn startingWith(text: []const u8, prefix: []const u8) usize {
@@ -117,7 +118,7 @@ fn startingWith(text: []const u8, prefix: []const u8) usize {
 
 /// The quoted `libs/recastnavigation/….cpp` paths in build.zig.
 fn countTranslationUnits(a: std.mem.Allocator, io: Io, root: Io.Dir) !usize {
-    const text = try root.readFileAlloc(io, "build.zig", a, .limited(max_file_bytes));
+    const text = try aegis.own.readFile(io, root, "build.zig", a, .fromRaw(max_file_bytes));
     var count: usize = 0;
     var from: usize = 0;
     while (std.mem.findPos(u8, text, from, "\"libs/recastnavigation/")) |at| {

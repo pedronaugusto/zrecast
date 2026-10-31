@@ -522,7 +522,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 options.toC(),
                 // A [3]f32 array is 3 contiguous floats with no padding, which the
                 // ABI test pins; this is the same memory Detour wants.
-                @ptrCast(out_points.ptr), // safe: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
+                @ptrCast(out_points.ptr), // aegis: no-danger: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
                 capacity,
                 if (out_flags) |flags| flags.ptr else null,
                 flags_capacity,
@@ -903,7 +903,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 self.handle,
                 start_ref,
                 // A []Vec3 is tightly packed floats, the same memory Detour wants.
-                @ptrCast(verts.ptr), // safe: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
+                @ptrCast(verts.ptr), // aegis: no-danger: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
                 vert_count,
                 filter.handle,
                 if (out_refs.len == 0) null else out_refs.ptr,
@@ -1001,7 +1001,7 @@ fn NavMeshQueryOf(comptime access: c.Access) type {
                 filter.handle,
                 // A [2]Vec3 is four tightly packed floats, the same memory Detour
                 // wants for a segment's two endpoints.
-                @ptrCast(out_verts.ptr), // safe: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
+                @ptrCast(out_verts.ptr), // aegis: no-danger: each element is made of [3]f32 arrays, so the slice is one contiguous run of floats
                 if (out_refs.len == 0) null else out_refs.ptr,
                 capacity,
                 &count,

@@ -18,6 +18,7 @@
 //! applies where they stand nearest its stated line, and a probe whose lines
 //! stand nowhere is refused as stale rather than applied to something else.
 const std = @import("std");
+const aegis = @import("aegis");
 const Io = std.Io;
 
 const probes_dir = "ci/probes";
@@ -70,7 +71,7 @@ pub fn main(init: std.process.Init) !u8 {
     var missed: std.ArrayList(u8) = .empty;
     var caught: usize = 0;
     for (names.items) |name| {
-        const text = try dir.readFileAlloc(io, name, a, .limited(max_file_bytes));
+        const text = try aegis.own.readFile(io, dir, name, a, .fromRaw(max_file_bytes));
         const result = try probe(a, io, init.environ_map, bay, cwd, copy, text);
         try out.print("  {s:<56} {s}\n", .{ name[0 .. name.len - ".patch".len], label(result.outcome) });
         if (result.outcome == .caught) {
@@ -108,7 +109,7 @@ fn probe(a: std.mem.Allocator, io: Io, environ: *const std.process.Environ.Map, 
     // repository again, not just the files the probe patched.
     defer refresh(a, io, root) catch |err| std.debug.panic("restoring the copy: {t}", .{err});
     for (parsed.files) |file| {
-        const original = try copy.readFileAlloc(io, file.path, a, .limited(max_file_bytes));
+        const original = try aegis.own.readFile(io, copy, file.path, a, .fromRaw(max_file_bytes));
         const patched = apply(a, original, file.hunks) catch |err| return .{ .outcome = .stale, .detail = try a.print("      {s}: {t}\n", .{ file.path, err }) };
         try copy.writeFile(io, .{ .sub_path = file.path, .data = patched });
     }

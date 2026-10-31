@@ -85,7 +85,7 @@ pub fn distancePointToPolyEdges(
     var inside: zc.Bool = zc.c_false;
     try err.check(failure, .distance_point_to_poly_edges, zc.zrcDistancePointToPolyEdges(
         &point,
-        @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+        @ptrCast(verts.ptr), // aegis: no-danger: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         out_edge_dist_sqr.ptr,
         out_edge_t.ptr,
@@ -98,7 +98,7 @@ pub fn distancePointToPolyEdges(
 pub fn pointInPolygon(point: Vec3, verts: []const Vec3, failure: *err.Failure) Error!bool {
     const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .point_in_polygon, error.InvalidArgument);
     var inside: zc.Bool = zc.c_false;
-    try err.check(failure, .point_in_polygon, zc.zrcPointInPolygon(&point, @ptrCast(verts.ptr), vert_count, &inside)); // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+    try err.check(failure, .point_in_polygon, zc.zrcPointInPolygon(&point, @ptrCast(verts.ptr), vert_count, &inside)); // aegis: no-danger: Vec3 is [3]f32, so the slice is one contiguous run of floats
     return inside != zc.c_false;
 }
 
@@ -116,7 +116,7 @@ pub fn intersectSegmentPoly2D(p0: Vec3, p1: Vec3, verts: []const Vec3, failure: 
     try err.check(failure, .intersect_segment_poly_2d, zc.zrcIntersectSegmentPoly2D(
         &p0,
         &p1,
-        @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+        @ptrCast(verts.ptr), // aegis: no-danger: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         &t_min,
         &t_max,
@@ -153,9 +153,9 @@ pub fn overlapPolyPoly2D(a: []const Vec3, b: []const Vec3, failure: *err.Failure
     const count_b = aegis.int.cast(i32, b.len) catch return err.refuse(failure, .overlap_poly_poly_2d, error.InvalidArgument);
     var overlap: zc.Bool = zc.c_false;
     try err.check(failure, .overlap_poly_poly_2d, zc.zrcOverlapPolyPoly2D(
-        @ptrCast(a.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+        @ptrCast(a.ptr), // aegis: no-danger: Vec3 is [3]f32, so the slice is one contiguous run of floats
         count_a,
-        @ptrCast(b.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+        @ptrCast(b.ptr), // aegis: no-danger: Vec3 is [3]f32, so the slice is one contiguous run of floats
         count_b,
         &overlap,
     ));
@@ -192,7 +192,7 @@ pub fn polyCenter(verts: []const Vec3, indices: []const u16, failure: *err.Failu
     const vert_count = aegis.int.cast(i32, verts.len) catch return err.refuse(failure, .poly_center, error.InvalidArgument);
     const index_count = aegis.int.cast(i32, indices.len) catch return err.refuse(failure, .poly_center, error.InvalidArgument);
     var out: Vec3 = undefined;
-    try err.check(failure, .poly_center, zc.zrcPolyCenter(@ptrCast(verts.ptr), vert_count, indices.ptr, index_count, &out)); // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+    try err.check(failure, .poly_center, zc.zrcPolyCenter(@ptrCast(verts.ptr), vert_count, indices.ptr, index_count, &out)); // aegis: no-danger: Vec3 is [3]f32, so the slice is one contiguous run of floats
     return out;
 }
 
@@ -207,7 +207,7 @@ pub fn randomPointInConvexPoly(verts: []const Vec3, scratch: []f32, s: f32, t: f
     const scratch_count = aegis.int.cast(i32, scratch.len) catch return err.refuse(failure, .random_point_in_convex_poly, error.InvalidArgument);
     var out: Vec3 = undefined;
     try err.check(failure, .random_point_in_convex_poly, zc.zrcRandomPointInConvexPoly(
-        @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+        @ptrCast(verts.ptr), // aegis: no-danger: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         scratch.ptr,
         scratch_count,
@@ -233,10 +233,10 @@ pub fn offsetPoly(verts: []const Vec3, offset: f32, out: []Vec3, failure: *err.F
     const max_out_verts = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .offset_poly, error.InvalidArgument);
     var written: i32 = undefined;
     try err.check(failure, .offset_poly, zc.zrcOffsetPoly(
-        @ptrCast(verts.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+        @ptrCast(verts.ptr), // aegis: no-danger: Vec3 is [3]f32, so the slice is one contiguous run of floats
         vert_count,
         offset,
-        @ptrCast(out.ptr), // safe: Vec3 is [3]f32, so the slice is one contiguous run of floats
+        @ptrCast(out.ptr), // aegis: no-danger: Vec3 is [3]f32, so the slice is one contiguous run of floats
         max_out_verts,
         &written,
     ));

@@ -896,7 +896,7 @@ pub const AbiLayout = extern struct {
     tile_authoring_align: u32,
     tile_authoring_offset_connections: u32,
     tile_authoring_offset_connection_count: u32,
-    tile_authoring_offset_user_id: u32,
+    tile_authoring_offset_user_id: u32, // aegis: no-danger: a byte offset of a user_id field, as each field here is, not an id
     tile_authoring_offset_skip_bv_tree: u32,
 
     nav_mesh_params_size: u32,
@@ -1197,20 +1197,33 @@ pub const DisplayList = opaque {};
 // Entry points
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcVersion() u32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcRecastVersion() u32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshDataVersion() i32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcResultName(result: Result) [*:0]const u8;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcSetAllocator(alloc: ?*const Allocator) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAlloc(size: usize, hint: AllocHint) ?*anyopaque;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFree(block: ?*anyopaque) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAbiLayout(out: *AbiLayout) void;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAssertsEnabled() Bool;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcSetAssertHandler(handler: ?*const AssertHandler) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAssertHandler(out: *AssertHandler) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcBakeConfigDefault(out: *BakeConfig) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshBake(
     config: *const BakeConfig,
     mesh: *const TriMesh,
@@ -1218,13 +1231,16 @@ pub extern fn zrcPolyMeshBake(
     log: ?*BakeLog,
     out: **PolyMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcBakeConfigCells(config: *const BakeConfig, out: *BuildCells) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileGridCompute(
     config: *const BakeConfig,
     mesh: *const TriMesh,
     out: *TileGrid,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshBakeTile(
     config: *const BakeConfig,
     mesh: *const TriMesh,
@@ -1235,17 +1251,24 @@ pub extern fn zrcPolyMeshBakeTile(
     log: ?*BakeLog,
     out: *?*PolyMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshDestroy(mesh: ?*PolyMesh) void;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcBuildContextLog(
     context: ?*const BuildContext,
     category: LogCategory,
     message: [*:0]const u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcBuildContextResetLog(context: ?*const BuildContext) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcBuildContextResetTimers(context: ?*const BuildContext) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcBuildContextStartTimer(context: ?*const BuildContext, label: TimerLabel) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcBuildContextStopTimer(context: ?*const BuildContext, label: TimerLabel) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcBuildContextAccumulatedTime(
     context: ?*const BuildContext,
     label: TimerLabel,
@@ -1256,7 +1279,9 @@ pub extern fn zrcBuildContextAccumulatedTime(
 // Sizing a build
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCalcBounds(mesh: *const TriMesh, bmin: *[3]f32, bmax: *[3]f32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCalcGridSize(
     bmin: *const [3]f32,
     bmax: *const [3]f32,
@@ -1264,12 +1289,14 @@ pub extern fn zrcCalcGridSize(
     out_width: *i32,
     out_height: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcMarkWalkableTriangles(
     context: ?*const BuildContext,
     walkable_slope_angle: f32,
     mesh: *const TriMesh,
     out_areas: [*]u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcClearUnwalkableTriangles(
     context: ?*const BuildContext,
     walkable_slope_angle: f32,
@@ -1281,6 +1308,7 @@ pub extern fn zrcClearUnwalkableTriangles(
 // The heightfield
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldCreate(
     context: ?*const BuildContext,
     width: i32,
@@ -1291,9 +1319,13 @@ pub extern fn zrcHeightfieldCreate(
     cell_height: f32,
     out: **Heightfield,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldDestroy(heightfield: ?*Heightfield) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldInfo(heightfield: *const Heightfield, out: *HeightfieldInfo) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldStorage(heightfield: *const Heightfield, out: *HeightfieldStorage) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldColumn(
     heightfield: *const Heightfield,
     x: i32,
@@ -1302,11 +1334,13 @@ pub extern fn zrcHeightfieldColumn(
     max_spans: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldSpanCount(
     context: ?*const BuildContext,
     heightfield: *const Heightfield,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldAddSpan(
     context: ?*const BuildContext,
     heightfield: *Heightfield,
@@ -1317,6 +1351,7 @@ pub extern fn zrcHeightfieldAddSpan(
     area: u8,
     flag_merge_threshold: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldRasterizeTriangle(
     context: ?*const BuildContext,
     heightfield: *Heightfield,
@@ -1326,6 +1361,7 @@ pub extern fn zrcHeightfieldRasterizeTriangle(
     area: u8,
     flag_merge_threshold: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldRasterizeTriangles(
     context: ?*const BuildContext,
     heightfield: *Heightfield,
@@ -1333,6 +1369,7 @@ pub extern fn zrcHeightfieldRasterizeTriangles(
     tri_areas: [*]const u8,
     flag_merge_threshold: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldRasterizeTrianglesU16(
     context: ?*const BuildContext,
     heightfield: *Heightfield,
@@ -1343,6 +1380,7 @@ pub extern fn zrcHeightfieldRasterizeTrianglesU16(
     tri_count: i32,
     flag_merge_threshold: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldRasterizeTriangleSoup(
     context: ?*const BuildContext,
     heightfield: *Heightfield,
@@ -1351,17 +1389,20 @@ pub extern fn zrcHeightfieldRasterizeTriangleSoup(
     tri_count: i32,
     flag_merge_threshold: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldFilterLowHangingObstacles(
     context: ?*const BuildContext,
     heightfield: *Heightfield,
     walkable_climb: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldFilterLedgeSpans(
     context: ?*const BuildContext,
     heightfield: *Heightfield,
     walkable_height: i32,
     walkable_climb: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldFilterWalkableLowHeightSpans(
     context: ?*const BuildContext,
     heightfield: *Heightfield,
@@ -1372,6 +1413,7 @@ pub extern fn zrcHeightfieldFilterWalkableLowHeightSpans(
 // The compact heightfield
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldCreate(
     context: ?*const BuildContext,
     walkable_height: i32,
@@ -1379,65 +1421,78 @@ pub extern fn zrcCompactHeightfieldCreate(
     heightfield: *const Heightfield,
     out: **CompactHeightfield,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldDestroy(field: ?*CompactHeightfield) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldInfo(
     field: *const CompactHeightfield,
     out: *CompactHeightfieldInfo,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldCells(
     field: *const CompactHeightfield,
     first: i32,
     count: i32,
     out: ?[*]CompactCell,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldSpans(
     field: *const CompactHeightfield,
     first: i32,
     count: i32,
     out: ?[*]CompactSpan,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldSetSpans(
     field: *CompactHeightfield,
     first: i32,
     count: i32,
     spans: [*]const CompactSpan,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldDistances(
     field: *const CompactHeightfield,
     first: i32,
     count: i32,
     out: ?[*]u16,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldAreas(
     field: *const CompactHeightfield,
     first: i32,
     count: i32,
     out: ?[*]u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldSetAreas(
     field: *CompactHeightfield,
     first: i32,
     count: i32,
     areas: [*]const u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldMarkAreas(
     context: ?*const BuildContext,
     field: *CompactHeightfield,
     authoring: *const AreaAuthoring,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldErode(
     context: ?*const BuildContext,
     field: *CompactHeightfield,
     radius: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldMedianFilter(
     context: ?*const BuildContext,
     field: *CompactHeightfield,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldBuildDistanceField(
     context: ?*const BuildContext,
     field: *CompactHeightfield,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCompactHeightfieldBuildRegions(
     context: ?*const BuildContext,
     field: *CompactHeightfield,
@@ -1451,6 +1506,7 @@ pub extern fn zrcCompactHeightfieldBuildRegions(
 // Contours
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcContourSetCreate(
     context: ?*const BuildContext,
     field: *const CompactHeightfield,
@@ -1459,9 +1515,13 @@ pub extern fn zrcContourSetCreate(
     flags: i32,
     out: **ContourSet,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcContourSetDestroy(contours: ?*ContourSet) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcContourSetInfo(contours: *const ContourSet, out: *ContourSetInfo) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcContourAt(contours: *const ContourSet, index: i32, out: *ContourInfo) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcContourVerts(
     contours: *const ContourSet,
     index: i32,
@@ -1469,6 +1529,7 @@ pub extern fn zrcContourVerts(
     count: i32,
     out: ?[*]i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcContourRawVerts(
     contours: *const ContourSet,
     index: i32,
@@ -1481,13 +1542,16 @@ pub extern fn zrcContourRawVerts(
 // The polygon mesh, built by hand
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshCreate(out: **PolyMesh) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshBuild(
     context: ?*const BuildContext,
     contours: *const ContourSet,
     verts_per_poly: i32,
     mesh: *PolyMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshBuildDetail(
     context: ?*const BuildContext,
     mesh: *PolyMesh,
@@ -1495,53 +1559,67 @@ pub extern fn zrcPolyMeshBuildDetail(
     sample_dist: f32,
     sample_max_error: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshSetAgentDims(
     mesh: *PolyMesh,
     walkable_height: f32,
     walkable_radius: f32,
     walkable_climb: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshInfo(mesh: *const PolyMesh, out: *PolyMeshInfo) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshCopy(
     context: ?*const BuildContext,
     src: *const PolyMesh,
     dst: *PolyMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshMerge(
     context: ?*const BuildContext,
     meshes: [*]const *const PolyMesh,
     count: i32,
     out: *PolyMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshVerts(mesh: *const PolyMesh, first: i32, count: i32, out: ?[*]u16) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshPolys(mesh: *const PolyMesh, first: i32, count: i32, out: ?[*]u16) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshRegions(mesh: *const PolyMesh, first: i32, count: i32, out: ?[*]u16) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshPolyAreas(mesh: *const PolyMesh, first: i32, count: i32, out: ?[*]u8) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshSetPolyAreas(
     mesh: *PolyMesh,
     first: i32,
     count: i32,
     areas: [*]const u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshPolyFlags(mesh: *const PolyMesh, first: i32, count: i32, out: ?[*]u16) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshSetPolyFlags(
     mesh: *PolyMesh,
     first: i32,
     count: i32,
     flags: [*]const u16,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshDetailMeshes(
     mesh: *const PolyMesh,
     first: i32,
     count: i32,
     out: ?[*]u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshDetailVerts(
     mesh: *const PolyMesh,
     first: i32,
     count: i32,
     out: ?[*]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyMeshDetailTris(
     mesh: *const PolyMesh,
     first: i32,
@@ -1549,21 +1627,28 @@ pub extern fn zrcPolyMeshDetailTris(
     out: ?[*]u8,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshCreate(
     mesh: *const PolyMesh,
     authoring: ?*const TileAuthoring,
     out: **NavMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshDestroy(navmesh: ?*NavMesh) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshSerialize(
     navmesh: *const NavMesh,
     out_data: *?*anyopaque,
     out_size: *usize,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshDeserialize(data: ?*const anyopaque, size: usize, out: **NavMesh) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshValidate(data: ?*const anyopaque, size: usize) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileLayout(data: ?*const anyopaque, size: usize, out: *TileLayout) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshImageSwapEndian(
     data: ?*const anyopaque,
     size: usize,
@@ -1571,15 +1656,19 @@ pub extern fn zrcNavMeshImageSwapEndian(
     out_data: *?*anyopaque,
     out_size: *usize,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshPolyCount(navmesh: ?*const NavMesh) i32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshBounds(navmesh: ?*const NavMesh, bmin: *[3]f32, bmax: *[3]f32) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshCreateTiled(
     grid: *const TileGrid,
     max_tiles: i32,
     max_polys_per_tile: i32,
     out: **NavMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileDataBuild(
     mesh: *const PolyMesh,
     tile_x: i32,
@@ -1589,13 +1678,16 @@ pub extern fn zrcTileDataBuild(
     out_data: *?*anyopaque,
     out_size: *usize,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshAddTile(
     navmesh: ?*NavMesh,
     data: ?*const anyopaque,
     size: usize,
     out_ref: ?*TileRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshRemoveTile(navmesh: ?*NavMesh, ref: TileRef) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileRefAt(
     navmesh: ?*const NavMesh,
     tile_x: i32,
@@ -1603,6 +1695,7 @@ pub extern fn zrcNavMeshTileRefAt(
     tile_layer: i32,
     out_ref: *TileRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileRefsAt(
     navmesh: *const NavMesh,
     tile_x: i32,
@@ -1612,13 +1705,17 @@ pub extern fn zrcNavMeshTileRefsAt(
     out_count: *i32,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileCount(navmesh: ?*const NavMesh) i32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileRefAtIndex(
     navmesh: ?*const NavMesh,
     index: i32,
     out_ref: *TileRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshMaxTiles(navmesh: ?*const NavMesh) i32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileBounds(
     navmesh: ?*const NavMesh,
     ref: TileRef,
@@ -1626,20 +1723,26 @@ pub extern fn zrcNavMeshTileBounds(
     bmax: *[3]f32,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshGetPolyArea(
     navmesh: ?*const NavMesh,
     ref: PolyRef,
     out_area: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshSetPolyArea(navmesh: ?*NavMesh, ref: PolyRef, area: i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshGetPolyFlags(
     navmesh: ?*const NavMesh,
     ref: PolyRef,
     out_flags: *u16,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshSetPolyFlags(navmesh: ?*NavMesh, ref: PolyRef, flags: u16) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshGetPolyType(navmesh: ?*const NavMesh, ref: PolyRef, out_type: *i32) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshOffMeshConnectionEndPoints(
     navmesh: ?*const NavMesh,
     prev_ref: PolyRef,
@@ -1647,41 +1750,52 @@ pub extern fn zrcNavMeshOffMeshConnectionEndPoints(
     out_start: *[3]f32,
     out_end: *[3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshOffMeshConnection(
     navmesh: ?*const NavMesh,
     ref: PolyRef,
     out: *OffMeshConnection,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileUserId(navmesh: ?*const NavMesh, ref: TileRef, out_user_id: *u32) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshParams(navmesh: ?*const NavMesh, out: *NavMeshParams) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshCalcTileLoc(
     navmesh: ?*const NavMesh,
     pos: *const [3]f32,
     out_tile_x: *i32,
     out_tile_z: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcOppositeTileSide(side: i32, out_side: *i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileInfo(navmesh: ?*const NavMesh, ref: TileRef, out: *TileInfo) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshPolyInfo(navmesh: ?*const NavMesh, ref: PolyRef, out: *PolyInfo) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTilePolyRef(
     navmesh: ?*const NavMesh,
     ref: TileRef,
     index: i32,
     out: *PolyRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileLink(
     navmesh: ?*const NavMesh,
     ref: TileRef,
     index: i32,
     out: *Link,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileBvNode(
     navmesh: ?*const NavMesh,
     ref: TileRef,
     index: i32,
     out: *BvNode,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileVerts(
     navmesh: ?*const NavMesh,
     ref: TileRef,
@@ -1689,6 +1803,7 @@ pub extern fn zrcNavMeshTileVerts(
     count: i32,
     out: ?[*]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileDetailVerts(
     navmesh: ?*const NavMesh,
     ref: TileRef,
@@ -1696,6 +1811,7 @@ pub extern fn zrcNavMeshTileDetailVerts(
     count: i32,
     out: ?[*]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileDetailTris(
     navmesh: ?*const NavMesh,
     ref: TileRef,
@@ -1704,13 +1820,16 @@ pub extern fn zrcNavMeshTileDetailTris(
     out: ?[*]u8,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshTileStateSize(navmesh: ?*const NavMesh, ref: TileRef, out_size: *usize) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshStoreTileState(
     navmesh: ?*const NavMesh,
     ref: TileRef,
     data: ?*anyopaque,
     size: usize,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshRestoreTileState(
     navmesh: ?*NavMesh,
     ref: TileRef,
@@ -1718,6 +1837,7 @@ pub extern fn zrcNavMeshRestoreTileState(
     size: usize,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcClosestPointOnTriangle(
     point: *const [3]f32,
     a: *const [3]f32,
@@ -1725,6 +1845,7 @@ pub extern fn zrcClosestPointOnTriangle(
     c: *const [3]f32,
     out_closest: *[3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcClosestHeightPointTriangle(
     point: *const [3]f32,
     a: *const [3]f32,
@@ -1733,6 +1854,7 @@ pub extern fn zrcClosestHeightPointTriangle(
     out_height: *f32,
     out_inside: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDistancePointToSegment2D(
     point: *const [3]f32,
     p: *const [3]f32,
@@ -1740,6 +1862,7 @@ pub extern fn zrcDistancePointToSegment2D(
     out_dist_sqr: *f32,
     out_t: *f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDistancePointToPolyEdges(
     point: *const [3]f32,
     verts: [*]const f32,
@@ -1748,12 +1871,14 @@ pub extern fn zrcDistancePointToPolyEdges(
     out_edge_t: [*]f32,
     out_inside: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPointInPolygon(
     point: *const [3]f32,
     verts: [*]const f32,
     vert_count: i32,
     out_inside: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcIntersectSegmentPoly2D(
     p0: *const [3]f32,
     p1: *const [3]f32,
@@ -1765,6 +1890,7 @@ pub extern fn zrcIntersectSegmentPoly2D(
     out_seg_max: *i32,
     out_intersects: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcIntersectSegSeg2D(
     ap: *const [3]f32,
     aq: *const [3]f32,
@@ -1774,6 +1900,7 @@ pub extern fn zrcIntersectSegSeg2D(
     out_t: *f32,
     out_intersects: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcOverlapPolyPoly2D(
     poly_a: [*]const f32,
     count_a: i32,
@@ -1781,6 +1908,7 @@ pub extern fn zrcOverlapPolyPoly2D(
     count_b: i32,
     out_overlap: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcOverlapBounds(
     amin: *const [3]f32,
     amax: *const [3]f32,
@@ -1788,6 +1916,7 @@ pub extern fn zrcOverlapBounds(
     bmax: *const [3]f32,
     out_overlap: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcOverlapQuantBounds(
     amin: *const [3]u16,
     amax: *const [3]u16,
@@ -1795,12 +1924,14 @@ pub extern fn zrcOverlapQuantBounds(
     bmax: *const [3]u16,
     out_overlap: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTriArea2D(
     a: *const [3]f32,
     b: *const [3]f32,
     c: *const [3]f32,
     out_area: *f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyCenter(
     verts: [*]const f32,
     vert_count: i32,
@@ -1808,6 +1939,7 @@ pub extern fn zrcPolyCenter(
     index_count: i32,
     out_center: *[3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcRandomPointInConvexPoly(
     verts: [*]const f32,
     vert_count: i32,
@@ -1817,6 +1949,7 @@ pub extern fn zrcRandomPointInConvexPoly(
     t: f32,
     out_point: *[3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcOffsetPoly(
     verts: [*]const f32,
     vert_count: i32,
@@ -1828,20 +1961,30 @@ pub extern fn zrcOffsetPoly(
 
 pub const QueryFilter = opaque {};
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryFilterDescDefault(out: *QueryFilterDesc) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryFilterCreate(desc: *const QueryFilterDesc, out: **QueryFilter) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryFilterDestroy(filter: ?*QueryFilter) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryFilterDescribe(filter: *const QueryFilter, out: *QueryFilterDesc) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryFilterSetAreaCost(filter: *QueryFilter, area: u8, cost: f32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryFilterSetIncludeFlags(filter: *QueryFilter, flags: u16) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryFilterSetExcludeFlags(filter: *QueryFilter, flags: u16) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshQueryCreate(
     navmesh: *const NavMesh,
     max_nodes: i32,
     out: **NavMeshQuery,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcNavMeshQueryDestroy(query: ?*NavMeshQuery) void;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFindNearestPoly(
     query: *const NavMeshQuery,
     center: *const [3]f32,
@@ -1852,6 +1995,7 @@ pub extern fn zrcFindNearestPoly(
     out_over_poly: ?*Bool,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFindPath(
     query: *const NavMeshQuery,
     start_ref: PolyRef,
@@ -1865,6 +2009,7 @@ pub extern fn zrcFindPath(
     out_partial: ?*Bool,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFindStraightPath(
     query: *const NavMeshQuery,
     start_pos: *const [3]f32,
@@ -1882,6 +2027,7 @@ pub extern fn zrcFindStraightPath(
     out_partial: ?*Bool,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcMoveAlongSurface(
     query: *const NavMeshQuery,
     start_ref: PolyRef,
@@ -1895,6 +2041,7 @@ pub extern fn zrcMoveAlongSurface(
     out_truncated: ?*Bool,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcRaycast(
     query: *const NavMeshQuery,
     start_ref: PolyRef,
@@ -1914,6 +2061,7 @@ pub extern fn zrcRaycast(
 // Sliced pathfinding
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcSlicedFindPathInit(
     query: *NavMeshQuery,
     start_ref: PolyRef,
@@ -1923,12 +2071,14 @@ pub extern fn zrcSlicedFindPathInit(
     filter: *const QueryFilter,
     options: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcSlicedFindPathUpdate(
     query: *NavMeshQuery,
     max_iters: i32,
     out_iters: ?*i32,
     out_in_progress: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcSlicedFindPathFinalize(
     query: *NavMeshQuery,
     out_path: [*]PolyRef,
@@ -1936,6 +2086,7 @@ pub extern fn zrcSlicedFindPathFinalize(
     out_count: *i32,
     out_partial: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcSlicedFindPathFinalizePartial(
     query: *NavMeshQuery,
     existing: [*]const PolyRef,
@@ -1945,13 +2096,16 @@ pub extern fn zrcSlicedFindPathFinalizePartial(
     out_count: *i32,
     out_partial: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcSlicedFindPathCancel(query: *NavMeshQuery) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcSlicedFindPathActive(query: ?*const NavMeshQuery) Bool;
 
 //=============================================================================
 // Random points
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFindRandomPoint(
     query: *const NavMeshQuery,
     filter: *const QueryFilter,
@@ -1959,6 +2113,7 @@ pub extern fn zrcFindRandomPoint(
     out_ref: *PolyRef,
     out_point: *[3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFindRandomPointAroundCircle(
     query: *const NavMeshQuery,
     start_ref: PolyRef,
@@ -1974,6 +2129,7 @@ pub extern fn zrcFindRandomPointAroundCircle(
 // Polygons in a box
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryPolygons(
     query: *const NavMeshQuery,
     center: *const [3]f32,
@@ -1984,6 +2140,7 @@ pub extern fn zrcQueryPolygons(
     out_count: *i32,
     out_truncated: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryPolygonsBatched(
     query: *const NavMeshQuery,
     center: *const [3]f32,
@@ -1996,6 +2153,7 @@ pub extern fn zrcQueryPolygonsBatched(
 // A point against one polygon
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcClosestPointOnPoly(
     query: *const NavMeshQuery,
     ref: PolyRef,
@@ -2003,12 +2161,14 @@ pub extern fn zrcClosestPointOnPoly(
     out_point: *[3]f32,
     out_over_poly: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcClosestPointOnPolyBoundary(
     query: *const NavMeshQuery,
     ref: PolyRef,
     pos: *const [3]f32,
     out_point: *[3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyHeight(
     query: *const NavMeshQuery,
     ref: PolyRef,
@@ -2020,6 +2180,7 @@ pub extern fn zrcPolyHeight(
 // Searching outwards
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFindPolysAroundCircle(
     query: *const NavMeshQuery,
     start_ref: PolyRef,
@@ -2033,6 +2194,7 @@ pub extern fn zrcFindPolysAroundCircle(
     out_count: *i32,
     out_truncated: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFindPolysAroundShape(
     query: *const NavMeshQuery,
     start_ref: PolyRef,
@@ -2046,6 +2208,7 @@ pub extern fn zrcFindPolysAroundShape(
     out_count: *i32,
     out_truncated: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathFromDijkstraSearch(
     query: *const NavMeshQuery,
     end_ref: PolyRef,
@@ -2054,6 +2217,7 @@ pub extern fn zrcPathFromDijkstraSearch(
     out_count: *i32,
     out_truncated: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFindLocalNeighbourhood(
     query: *const NavMeshQuery,
     start_ref: PolyRef,
@@ -2071,6 +2235,7 @@ pub extern fn zrcFindLocalNeighbourhood(
 // Walls
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPolyWallSegments(
     query: *const NavMeshQuery,
     ref: PolyRef,
@@ -2081,6 +2246,7 @@ pub extern fn zrcPolyWallSegments(
     out_count: *i32,
     out_truncated: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcFindDistanceToWall(
     query: *const NavMeshQuery,
     start_ref: PolyRef,
@@ -2097,21 +2263,25 @@ pub extern fn zrcFindDistanceToWall(
 // What a reference means
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcIsValidPolyRef(
     query: *const NavMeshQuery,
     ref: PolyRef,
     filter: ?*const QueryFilter,
     out_valid: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcIsInClosedList(
     query: *const NavMeshQuery,
     ref: PolyRef,
     out_closed: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryNavMesh(
     query: *const NavMeshQuery,
     out_navmesh: **const NavMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDecodePolyRef(
     navmesh: *const NavMesh,
     ref: PolyRef,
@@ -2119,6 +2289,7 @@ pub extern fn zrcDecodePolyRef(
     out_tile: ?*u32,
     out_poly: ?*u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcEncodePolyRef(
     navmesh: *const NavMesh,
     salt: u32,
@@ -2131,16 +2302,19 @@ pub extern fn zrcEncodePolyRef(
 // The search's own node pool
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryNodePoolInfo(
     query: *const NavMeshQuery,
     out: *NodePoolInfo,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryFindNode(
     query: *const NavMeshQuery,
     ref: PolyRef,
     state: u32,
     out: *Node,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryFindNodes(
     query: *const NavMeshQuery,
     ref: PolyRef,
@@ -2148,6 +2322,7 @@ pub extern fn zrcQueryFindNodes(
     max_nodes: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcQueryNodeAt(
     query: *const NavMeshQuery,
     index: u32,
@@ -2158,6 +2333,7 @@ pub extern fn zrcQueryNodeAt(
 // The layered heightfield
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldLayerSetCreate(
     context: ?*const BuildContext,
     field: *const CompactHeightfield,
@@ -2165,13 +2341,17 @@ pub extern fn zrcHeightfieldLayerSetCreate(
     walkable_height: i32,
     out: **HeightfieldLayerSet,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldLayerSetDestroy(layers: ?*HeightfieldLayerSet) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldLayerSetCount(layers: *const HeightfieldLayerSet, out_count: *i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldLayerAt(
     layers: *const HeightfieldLayerSet,
     index: i32,
     out: *HeightfieldLayer,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldLayerHeights(
     layers: *const HeightfieldLayerSet,
     index: i32,
@@ -2179,6 +2359,7 @@ pub extern fn zrcHeightfieldLayerHeights(
     count: i32,
     out: ?[*]u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldLayerAreas(
     layers: *const HeightfieldLayerSet,
     index: i32,
@@ -2186,6 +2367,7 @@ pub extern fn zrcHeightfieldLayerAreas(
     count: i32,
     out: ?[*]u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcHeightfieldLayerCons(
     layers: *const HeightfieldLayerSet,
     index: i32,
@@ -2198,6 +2380,7 @@ pub extern fn zrcHeightfieldLayerCons(
 // The tile cache — obstacles carved into a baked mesh at runtime
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheCreate(
     params: *const TileCacheParams,
     compressor: *const TileCacheCompressor,
@@ -2206,15 +2389,19 @@ pub extern fn zrcTileCacheCreate(
     mesh_process_user: ?*anyopaque,
     out: **TileCache,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheDestroy(cache: ?*TileCache) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheParams(cache: *const TileCache, out: *TileCacheParams) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheAddTile(
     cache: *TileCache,
     data: ?*const anyopaque,
     size: usize,
     out_ref: *CompressedTileRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheRemoveTile(
     cache: *TileCache,
     ref: CompressedTileRef,
@@ -2222,11 +2409,13 @@ pub extern fn zrcTileCacheRemoveTile(
     out_size: ?*usize,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheTileInfo(
     cache: *const TileCache,
     ref: CompressedTileRef,
     out: *CompressedTileInfo,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheTileAt(
     cache: *const TileCache,
     tile_x: i32,
@@ -2234,6 +2423,7 @@ pub extern fn zrcTileCacheTileAt(
     tile_layer: i32,
     out_ref: *CompressedTileRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheTilesAt(
     cache: *const TileCache,
     tile_x: i32,
@@ -2242,23 +2432,27 @@ pub extern fn zrcTileCacheTilesAt(
     max_tiles: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheTileRefAt(
     cache: *const TileCache,
     index: i32,
     out_ref: *CompressedTileRef,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheObstacleInfo(
     cache: *const TileCache,
     ref: ObstacleRef,
     out: *ObstacleInfo,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheObstacleRefAt(
     cache: *const TileCache,
     index: i32,
     out_ref: *ObstacleRef,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheAddCylinderObstacle(
     cache: *TileCache,
     position: *const [3]f32,
@@ -2266,12 +2460,14 @@ pub extern fn zrcTileCacheAddCylinderObstacle(
     height: f32,
     out_ref: *ObstacleRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheAddBoxObstacle(
     cache: *TileCache,
     bmin: *const [3]f32,
     bmax: *const [3]f32,
     out_ref: *ObstacleRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheAddOrientedBoxObstacle(
     cache: *TileCache,
     center: *const [3]f32,
@@ -2279,8 +2475,10 @@ pub extern fn zrcTileCacheAddOrientedBoxObstacle(
     y_radians: f32,
     out_ref: *ObstacleRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheRemoveObstacle(cache: *TileCache, ref: ObstacleRef) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheQueryTiles(
     cache: *const TileCache,
     bmin: *const [3]f32,
@@ -2290,16 +2488,19 @@ pub extern fn zrcTileCacheQueryTiles(
     out_count: *i32,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheUpdate(
     cache: *TileCache,
     navmesh: *NavMesh,
     out_up_to_date: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheBuildNavMeshTile(
     cache: *TileCache,
     ref: CompressedTileRef,
     navmesh: *NavMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheBuildNavMeshTilesAt(
     cache: *TileCache,
     tile_x: i32,
@@ -2311,6 +2512,7 @@ pub extern fn zrcTileCacheBuildNavMeshTilesAt(
 // Building a compressed layer, and taking one apart
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerBuild(
     compressor: *const TileCacheCompressor,
     header: *const TileCacheLayerHeader,
@@ -2320,8 +2522,10 @@ pub extern fn zrcTileCacheLayerBuild(
     out_data: *?*anyopaque,
     out_size: *usize,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheHeaderSwapEndian(data: ?*anyopaque, size: usize) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerDecompress(
     compressor: *const TileCacheCompressor,
     allocator: ?*const TileCacheAllocator,
@@ -2329,34 +2533,42 @@ pub extern fn zrcTileCacheLayerDecompress(
     size: usize,
     out: **TileCacheLayer,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerDestroy(layer: ?*TileCacheLayer) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerHeaderOf(layer: *const TileCacheLayer, out: *TileCacheLayerHeader) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerRegionCount(layer: *const TileCacheLayer, out_count: *i32) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerHeights(
     layer: *const TileCacheLayer,
     first: i32,
     count: i32,
     out: ?[*]u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerAreas(
     layer: *const TileCacheLayer,
     first: i32,
     count: i32,
     out: ?[*]u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerSetAreas(
     layer: *TileCacheLayer,
     first: i32,
     count: i32,
     areas: [*]const u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerCons(
     layer: *const TileCacheLayer,
     first: i32,
     count: i32,
     out: ?[*]u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerRegions(
     layer: *const TileCacheLayer,
     first: i32,
@@ -2364,6 +2576,7 @@ pub extern fn zrcTileCacheLayerRegions(
     out: ?[*]u8,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerMarkCylinder(
     layer: *TileCacheLayer,
     origin: *const [3]f32,
@@ -2374,6 +2587,7 @@ pub extern fn zrcTileCacheLayerMarkCylinder(
     height: f32,
     area: u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerMarkBox(
     layer: *TileCacheLayer,
     origin: *const [3]f32,
@@ -2383,6 +2597,7 @@ pub extern fn zrcTileCacheLayerMarkBox(
     bmax: *const [3]f32,
     area: u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerMarkOrientedBox(
     layer: *TileCacheLayer,
     origin: *const [3]f32,
@@ -2393,8 +2608,10 @@ pub extern fn zrcTileCacheLayerMarkOrientedBox(
     y_radians: f32,
     area: u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheLayerBuildRegions(layer: *TileCacheLayer, walkable_climb: i32) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheContourSetCreate(
     allocator: ?*const TileCacheAllocator,
     layer: *TileCacheLayer,
@@ -2402,13 +2619,17 @@ pub extern fn zrcTileCacheContourSetCreate(
     max_error: f32,
     out: **TileCacheContourSet,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheContourSetDestroy(contours: ?*TileCacheContourSet) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheContourSetCount(contours: *const TileCacheContourSet, out_count: *i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheContourAt(
     contours: *const TileCacheContourSet,
     index: i32,
     out: *TileCacheContourInfo,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCacheContourVerts(
     contours: *const TileCacheContourSet,
     index: i32,
@@ -2417,31 +2638,38 @@ pub extern fn zrcTileCacheContourVerts(
     out: ?[*]u8,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCachePolyMeshCreate(
     allocator: ?*const TileCacheAllocator,
     contours: *const TileCacheContourSet,
     out: **TileCachePolyMesh,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCachePolyMeshDestroy(mesh: ?*TileCachePolyMesh) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCachePolyMeshInfo(mesh: *const TileCachePolyMesh, out: *TileCachePolyMeshInfo) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCachePolyMeshVerts(
     mesh: *const TileCachePolyMesh,
     first: i32,
     count: i32,
     out: ?[*]u16,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCachePolyMeshPolys(
     mesh: *const TileCachePolyMesh,
     first: i32,
     count: i32,
     out: ?[*]u16,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCachePolyMeshAreas(
     mesh: *const TileCachePolyMesh,
     first: i32,
     count: i32,
     out: ?[*]u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcTileCachePolyMeshFlags(
     mesh: *const TileCachePolyMesh,
     first: i32,
@@ -2597,48 +2825,61 @@ pub const PathCorridor = opaque {};
 pub const LocalBoundary = opaque {};
 pub const PathQueue = opaque {};
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceParamsDefault(out: *AvoidanceParams) void;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdCreate(
     navmesh: *const NavMesh,
     max_agents: i32,
     max_agent_radius: f32,
     out: **Crowd,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdInit(
     crowd: *Crowd,
     navmesh: *const NavMesh,
     max_agents: i32,
     max_agent_radius: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdDestroy(crowd: ?*Crowd) void;
 
 //=============================================================================
 // Agents
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAddAgent(
     crowd: *Crowd,
     position: *const [3]f32,
     params: *const CrowdAgentParams,
     out_ref: *AgentRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdRemoveAgent(crowd: *Crowd, ref: AgentRef) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdSetAgentParams(
     crowd: *Crowd,
     ref: AgentRef,
     params: *const CrowdAgentParams,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentInfo(crowd: *const Crowd, ref: AgentRef, out: *CrowdAgent) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentCapacity(crowd: *const Crowd, out_count: *i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdActiveAgentCount(crowd: *const Crowd, out_count: *i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdActiveAgents(
     crowd: *const Crowd,
     out: ?[*]AgentRef,
     max_agents: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentRefAt(crowd: *const Crowd, index: i32, out_ref: *AgentRef) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentCorners(
     crowd: *const Crowd,
     ref: AgentRef,
@@ -2646,6 +2887,7 @@ pub extern fn zrcCrowdAgentCorners(
     count: i32,
     out: ?[*]CrowdCorner,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentNeighbours(
     crowd: *const Crowd,
     ref: AgentRef,
@@ -2653,11 +2895,13 @@ pub extern fn zrcCrowdAgentNeighbours(
     count: i32,
     out: ?[*]CrowdNeighbour,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentCorridorInfo(
     crowd: *const Crowd,
     ref: AgentRef,
     out: *PathCorridorInfo,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentCorridorPath(
     crowd: *const Crowd,
     ref: AgentRef,
@@ -2665,12 +2909,15 @@ pub extern fn zrcCrowdAgentCorridorPath(
     count: i32,
     out: ?[*]PolyRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentBoundaryCenter(crowd: *const Crowd, ref: AgentRef, out: *[3]f32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentBoundarySegmentCount(
     crowd: *const Crowd,
     ref: AgentRef,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAgentBoundarySegments(
     crowd: *const Crowd,
     ref: AgentRef,
@@ -2683,50 +2930,67 @@ pub extern fn zrcCrowdAgentBoundarySegments(
 // Where an agent is going
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdRequestMoveTarget(
     crowd: *Crowd,
     ref: AgentRef,
     poly: PolyRef,
     position: *const [3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdRequestMoveVelocity(
     crowd: *Crowd,
     ref: AgentRef,
     velocity: *const [3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdResetMoveTarget(crowd: *Crowd, ref: AgentRef) Result;
 
 //=============================================================================
 // The frame
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdUpdate(crowd: *Crowd, dt: f32, debug: ?*CrowdAgentDebug) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdVelocitySampleCount(crowd: *const Crowd, out_count: *i32) Result;
 
 //=============================================================================
 // What the whole crowd shares
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdSetAvoidanceParams(
     crowd: *Crowd,
     index: i32,
     params: *const AvoidanceParams,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdAvoidanceParams(crowd: *const Crowd, index: i32, out: *AvoidanceParams) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdSetFilter(crowd: *Crowd, index: i32, filter: *const QueryFilter) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdFilter(crowd: *const Crowd, index: i32, out: *QueryFilterDesc) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdQueryHalfExtents(crowd: *const Crowd, out: *[3]f32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdGrid(crowd: *const Crowd, out: **const ProximityGrid) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdPathQueue(crowd: *const Crowd, out: **const PathQueue) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcCrowdNavMeshQuery(crowd: *const Crowd, out: **const NavMeshQuery) Result;
 
 //=============================================================================
 // The proximity grid
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcProximityGridCreate(pool_size: i32, cell_size: f32, out: **ProximityGrid) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcProximityGridDestroy(grid: ?*ProximityGrid) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcProximityGridClear(grid: *ProximityGrid) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcProximityGridAddItem(
     grid: *ProximityGrid,
     id: u16,
@@ -2735,6 +2999,7 @@ pub extern fn zrcProximityGridAddItem(
     max_x: f32,
     max_y: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcProximityGridQueryItems(
     grid: *const ProximityGrid,
     min_x: f32,
@@ -2745,13 +3010,16 @@ pub extern fn zrcProximityGridQueryItems(
     max_ids: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcProximityGridItemCountAt(
     grid: *const ProximityGrid,
     x: i32,
     y: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcProximityGridBounds(grid: *const ProximityGrid, out: *[4]i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcProximityGridCellSize(grid: *const ProximityGrid, out: *f32) Result;
 
 //=============================================================================
@@ -2784,13 +3052,17 @@ pub const AvoidanceSample = extern struct {
     collision_time_penalty: f32,
 };
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceQueryCreate(
     max_circles: i32,
     max_segments: i32,
     out: **AvoidanceQuery,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceQueryDestroy(query: ?*AvoidanceQuery) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceQueryReset(query: *AvoidanceQuery) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceAddCircle(
     query: *AvoidanceQuery,
     position: *const [3]f32,
@@ -2798,11 +3070,13 @@ pub extern fn zrcAvoidanceAddCircle(
     velocity: *const [3]f32,
     desired_velocity: *const [3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceAddSegment(
     query: *AvoidanceQuery,
     p: *const [3]f32,
     q: *const [3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceSampleGrid(
     query: *AvoidanceQuery,
     position: *const [3]f32,
@@ -2815,6 +3089,7 @@ pub extern fn zrcAvoidanceSampleGrid(
     out_velocity: *[3]f32,
     out_samples: ?*i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceSampleAdaptive(
     query: *AvoidanceQuery,
     position: *const [3]f32,
@@ -2827,28 +3102,39 @@ pub extern fn zrcAvoidanceSampleAdaptive(
     out_velocity: *[3]f32,
     out_samples: ?*i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceCircleCount(query: *const AvoidanceQuery, out_count: *i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceCircleAt(
     query: *const AvoidanceQuery,
     index: i32,
     out: *AvoidanceCircle,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceSegmentCount(query: *const AvoidanceQuery, out_count: *i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceSegmentAt(
     query: *const AvoidanceQuery,
     index: i32,
     out: *AvoidanceSegment,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceDebugCreate(max_samples: i32, out: **AvoidanceDebug) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceDebugDestroy(debug: ?*AvoidanceDebug) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceDebugReset(debug: *AvoidanceDebug) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceDebugAddSample(
     debug: *AvoidanceDebug,
     sample: *const AvoidanceSample,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceDebugNormalize(debug: *AvoidanceDebug) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceDebugSampleCount(debug: *const AvoidanceDebug, out_count: *i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcAvoidanceDebugSampleAt(
     debug: *const AvoidanceDebug,
     index: i32,
@@ -2861,19 +3147,24 @@ pub extern fn zrcAvoidanceDebugSampleAt(
 
 pub const path_corridor_min_path: i32 = 32;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorCreate(max_path: i32, out: **PathCorridor) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorDestroy(corridor: ?*PathCorridor) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorReset(
     corridor: *PathCorridor,
     poly: PolyRef,
     position: *const [3]f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorSetCorridor(
     corridor: *PathCorridor,
     target: *const [3]f32,
     path: [*]const PolyRef,
     path_count: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorFindCorners(
     corridor: *PathCorridor,
     query: *NavMeshQuery,
@@ -2882,6 +3173,7 @@ pub extern fn zrcPathCorridorFindCorners(
     max_corners: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorOptimizeVisibility(
     corridor: *PathCorridor,
     next: *const [3]f32,
@@ -2889,12 +3181,14 @@ pub extern fn zrcPathCorridorOptimizeVisibility(
     query: *NavMeshQuery,
     filter: *const QueryFilter,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorOptimizeTopology(
     corridor: *PathCorridor,
     query: *NavMeshQuery,
     filter: *const QueryFilter,
     out_optimized: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorMoveOverOffmeshConnection(
     corridor: *PathCorridor,
     offmesh_poly: PolyRef,
@@ -2904,12 +3198,14 @@ pub extern fn zrcPathCorridorMoveOverOffmeshConnection(
     out_end: *[3]f32,
     out_moved: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorFixStart(
     corridor: *PathCorridor,
     safe_poly: PolyRef,
     safe_position: *const [3]f32,
     out_fixed: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorTrimInvalid(
     corridor: *PathCorridor,
     safe_poly: PolyRef,
@@ -2918,6 +3214,7 @@ pub extern fn zrcPathCorridorTrimInvalid(
     filter: *const QueryFilter,
     out_trimmed: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorIsValid(
     corridor: *PathCorridor,
     max_lookahead: i32,
@@ -2925,6 +3222,7 @@ pub extern fn zrcPathCorridorIsValid(
     filter: *const QueryFilter,
     out_valid: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorMovePosition(
     corridor: *PathCorridor,
     position: *const [3]f32,
@@ -2932,6 +3230,7 @@ pub extern fn zrcPathCorridorMovePosition(
     filter: *const QueryFilter,
     out_moved: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorMoveTargetPosition(
     corridor: *PathCorridor,
     position: *const [3]f32,
@@ -2939,7 +3238,9 @@ pub extern fn zrcPathCorridorMoveTargetPosition(
     filter: *const QueryFilter,
     out_moved: ?*Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorInfo(corridor: *const PathCorridor, out: *PathCorridorInfo) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathCorridorPath(
     corridor: *const PathCorridor,
     first: i32,
@@ -2947,6 +3248,7 @@ pub extern fn zrcPathCorridorPath(
     out: ?[*]PolyRef,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcMergeCorridorStartMoved(
     path: [*]PolyRef,
     path_count: i32,
@@ -2955,6 +3257,7 @@ pub extern fn zrcMergeCorridorStartMoved(
     visited_count: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcMergeCorridorEndMoved(
     path: [*]PolyRef,
     path_count: i32,
@@ -2963,6 +3266,7 @@ pub extern fn zrcMergeCorridorEndMoved(
     visited_count: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcMergeCorridorStartShortcut(
     path: [*]PolyRef,
     path_count: i32,
@@ -2976,9 +3280,13 @@ pub extern fn zrcMergeCorridorStartShortcut(
 // The local boundary
 //=============================================================================
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLocalBoundaryCreate(out: **LocalBoundary) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLocalBoundaryDestroy(boundary: ?*LocalBoundary) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLocalBoundaryReset(boundary: *LocalBoundary) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLocalBoundaryUpdate(
     boundary: *LocalBoundary,
     poly: PolyRef,
@@ -2987,14 +3295,18 @@ pub extern fn zrcLocalBoundaryUpdate(
     query: *NavMeshQuery,
     filter: *const QueryFilter,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLocalBoundaryIsValid(
     boundary: *LocalBoundary,
     query: *NavMeshQuery,
     filter: *const QueryFilter,
     out_valid: *Bool,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLocalBoundaryCenter(boundary: *const LocalBoundary, out: *[3]f32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLocalBoundarySegmentCount(boundary: *const LocalBoundary, out_count: *i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLocalBoundarySegments(
     boundary: *const LocalBoundary,
     first: i32,
@@ -3018,14 +3330,18 @@ pub const PathRequestState = enum(c_int) {
     failed = 3,
 };
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathQueueCreate(
     navmesh: *const NavMesh,
     max_path_size: i32,
     max_search_nodes: i32,
     out: **PathQueue,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathQueueDestroy(queue: ?*PathQueue) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathQueueUpdate(queue: *PathQueue, max_iters: i32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathQueueRequest(
     queue: *PathQueue,
     start_poly: PolyRef,
@@ -3035,11 +3351,13 @@ pub extern fn zrcPathQueueRequest(
     filter: *const QueryFilter,
     out_ref: *PathRequestRef,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathQueueRequestStatus(
     queue: *const PathQueue,
     ref: PathRequestRef,
     out_state: *PathRequestState,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathQueueResult(
     queue: *PathQueue,
     ref: PathRequestRef,
@@ -3047,6 +3365,7 @@ pub extern fn zrcPathQueueResult(
     max_path: i32,
     out_count: *i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcPathQueueNavMeshQuery(queue: *const PathQueue, out: **const NavMeshQuery) Result;
 
 //=============================================================================
@@ -3111,16 +3430,26 @@ pub const FileIO = extern struct {
     read: ?*const fn (user: ?*anyopaque, ptr: *anyopaque, size: usize) callconv(.c) Bool,
 };
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugRgba(r: i32, g: i32, b: i32, a: i32) u32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugRgbaFloat(r: f32, g: f32, b: f32, a: f32) u32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugIntToCol(i: i32, a: i32) u32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugIntToColFloat(i: i32, out: *[3]f32) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugMultCol(col: u32, d: u32) u32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDarkenCol(col: u32) u32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugLerpCol(a: u32, b: u32, u: u32) u32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugTransCol(c: u32, a: u32) u32;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugCalcBoxColors(out: *[6]u32, top: u32, side: u32) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawBoxWire(
     dd: *const DebugDraw,
     minx: f32,
@@ -3132,6 +3461,7 @@ pub extern fn zrcDebugDrawBoxWire(
     col: u32,
     line_width: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawCylinderWire(
     dd: *const DebugDraw,
     minx: f32,
@@ -3143,6 +3473,7 @@ pub extern fn zrcDebugDrawCylinderWire(
     col: u32,
     line_width: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawArc(
     dd: *const DebugDraw,
     x0: f32,
@@ -3157,6 +3488,7 @@ pub extern fn zrcDebugDrawArc(
     col: u32,
     line_width: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawArrow(
     dd: *const DebugDraw,
     x0: f32,
@@ -3170,6 +3502,7 @@ pub extern fn zrcDebugDrawArrow(
     col: u32,
     line_width: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawCircle(
     dd: *const DebugDraw,
     x: f32,
@@ -3179,6 +3512,7 @@ pub extern fn zrcDebugDrawCircle(
     col: u32,
     line_width: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawCross(
     dd: *const DebugDraw,
     x: f32,
@@ -3188,6 +3522,7 @@ pub extern fn zrcDebugDrawCross(
     col: u32,
     line_width: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawBox(
     dd: *const DebugDraw,
     minx: f32,
@@ -3198,6 +3533,7 @@ pub extern fn zrcDebugDrawBox(
     maxz: f32,
     fcol: *const [6]u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawCylinder(
     dd: *const DebugDraw,
     minx: f32,
@@ -3208,6 +3544,7 @@ pub extern fn zrcDebugDrawCylinder(
     maxz: f32,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawGridXZ(
     dd: *const DebugDraw,
     ox: f32,
@@ -3220,6 +3557,7 @@ pub extern fn zrcDebugDrawGridXZ(
     line_width: f32,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugAppendBoxWire(
     dd: *const DebugDraw,
     minx: f32,
@@ -3230,6 +3568,7 @@ pub extern fn zrcDebugAppendBoxWire(
     maxz: f32,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugAppendBoxPoints(
     dd: *const DebugDraw,
     minx: f32,
@@ -3240,6 +3579,7 @@ pub extern fn zrcDebugAppendBoxPoints(
     maxz: f32,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugAppendCylinderWire(
     dd: *const DebugDraw,
     minx: f32,
@@ -3250,6 +3590,7 @@ pub extern fn zrcDebugAppendCylinderWire(
     maxz: f32,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugAppendArc(
     dd: *const DebugDraw,
     x0: f32,
@@ -3263,6 +3604,7 @@ pub extern fn zrcDebugAppendArc(
     as1: f32,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugAppendArrow(
     dd: *const DebugDraw,
     x0: f32,
@@ -3275,6 +3617,7 @@ pub extern fn zrcDebugAppendArrow(
     as1: f32,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugAppendCircle(
     dd: *const DebugDraw,
     x: f32,
@@ -3283,6 +3626,7 @@ pub extern fn zrcDebugAppendCircle(
     r: f32,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugAppendCross(
     dd: *const DebugDraw,
     x: f32,
@@ -3291,6 +3635,7 @@ pub extern fn zrcDebugAppendCross(
     size: f32,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugAppendBox(
     dd: *const DebugDraw,
     minx: f32,
@@ -3301,6 +3646,7 @@ pub extern fn zrcDebugAppendBox(
     maxz: f32,
     fcol: *const [6]u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugAppendCylinder(
     dd: *const DebugDraw,
     minx: f32,
@@ -3312,20 +3658,27 @@ pub extern fn zrcDebugAppendCylinder(
     col: u32,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListCreate(capacity: i32, out: **DisplayList) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListDestroy(list: ?*DisplayList) void;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListRecorder(list: *DisplayList, out: *DebugDraw) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListDepthMask(list: *DisplayList, state: Bool) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListBegin(
     list: *DisplayList,
     prim: DebugDrawPrimitive,
     size: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListVertex(
     list: *DisplayList,
     pos: *const [3]f32,
     color: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListVertexXYZ(
     list: *DisplayList,
     x: f32,
@@ -3333,11 +3686,16 @@ pub extern fn zrcDisplayListVertexXYZ(
     z: f32,
     color: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListEnd(list: *DisplayList) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListClear(list: *DisplayList) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListDraw(list: *const DisplayList, dd: *const DebugDraw) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDisplayListVertexCount(list: *const DisplayList, out: *i32) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawTriMesh(
     dd: *const DebugDraw,
     mesh: *const TriMesh,
@@ -3345,6 +3703,7 @@ pub extern fn zrcDebugDrawTriMesh(
     flags: ?[*]const u8,
     tex_scale: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawTriMeshSlope(
     dd: *const DebugDraw,
     mesh: *const TriMesh,
@@ -3352,81 +3711,103 @@ pub extern fn zrcDebugDrawTriMeshSlope(
     walkable_slope_angle: f32,
     tex_scale: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawHeightfieldSolid(dd: *const DebugDraw, hf: *const Heightfield) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawHeightfieldWalkable(dd: *const DebugDraw, hf: *const Heightfield) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawCompactHeightfieldSolid(
     dd: *const DebugDraw,
     chf: *const CompactHeightfield,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawCompactHeightfieldRegions(
     dd: *const DebugDraw,
     chf: *const CompactHeightfield,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawCompactHeightfieldDistance(
     dd: *const DebugDraw,
     chf: *const CompactHeightfield,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawHeightfieldLayer(
     dd: *const DebugDraw,
     layers: *const HeightfieldLayerSet,
     index: i32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawHeightfieldLayers(
     dd: *const DebugDraw,
     layers: *const HeightfieldLayerSet,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawRegionConnections(
     dd: *const DebugDraw,
     cset: *const ContourSet,
     alpha: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawRawContours(
     dd: *const DebugDraw,
     cset: *const ContourSet,
     alpha: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawContours(
     dd: *const DebugDraw,
     cset: *const ContourSet,
     alpha: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawPolyMesh(dd: *const DebugDraw, mesh: *const PolyMesh) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawPolyMeshDetail(dd: *const DebugDraw, mesh: *const PolyMesh) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawNavMesh(dd: *const DebugDraw, mesh: *const NavMesh, flags: u8) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawNavMeshWithClosedList(
     dd: *const DebugDraw,
     mesh: *const NavMesh,
     query: *const NavMeshQuery,
     flags: u8,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawNavMeshNodes(dd: *const DebugDraw, query: *const NavMeshQuery) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawNavMeshBVTree(dd: *const DebugDraw, mesh: *const NavMesh) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawNavMeshPortals(dd: *const DebugDraw, mesh: *const NavMesh) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawNavMeshPolysWithFlags(
     dd: *const DebugDraw,
     mesh: *const NavMesh,
     poly_flags: u16,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawNavMeshPoly(
     dd: *const DebugDraw,
     mesh: *const NavMesh,
     ref: PolyRef,
     col: u32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawTileCacheLayerAreas(
     dd: *const DebugDraw,
     layer: *const TileCacheLayer,
     cs: f32,
     ch: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawTileCacheLayerRegions(
     dd: *const DebugDraw,
     layer: *const TileCacheLayer,
     cs: f32,
     ch: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawTileCacheContours(
     dd: *const DebugDraw,
     cset: *const TileCacheContourSet,
@@ -3434,6 +3815,7 @@ pub extern fn zrcDebugDrawTileCacheContours(
     cs: f32,
     ch: f32,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDebugDrawTileCachePolyMesh(
     dd: *const DebugDraw,
     mesh: *const TileCachePolyMesh,
@@ -3442,16 +3824,23 @@ pub extern fn zrcDebugDrawTileCachePolyMesh(
     ch: f32,
 ) Result;
 
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDumpPolyMeshToObj(mesh: *const PolyMesh, io: *const FileIO) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDumpPolyMeshDetailToObj(mesh: *const PolyMesh, io: *const FileIO) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDumpContourSet(cset: *const ContourSet, io: *const FileIO) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcReadContourSet(io: *const FileIO, out: **ContourSet) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcDumpCompactHeightfield(
     chf: *const CompactHeightfield,
     io: *const FileIO,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcReadCompactHeightfield(
     io: *const FileIO,
     out: **CompactHeightfield,
 ) Result;
+// aegis: boundary: ffi/zrecast.h's function; src/abi_test.zig holds this signature to the header at compile time
 pub extern fn zrcLogBuildTimes(context: ?*const BuildContext, total_usec: i32) Result;

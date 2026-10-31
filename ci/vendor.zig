@@ -6,6 +6,7 @@
 //!
 //! zrecast-vendor VENDORED UPSTREAM MANIFEST RECORD
 const std = @import("std");
+const aegis = @import("aegis");
 const Io = std.Io;
 
 /// What was taken from upstream: directories whole, files as they are.
@@ -30,8 +31,8 @@ pub fn main(init: std.process.Init) !u8 {
     defer upstream.close(io);
     var findings: std.ArrayList(u8) = .empty;
     try compareTop(a, io, vendored, upstream, &findings);
-    const manifest = try cwd.readFileAlloc(io, args[3], a, .limited(1 << 20));
-    const record = try cwd.readFileAlloc(io, args[4], a, .limited(1 << 20));
+    const manifest = try aegis.own.readFile(io, cwd, args[3], a, .fromRaw(1 << 20));
+    const record = try aegis.own.readFile(io, cwd, args[4], a, .fromRaw(1 << 20));
     try checkRecord(a, manifest, record, &findings);
     if (findings.items.len == 0) return 0;
     var buffer: [4096]u8 = undefined;
@@ -89,11 +90,11 @@ fn listFiles(a: std.mem.Allocator, io: Io, root: Io.Dir, path: []const u8) ![]co
 
 /// Compares one file's bytes.
 fn compareFiles(a: std.mem.Allocator, io: Io, vendored: Io.Dir, upstream: Io.Dir, name: []const u8, findings: *std.ArrayList(u8)) !void {
-    const ours = vendored.readFileAlloc(io, name, a, .limited(max_file_bytes)) catch |err| switch (err) {
+    const ours = aegis.own.readFile(io, vendored, name, a, .fromRaw(max_file_bytes)) catch |err| switch (err) {
         error.FileNotFound => return findings.print(a, "  {s}: missing from the vendored copy\n", .{name}),
         else => |e| return e,
     };
-    const theirs = try upstream.readFileAlloc(io, name, a, .limited(max_file_bytes));
+    const theirs = try aegis.own.readFile(io, upstream, name, a, .fromRaw(max_file_bytes));
     if (!std.mem.eql(u8, ours, theirs)) try findings.print(a, "  {s}: differs from upstream\n", .{name});
 }
 

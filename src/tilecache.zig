@@ -322,7 +322,7 @@ pub const TileCache = struct {
         var data: ?*anyopaque = null;
         var size: usize = 0;
         try err.check(failure, .tile_cache_remove_tile, c.zrcTileCacheRemoveTile(self.handle, ref, &data, &size));
-        const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .tile_cache_remove_tile, error.EmptyResult)); // safe: the C boundary allocates the image as bytes, through the allocator seam
+        const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .tile_cache_remove_tile, error.EmptyResult)); // aegis: no-danger: the C boundary allocates the image as bytes, through the allocator seam
         return .{ .bytes = ptr[0..size] };
     }
 
@@ -517,7 +517,7 @@ pub fn buildTileCacheLayer(
         &data,
         &size,
     ));
-    const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .tile_cache_layer_build, error.EmptyResult)); // safe: the C boundary allocates the image as bytes, through the allocator seam
+    const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .tile_cache_layer_build, error.EmptyResult)); // aegis: no-danger: the C boundary allocates the image as bytes, through the allocator seam
     return .{ .bytes = ptr[0..size] };
 }
 
@@ -757,7 +757,7 @@ pub const TileCacheContourSet = struct {
         const idx = aegis.int.cast(i32, index) catch return err.refuse(failure, .tile_cache_contour_verts, error.InvalidArgument);
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .tile_cache_contour_verts, error.InvalidArgument);
         const vert_count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .tile_cache_contour_verts, error.InvalidArgument);
-        const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .tile_cache_contour_verts, c.zrcTileCacheContourVerts(self.handle, idx, first_i, vert_count, ptr));
     }
 };
@@ -795,7 +795,7 @@ pub const TileCachePolyMesh = struct {
     pub fn verts(self: TileCachePolyMesh, first: u32, out: [][3]u16, failure: *err.Failure) err.Error!void {
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .tile_cache_poly_mesh_verts, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .tile_cache_poly_mesh_verts, error.InvalidArgument);
-        const ptr: ?[*]u16 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]u16 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .tile_cache_poly_mesh_verts, c.zrcTileCachePolyMeshVerts(self.handle, first_i, count, ptr));
     }
 

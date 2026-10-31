@@ -26,7 +26,16 @@ pub const Handler = struct {
     user: ?*anyopaque = null,
 };
 
-var installed: ?Handler = null;
+/// The handler upstream's process-wide hook is routed to. Any thread may
+/// install one while another fails an assertion, so it sits behind a lock;
+/// the handler itself runs outside it.
+var installed: aegis.Guarded(?Handler) = .init(null);
+
+fn load() ?Handler {
+    var held = installed.acquire();
+    defer held.deinit();
+    return held.value().*;
+}
 
 /// Matches `c.AssertFailFunc`. The C-level `user` pointer is left null on
 /// every install below: `Handler` already carries its own context, so
@@ -38,7 +47,7 @@ fn trampoline(
     file: [*:0]const u8,
     line: i32,
 ) callconv(.c) void {
-    const h = installed orelse return;
+    const h = load() orelse return;
     h.fail(h.user, .{
         .expression = std.mem.span(expression),
         .file = std.mem.span(file),
@@ -57,7 +66,11 @@ pub fn assertsEnabled() bool {
 /// Installs a process-wide handler for Recast's and Detour's internal
 /// assertions. `null` clears it and restores upstream's default, `assert()`.
 pub fn setHandler(h: ?Handler) void {
-    installed = h;
+    {
+        var held = installed.acquire();
+        defer held.deinit();
+        held.value().* = h;
+    }
     if (h == null) {
         err.map(c.zrcSetAssertHandler(null)) catch aegis.assert.never("the boundary takes a null handler");
         return;
@@ -77,7 +90,7 @@ pub fn handler() ?Handler {
     var out: c.AssertHandler = undefined;
     err.map(c.zrcAssertHandler(&out)) catch aegis.assert.never("the boundary refuses only a null output");
     if (out.fail != &trampoline) return null;
-    return installed;
+    return load();
 }
 
 test "setHandler round-trips through handler, and null clears it" {

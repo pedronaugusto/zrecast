@@ -15,14 +15,15 @@
     },
     .dev_dependencies = .{
         .preflight = .{
-            .url = "git+https://github.com/pedronaugusto/preflight?ref=v0.17.3#d19e59dce0bac4476cc3dd82db79779c594ff011",
-            .hash = "preflight-0.17.3-LX1ZwqNZEgC3xxExj6ro61S2K2iABb9vjxGQISxRa77v",
+            .url = "git+https://github.com/pedronaugusto/preflight?ref=v0.18.5#a0eb6ad53b498f49ab636be27af10efd6f190b66",
+            .hash = "preflight-0.18.5-LX1ZwjAMFAAq6oVhY_x6-BnuKHsn3lPAG4HQrFOjVCMo",
         },
 
         .shakedown = .{
-            .url = "git+https://github.com/pedronaugusto/shakedown?ref=v0.4.17#b96c548a2fed2a4cc8b9d790fdbf29332b056f9d",
-            .hash = "shakedown-0.4.17-BR8U41SzFgBFNel0aa2pn9ELQvUHoVDmnXOWslP0wHV7",
+            .url = "git+https://github.com/pedronaugusto/shakedown?ref=v0.6.0#778a399a2e0800e410e6b95269bb7f533b6947e2",
+            .hash = "shakedown-0.6.0-BR8U48Z0FwD9owc-v_cfmrajSGSLOjFoJB71L3I7TvYt",
         },
+
         .recastnavigation = .{
             .url = "git+https://github.com/recastnavigation/recastnavigation?ref=v1.6.0#6dc1667f580357e8a2154c28b7867bea7e8ad3a7",
             .hash = "N-V-__8AAGlkOgBJIQtSwXEF4eOCP6QRtlUavwI7EB9V8B8B",
@@ -30,8 +31,8 @@
     },
     .dependencies = .{
         .aegis = .{
-            .url = "git+https://github.com/pedronaugusto/aegis?ref=v0.1.17#58751d5713c134b890d0fe0e65be95c289b84983",
-            .hash = "aegis-0.1.17-rsxouvg5CABaJmNEkRXQIkVJ6JqVOG7NN60ctSBvSzO_",
+            .url = "git+https://github.com/pedronaugusto/aegis?ref=v0.2.4#68ddadb40eb5ea602c8ba81848344171fcebeb40",
+            .hash = "aegis-0.2.4-rsxouiMcCQBrVW0T-Vq8k66DwLarBqrEFONyfpGEJGcu",
         },
     },
 }

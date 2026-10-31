@@ -312,7 +312,7 @@ pub const PolyMesh = struct {
     pub fn verts(self: PolyMesh, first: u32, out: [][3]u16, failure: *err.Failure) err.Error!void {
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_verts, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_verts, error.InvalidArgument);
-        const ptr: ?[*]u16 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]u16 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .poly_mesh_verts, c.zrcPolyMeshVerts(self.handle, first_i, count, ptr));
     }
 
@@ -385,7 +385,7 @@ pub const PolyMesh = struct {
     pub fn detailMeshes(self: PolyMesh, first: u32, out: [][4]u32, failure: *err.Failure) err.Error!void {
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_detail_meshes, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_detail_meshes, error.InvalidArgument);
-        const ptr: ?[*]u32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]u32 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .poly_mesh_detail_meshes, c.zrcPolyMeshDetailMeshes(self.handle, first_i, count, ptr));
     }
 
@@ -393,7 +393,7 @@ pub const PolyMesh = struct {
     pub fn detailVerts(self: PolyMesh, first: u32, out: [][3]f32, failure: *err.Failure) err.Error!void {
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_detail_verts, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_detail_verts, error.InvalidArgument);
-        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .poly_mesh_detail_verts, c.zrcPolyMeshDetailVerts(self.handle, first_i, count, ptr));
     }
 
@@ -402,7 +402,7 @@ pub const PolyMesh = struct {
     pub fn detailTris(self: PolyMesh, first: u32, out: [][4]u8, failure: *err.Failure) err.Error!void {
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .poly_mesh_detail_tris, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .poly_mesh_detail_tris, error.InvalidArgument);
-        const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .poly_mesh_detail_tris, c.zrcPolyMeshDetailTris(self.handle, first_i, count, ptr));
     }
 };

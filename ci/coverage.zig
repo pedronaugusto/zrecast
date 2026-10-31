@@ -28,6 +28,7 @@
 //!
 //! Every order is byte order, so the record is the same file on every host.
 const std = @import("std");
+const aegis = @import("aegis");
 const Io = std.Io;
 const mem = std.mem;
 const Allocator = mem.Allocator;
@@ -163,7 +164,7 @@ const Tree = struct {
 
     /// A file's contents, or null when there is no such file.
     fn read(t: Tree, path: []const u8) !?[]const u8 {
-        return t.dir.readFileAlloc(t.io, path, t.a, .limited(max_file_bytes)) catch |err| switch (err) {
+        return aegis.own.readFile(t.io, t.dir, path, t.a, .fromRaw(max_file_bytes)) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => null,
             else => |e| e,
         };
@@ -1787,7 +1788,7 @@ fn checkSurface(t: Tree, r: *Report, ffi: []const Named) !usize {
         while (try walker.next(t.io)) |entry| {
             if (entry.kind != .file or !mem.endsWith(u8, entry.basename, ".zig")) continue;
             if (eql(entry.basename, "c.zig") or mem.endsWith(u8, entry.basename, "_test.zig")) continue;
-            const text = try entry.dir.readFileAlloc(t.io, entry.basename, t.a, .limited(max_file_bytes));
+            const text = try aegis.own.readFile(t.io, entry.dir, entry.basename, t.a, .fromRaw(max_file_bytes));
             var from: usize = 0;
             while (mem.findPos(u8, text, from, "zrc")) |at| {
                 from = wordEnd(text, at);

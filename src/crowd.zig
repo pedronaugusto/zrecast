@@ -314,7 +314,7 @@ pub const Crowd = struct {
     ) err.Error!void {
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .crowd_agent_boundary_segments, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .crowd_agent_boundary_segments, error.InvalidArgument);
-        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .crowd_agent_boundary_segments, c.zrcCrowdAgentBoundarySegments(self.handle, ref, first_i, count, ptr));
     }
 
@@ -1175,7 +1175,7 @@ pub const LocalBoundary = struct {
     pub fn segments(self: LocalBoundary, first: u32, out: [][6]f32, failure: *err.Failure) err.Error!void {
         const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .local_boundary_segments, error.InvalidArgument);
         const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .local_boundary_segments, error.InvalidArgument);
-        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+        const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
         try err.check(failure, .local_boundary_segments, c.zrcLocalBoundarySegments(self.handle, first_i, count, ptr));
     }
 };

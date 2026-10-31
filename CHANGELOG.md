@@ -91,7 +91,7 @@ not express, so a port has the reason and not only the diff.
 
 ### Changed
 
-- zrecast depends on [aegis](https://github.com/pedronaugusto/aegis) 0.1.17
+- zrecast depends on [aegis](https://github.com/pedronaugusto/aegis) 0.2.4
   for its untrusted-input type, its checked conversions and its contracts,
   and glint's aegis rules are part of the gate.
 - The development gate is preflight's, run with `bay test`: formatting,
@@ -152,6 +152,10 @@ not express, so a port has the reason and not only the diff.
   the option had no effect there and `assertsEnabled()` reported the asserts
   gone. The C++ now gets `-UNDEBUG` when the option asks for asserts and
   `-DNDEBUG` when it does not, in every mode.
+- The assertion handler and the allocator upstream's hooks route to are
+  read and written under a lock. A thread installing one while another baked
+  or failed an assertion read them unsynchronised, and could see half of the
+  old value and half of the new.
 
 ## [0.1.1] - 2026-09-04
 

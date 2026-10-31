@@ -85,22 +85,22 @@ fn allocate(user: ?*anyopaque, size: usize, hint: c.AllocHint) callconv(.c) ?*an
     // for temporaries would be a policy this package has no business setting.
     _ = hint;
 
-    const gpa: *const std.mem.Allocator = @ptrCast(@alignCast(user orelse return null)); // safe: user is &installed, the *const std.mem.Allocator setAllocator stores
+    const gpa = current(user orelse return null);
     const total = (aegis.int.Checked(usize).init(prefix_size).add(size) catch return null).raw();
 
     const base = gpa.rawAlloc(total, alignment, @returnAddress()) orelse return null;
 
     const payload = base + prefix_size;
-    const header: *Header = @ptrCast(@alignCast(payload - @sizeOf(Header))); // safe: the header sits right below the payload, in a prefix that keeps it aligned
+    const header: *Header = @ptrCast(@alignCast(payload - @sizeOf(Header))); // aegis: no-danger: the header sits right below the payload, in a prefix that keeps it aligned
     header.* = .{ .tag = header_tag, .total_len = total };
-    return @ptrCast(payload); // safe: the payload, as the seam's untyped pointer
+    return @ptrCast(payload); // aegis: no-danger: the payload, as the seam's untyped pointer
 }
 
 fn deallocate(user: ?*anyopaque, block: ?*anyopaque) callconv(.c) void {
-    const gpa: *const std.mem.Allocator = @ptrCast(@alignCast(user orelse return)); // safe: user is &installed, the *const std.mem.Allocator setAllocator stores
-    const payload: [*]u8 = @ptrCast(block orelse return); // safe: a block is a byte pointer; its header is checked below before it is trusted
+    const gpa = current(user orelse return);
+    const payload: [*]u8 = @ptrCast(block orelse return); // aegis: no-danger: a block is a byte pointer; its header is checked below before it is trusted
 
-    const header: *const Header = @ptrCast(@alignCast(payload - @sizeOf(Header))); // safe: the header sits right below the payload, in a prefix that keeps it aligned
+    const header: *const Header = @ptrCast(@alignCast(payload - @sizeOf(Header))); // aegis: no-danger: the header sits right below the payload, in a prefix that keeps it aligned
     // Only the pointer `allocate` returned can be freed. A pointer into the
     // middle of a block — a sub-slice of a serialised image, classically —
     // has payload where the header should be, so freeing on that basis would
@@ -114,8 +114,18 @@ fn deallocate(user: ?*anyopaque, block: ?*anyopaque) callconv(.c) void {
 }
 
 /// The allocator upstream is currently pointed at, kept alive for as long as it
-/// is installed. `user` in the C struct points at this.
-var installed: std.mem.Allocator = undefined;
+/// is installed. `user` in the C struct points at this. Upstream's hook is
+/// process-wide and allocates on whichever thread bakes or loads, so the
+/// allocator sits behind a lock, held only to copy it out.
+var installed: aegis.Guarded(std.mem.Allocator) = .init(undefined);
+
+/// The allocator `user` points at, read under its lock.
+fn current(user: *anyopaque) std.mem.Allocator {
+    const owner: *aegis.Guarded(std.mem.Allocator) = @ptrCast(@alignCast(user)); // aegis: no-danger: user is &installed, which setAllocator hands the C side
+    var held = owner.acquire();
+    defer held.deinit();
+    return held.value().*;
+}
 
 /// Routes every subsequent Recast and Detour allocation through `gpa`.
 ///
@@ -123,11 +133,15 @@ var installed: std.mem.Allocator = undefined;
 /// and do not swap it while handles are alive — a handle is freed through
 /// whichever allocator is installed when it is destroyed.
 pub fn setAllocator(gpa: std.mem.Allocator) void {
-    installed = gpa;
+    {
+        var held = installed.acquire();
+        defer held.deinit();
+        held.value().* = gpa;
+    }
     const bridge = c.Allocator{
         .allocate = allocate,
         .deallocate = deallocate,
-        .user = @ptrCast(&installed), // safe: the allocator's address, which allocate and deallocate read back
+        .user = @ptrCast(&installed), // aegis: no-danger: the guarded allocator's address, which allocate and deallocate read back
     };
     // The boundary refuses only a bridge missing a function, and this one
     // has both.
@@ -156,7 +170,7 @@ pub const AllocHint = c.AllocHint;
 /// way — scratch for `geom.randomPointInConvexPoly`, say.
 pub fn alloc(size: usize, hint: AllocHint, failure: *err.Failure) err.Error![]u8 {
     const p = c.zrcAlloc(size, hint) orelse return err.refuse(failure, .alloc, error.OutOfMemory);
-    const bytes: [*]u8 = @ptrCast(p); // safe: zrcAlloc returns a block of size bytes
+    const bytes: [*]u8 = @ptrCast(p); // aegis: no-danger: zrcAlloc returns a block of size bytes
     return bytes[0..size];
 }
 

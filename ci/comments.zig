@@ -6,6 +6,7 @@
 //! line; each cap catches an essay, not a thorough contract. Only the
 //! package's own sources: the vendored tree is upstream's to comment.
 const std = @import("std");
+const aegis = @import("aegis");
 const Io = std.Io;
 
 /// `///` or `//!` lines above one declaration.
@@ -47,10 +48,10 @@ pub fn main(init: std.process.Init) !u8 {
         while (try it.next(io)) |entry| {
             if (entry.kind != .file or !checked(entry.name)) continue;
             const name = try a.print("{s}/{s}", .{ path, entry.name });
-            try check(a, name, try dir.readFileAlloc(io, entry.name, a, .limited(max_file_bytes)), &findings);
+            try check(a, name, try aegis.own.readFile(io, dir, entry.name, a, .fromRaw(max_file_bytes)), &findings);
         }
     }
-    for (files) |name| try check(a, name, try cwd.readFileAlloc(io, name, a, .limited(max_file_bytes)), &findings);
+    for (files) |name| try check(a, name, try aegis.own.readFile(io, cwd, name, a, .fromRaw(max_file_bytes)), &findings);
     if (findings.items.len == 0) return 0;
     var buffer: [4096]u8 = undefined;
     var stderr = Io.File.stderr().writer(io, &buffer);

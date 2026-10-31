@@ -6,6 +6,7 @@
 //! hand-written claims. An allowance no document uses fails too: it describes
 //! a sentence that is no longer there.
 const std = @import("std");
+const aegis = @import("aegis");
 const Io = std.Io;
 
 /// The numbers a document may state by hand. Two kinds qualify: arithmetic,
@@ -67,7 +68,7 @@ pub fn main(init: std.process.Init) !u8 {
         try names.append(a, name);
     }
     std.mem.sort([]const u8, names.items, {}, lessThan);
-    for (names.items) |name| try check(a, name, try cwd.readFileAlloc(io, name, a, .limited(max_file_bytes)), &used, &findings);
+    for (names.items) |name| try check(a, name, try aegis.own.readFile(io, cwd, name, a, .fromRaw(max_file_bytes)), &used, &findings);
     for (allowed, used) |entry, was| {
         if (!was) try findings.print(a, "ci/numbers.zig: {s} is allowed but no document states it\n", .{entry.number});
     }

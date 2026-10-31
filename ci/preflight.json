@@ -42,7 +42,6 @@
   "glint_paths": ["src", "examples", "ci", "build.zig"],
   "glint": {
     "rules": [
-      {"id": "P001", "level": "gate"},
       {"id": "P003", "level": "gate"},
       {"id": "Z026", "level": "gate"},
       {"id": "A001", "level": "gate"},

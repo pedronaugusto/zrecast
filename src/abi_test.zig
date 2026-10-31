@@ -270,7 +270,7 @@ fn checkStructLayout(comptime what: []const u8, comptime Ours: type, comptime Th
 fn checkEnumValues(comptime Header: type, comptime what: []const u8, comptime name: []const u8, comptime Ours: type, comptime prefix: []const u8) Drift {
     const info = @typeInfo(Ours).@"enum";
     inline for (info.field_names, info.field_values) |field, value| {
-        const cname = namedCName(name ++ "." ++ field) orelse prefix ++ upper(field);
+        const cname = namedCName(name ++ "." ++ field) orelse (prefix ++ upper(field));
         if (missing(Header, cname, what ++ "." ++ field)) |d| return d;
         // The precondition that lets sameScalar skip signedness across an
         // enum: the underlying type is unobservable only while every
@@ -291,7 +291,7 @@ fn checkEnumValues(comptime Header: type, comptime what: []const u8, comptime na
 /// of the same name in capitals.
 fn checkConstant(comptime Header: type, comptime name: []const u8, comptime value: anytype) Drift {
     const what = "constant " ++ name;
-    const cname = namedCName(name) orelse "ZRC_" ++ upper(name);
+    const cname = namedCName(name) orelse ("ZRC_" ++ upper(name));
     if (missing(Header, cname, what)) |d| return d;
     const theirs = @field(Header, cname);
     const equal = switch (@typeInfo(@TypeOf(value))) {

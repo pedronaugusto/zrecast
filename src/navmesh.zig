@@ -390,7 +390,7 @@ fn NavMeshOf(comptime access: c.Access) type {
         pub fn tileVerts(self: Self, ref: TileRef, first: u32, out: [][3]f32, failure: *err.Failure) err.Error!void {
             const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .nav_mesh_tile_verts, error.InvalidArgument);
             const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .nav_mesh_tile_verts, error.InvalidArgument);
-            const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+            const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
             try err.check(failure, .nav_mesh_tile_verts, c.zrcNavMeshTileVerts(self.handle, ref, first_i, count, ptr));
         }
 
@@ -399,7 +399,7 @@ fn NavMeshOf(comptime access: c.Access) type {
         pub fn tileDetailVerts(self: Self, ref: TileRef, first: u32, out: [][3]f32, failure: *err.Failure) err.Error!void {
             const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .nav_mesh_tile_detail_verts, error.InvalidArgument);
             const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .nav_mesh_tile_detail_verts, error.InvalidArgument);
-            const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+            const ptr: ?[*]f32 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
             try err.check(failure, .nav_mesh_tile_detail_verts, c.zrcNavMeshTileDetailVerts(self.handle, ref, first_i, count, ptr));
         }
 
@@ -413,7 +413,7 @@ fn NavMeshOf(comptime access: c.Access) type {
         pub fn tileDetailTris(self: Self, ref: TileRef, first: u32, out: [][4]u8, failure: *err.Failure) err.Error!void {
             const first_i = aegis.int.cast(i32, first) catch return err.refuse(failure, .nav_mesh_tile_detail_tris, error.InvalidArgument);
             const count = aegis.int.cast(i32, out.len) catch return err.refuse(failure, .nav_mesh_tile_detail_tris, error.InvalidArgument);
-            const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // safe: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
+            const ptr: ?[*]u8 = if (out.len == 0) null else @ptrCast(out.ptr); // aegis: no-danger: each element of the slice is an array of the pointee type, so the slice is one contiguous run of them
             try err.check(failure, .nav_mesh_tile_detail_tris, c.zrcNavMeshTileDetailTris(self.handle, ref, first_i, count, ptr));
         }
 
@@ -470,7 +470,7 @@ fn NavMeshOf(comptime access: c.Access) type {
             var data: ?*anyopaque = null;
             var size: usize = 0;
             try err.check(failure, .nav_mesh_serialize, c.zrcNavMeshSerialize(self.handle, &data, &size));
-            const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .nav_mesh_serialize, error.EmptyResult)); // safe: the C boundary allocates the image as bytes, through the allocator seam
+            const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .nav_mesh_serialize, error.EmptyResult)); // aegis: no-danger: the C boundary allocates the image as bytes, through the allocator seam
             return .{ .bytes = ptr[0..size] };
         }
 
@@ -542,7 +542,7 @@ pub fn buildTileData(
         &data,
         &size,
     ));
-    const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .tile_data_build, error.EmptyResult)); // safe: the C boundary allocates the image as bytes, through the allocator seam
+    const ptr: [*]u8 = @ptrCast(data orelse return err.refuse(failure, .tile_data_build, error.EmptyResult)); // aegis: no-danger: the C boundary allocates the image as bytes, through the allocator seam
     return .{ .bytes = ptr[0..size] };
 }
 
@@ -656,7 +656,7 @@ pub fn swapImageEndian(image: Image, from_native: bool, failure: *err.Failure) e
         &data,
         &size,
     ));
-    const raw: [*]u8 = @ptrCast(data.?); // safe: the C boundary allocates the image as bytes, through the allocator seam
+    const raw: [*]u8 = @ptrCast(data.?); // aegis: no-danger: the C boundary allocates the image as bytes, through the allocator seam
     return .{ .bytes = raw[0..size] };
 }
 
